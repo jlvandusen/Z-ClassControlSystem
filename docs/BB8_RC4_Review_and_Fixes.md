@@ -6,6 +6,8 @@ passes (control theory, servo motion, comms/timing, correctness, architecture), 
 finding adversarially re-verified against the source. **112 findings, 110 confirmed.**
 All RC4 firmware compiles clean; RC3 baselines also compile for rollback.
 
+https://claude.ai/code/artifact/1fe553a7-4927-45ac-b8a6-afeef096a512
+
 ---
 
 ## 1. System architecture (as-built)
