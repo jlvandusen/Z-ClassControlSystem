@@ -1,0 +1,47 @@
+{
+  "arduinoCli": "arduino-cli",
+  "sketchRoot": "C:\\Users\\james\\BB8\\firmware",
+  "buildRoot": "C:\\Users\\james\\BB8\\build",
+  "targets": [
+    {
+      "name": "drive",
+      "description": "ESP32 HUZZAH32 drive master (Bluepad32, PID balance, S2S, flywheel)",
+      "sketch": "ESP32_DRIVE_RC4",
+      "fqbn": "esp32-bluepad32:esp32:featheresp32",
+      "baud": 115200,
+      "usbVid": "10C4",
+      "usbPid": "EA60",
+      "bannerMatch": "BB-8 Drive System Starting"
+    },
+    {
+      "name": "dome",
+      "description": "ESP32 HUZZAH32 dome remote (ESP-NOW, NeoPixels)",
+      "sketch": "ESP32_DOME_RC4",
+      "fqbn": "esp32-bluepad32:esp32:featheresp32",
+      "baud": 115200,
+      "usbVid": "10C4",
+      "usbPid": "EA60",
+      "bannerMatch": "Dome ESP32 Boot"
+    },
+    {
+      "name": "body",
+      "description": "Feather 32u4 body node (dome tilt servos, dome spin, DFPlayer)",
+      "sketch": "32U4_DRIVE_RC4",
+      "fqbn": "adafruit:avr:feather32u4",
+      "baud": 115200,
+      "usbVid": "239A",
+      "usbPid": "800C",
+      "bannerMatch": "RC4 DRIVE"
+    },
+    {
+      "name": "imu",
+      "description": "Trinket M0 IMU node (MPU6050 + Kalman)",
+      "sketch": "TrinketM0_MPU_RC4",
+      "fqbn": "adafruit:samd:adafruit_trinket_m0",
+      "baud": 115200,
+      "usbVid": "239A",
+      "usbPid": "801E",
+      "bannerMatch": "Trinket M0 IMU Node"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+# build outputs
+build/
+bin/
+tools/**/bin/
+tools/**/obj/
+
+# logs / captures
+*.csv
+*.log
+
+# OS noise
+Thumbs.db
+.DS_Store
