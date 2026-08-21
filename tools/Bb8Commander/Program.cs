@@ -122,7 +122,7 @@ void PrintHelp()
                                   (help / telemetry on / pid show / debug s2s ...)
           - Up / Down             command history
           - Tab                   switch active board (when monitoring several)
-          - Ctrl+C  or  Esc       exit
+          - q + Enter, Esc, or Ctrl+C   exit
           - telemetry lines render in the live status bar instead of scrolling
             (--show-tlm scrolls them too; --log always captures everything)
           - --raw = plain line streaming, no UI (for piping/CI)
@@ -916,7 +916,7 @@ class MonitorSession(List<Channel> channels, StreamWriter? log, bool raw, bool s
         SetupScreen();
 
         Emit($"{DIM}bb8 monitor — {string.Join(", ", channels.Select(c => $"{c.Color}{c.Label}{DIM}@{c.PortName}"))}{RESET}");
-        Emit($"{DIM}type + Enter to send · Up/Down history · Tab switch board · Esc or Ctrl+C exit{RESET}");
+        Emit($"{DIM}type + Enter to send · Up/Down history · Tab switch board · q+Enter / Esc / Ctrl+C exit{RESET}");
         foreach (var ch in channels.Where(c => c.Port is null))
             Emit($"{RED}[{ch.Label}] could not open {ch.PortName} — retrying in background{RESET}");
 
@@ -1046,6 +1046,12 @@ class MonitorSession(List<Channel> channels, StreamWriter? log, bool raw, bool s
                     var cmd = _input.ToString();
                     _input.Clear();
                     _histIdx = -1;
+                    var low = cmd.Trim().ToLowerInvariant();
+                    if (low is "q" or "quit" or "exit")
+                    {
+                        _quit = true;
+                        break;
+                    }
                     if (cmd.Length > 0)
                     {
                         if (_history.Count == 0 || _history[^1] != cmd) _history.Add(cmd);
