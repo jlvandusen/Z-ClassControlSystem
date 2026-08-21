@@ -55,7 +55,7 @@ flowchart LR
     ESP -- "UART 921600\n(SerialTransfer)" --- RP
   end
   subgraph IMU["IMU v10"]
-    ICM["ICM-42688-P\n(SPI, 1 kHz)"]
+    ICM["BMI160 (GY-BMI160)\nSPI, 800 Hz · upgrade: ICM-42688"]
   end
   subgraph DOME["DOME v10"]
     DESP["ESP-WROOM-32 DevKit (socketed)\nESP-NOW · 5× NeoPixel from VBAT\nreed/motion wake · fuel gauge · sensors"]
