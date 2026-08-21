@@ -87,6 +87,36 @@ bb8 monitor drive --log tune1.csv
 
 Tuning procedure + starting gains: [`docs/BB8_RC4_Review_and_Fixes.md`](docs/BB8_RC4_Review_and_Fixes.md) §5.
 
+### Rig experiments — let the droid tune itself (roller cradle)
+
+With the ball on the roller cradle (free to pitch/roll in place), the firmware
+can measure its own physics. In the monitor, with drive enabled:
+
+```
+> telemetry fast              # 100 Hz capture for clean data
+> autotune drive              # relay autotune: a small controlled rock,
+                              #   measures Ku/Tu, prints suggested Kp/Ki/Kd
+> autotune apply              # take the suggestion (then 'pid save')
+> autotune s2s                # same for the roll/S2S loop
+> step drive 80 2000          # open-loop step for system ID captures
+> step s2s 200 2000
+```
+
+Safety: experiments require drive enabled, abort on |angle| > 15°, joystick
+grab, mode change, or 25 s timeout. If the relay oscillation runs away instead
+of settling, your plant sign is inverted — rerun with a negative amplitude
+(`autotune drive -60`).
+
+Then analyze any logged session offline:
+
+```
+bb8 analyze tune1.csv
+```
+
+Reports per-axis bias/noise/oscillation frequency, PWM saturation, S2S
+tracking error, and concrete gain prescriptions. For a deeper read, hand the
+CSV to Claude in this workspace.
+
 ## Layout
 
 ```

@@ -22,6 +22,14 @@ extern bool savePidOnly();
 extern bool debugAll, debugMPU, debug32u4, debugDome, debugControllersFlag, debugS2S, debugDrive;
 extern bool debugSound, debugFlywheel, debugTo32u4, debugFrom32u4;
 extern bool telemetryEnabled;
+extern bool telemetryFast;
+extern bool driveEnabled;
+
+// Rig experiments (TuneExperiments.h — included before this header)
+extern void startStepExperiment(bool driveAxis, float amp, unsigned long durMs);
+extern void startRelayExperiment(bool driveAxis, float amp);
+extern void abortExperiment(const char* why);
+extern void applyPendingTune();
 
 // Tunables
 extern float s2sMaxDegrees;
@@ -45,6 +53,13 @@ inline void printHelpMenu() {
   Serial.println(F("\n=== Available Commands (RC4) ==="));
   Serial.println(F("help or commands      - Show this help menu"));
   Serial.println(F("telemetry on|off      - 20Hz telemetry stream (Serial-Plotter friendly)"));
+  Serial.println(F("telemetry fast        - 100Hz stream for rig captures / system ID"));
+  Serial.println(F("step drive <pwm> <ms> - constant drive PWM step (rig only)"));
+  Serial.println(F("step s2s <cnt> <ms>   - S2S target step in pot counts (rig only)"));
+  Serial.println(F("autotune drive [amp]  - relay autotune pitch loop (default 60 PWM)"));
+  Serial.println(F("autotune s2s [amp]    - relay autotune roll loop (default 150 counts)"));
+  Serial.println(F("autotune apply        - apply suggested gains (then 'pid save')"));
+  Serial.println(F("autotune abort        - stop any running experiment"));
   Serial.println(F("bt forget             - Forget Bluetooth keys (re-pair controllers)"));
   Serial.println(F("debug                 - Toggle ALL debug"));
   Serial.println(F("debug mpu             - Toggle MPU debug"));
@@ -86,11 +101,54 @@ inline void handleSerialCommand(const String &cmd) {
     printControllersSummary();
   } else if (cmd == "telemetry on") {
     telemetryEnabled = true;
-    Serial.println(F("[TLM] Telemetry ON"));
+    telemetryFast = false;
+    Serial.println(F("[TLM] Telemetry ON (20 Hz)"));
+  } else if (cmd == "telemetry fast") {
+    telemetryEnabled = true;
+    telemetryFast = true;
+    Serial.println(F("[TLM] Telemetry FAST (100 Hz) — best with other debug off"));
   } else if (cmd == "telemetry off") {
     telemetryEnabled = false;
+    telemetryFast = false;
     Serial.println(F("[TLM] Telemetry OFF"));
-  } else if (cmd == "bt forget") {
+  }
+
+  // ---- rig experiments (roller cradle) ----
+  else if (cmd.startsWith("step drive") || cmd.startsWith("step s2s")) {
+    bool driveAxis = cmd.startsWith("step drive");
+    String rest = cmd.substring(driveAxis ? 10 : 8);
+    rest.trim();
+    int sp = rest.indexOf(' ');
+    float amp = rest.toFloat();
+    long dur = (sp > 0) ? rest.substring(sp + 1).toInt() : 2000;
+    if (!driveEnabled) {
+      Serial.println(F("[EXP] Enable drive first (PS button) — rig experiments need it."));
+    } else if (amp == 0 || fabsf(amp) > (driveAxis ? 255 : 600) || dur < 100 || dur > 10000) {
+      Serial.println(driveAxis ? F("[EXP] Usage: step drive <pwm -255..255> <ms 100..10000>")
+                               : F("[EXP] Usage: step s2s <counts -600..600> <ms 100..10000>"));
+    } else {
+      startStepExperiment(driveAxis, amp, (unsigned long)dur);
+    }
+  } else if (cmd.startsWith("autotune drive") || cmd.startsWith("autotune s2s")) {
+    bool driveAxis = cmd.startsWith("autotune drive");
+    String rest = cmd.substring(driveAxis ? 14 : 12);
+    rest.trim();
+    float amp = rest.length() ? rest.toFloat() : (driveAxis ? 60.0f : 150.0f);
+    if (!driveEnabled) {
+      Serial.println(F("[EXP] Enable drive first (PS button) — rig experiments need it."));
+    } else if (amp == 0 || fabsf(amp) > (driveAxis ? 150 : 500)) {
+      Serial.println(driveAxis ? F("[EXP] Usage: autotune drive [amp -150..150 PWM]")
+                               : F("[EXP] Usage: autotune s2s [amp -500..500 counts]"));
+    } else {
+      startRelayExperiment(driveAxis, amp);
+    }
+  } else if (cmd == "autotune apply") {
+    applyPendingTune();
+  } else if (cmd == "autotune abort") {
+    abortExperiment("user request");
+  }
+
+  else if (cmd == "bt forget") {
     BP32.forgetBluetoothKeys();
     Serial.println(F("[BT] Bluetooth keys forgotten — re-pair controllers"));
   } else if (cmd == "debug sound") {

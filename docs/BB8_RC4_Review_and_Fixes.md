@@ -273,3 +273,34 @@ RC3 folders are untouched and still compile. To go back:
 edit `targets.json` sketches to `*_RC3` → `bb8 upload <target>`.
 (RC4's config migration bumped cfgVersion; RC3 will see a size-matched config and
 use it as-is — your offsets survive both directions.)
+
+---
+
+## 9. Rig-assisted tuning ("learning" from the cradle) — added 2026-08-20
+
+The roller cradle turns tuning from guesswork into measurement. Three layers:
+
+**1. On-board relay autotune** (`autotune drive` / `autotune s2s` in the drive
+serial console, drive enabled, ball on the rollers). The firmware applies a
+small relay excitation (Åström–Hägglund), measures the resulting limit-cycle
+period Tu and amplitude a, computes Ku = 4·amp/(π·a), and prints
+Ziegler–Nichols gains (Kp=0.6Ku, Ki=1.2Ku/Tu, Kd=0.075·Ku·Tu).
+`autotune apply` + `pid save` takes them. Runaway oscillation = inverted plant
+sign for your wiring → rerun with negative amplitude. Guard rails: |angle|>15°,
+joystick grab, mode change, 25 s timeout all abort.
+
+**2. `bb8 analyze <csv>`** on any `--log` capture: per-axis bias/noise/dominant
+oscillation frequency, PWM saturation %, S2S tracking error, loop-rate health —
+with concrete prescriptions (lower Kp / raise Kd / raise innerkp / check signs).
+
+**3. Claude on the raw CSV** for anything the heuristics miss (filter lag,
+axis-sign verification, asymmetries).
+
+**Recommended first cradle session** (`telemetry fast` + `--log`):
+1. Hold level & still 10 s → bias/noise baseline (`bb8 analyze` reports it)
+2. Tilt forward ~10° by hand, hold 3 s, return; same to the right →
+   verifies pitch/roll signs and filter lag
+3. Rock rhythmically ~1 Hz for 10 s → confirms gyro pairing (angles should
+   track the motion, not lag/overshoot wildly)
+4. `autotune drive`, then `autotune s2s` → apply, save
+5. Confirm with the §5 procedure; fine-tune by feel

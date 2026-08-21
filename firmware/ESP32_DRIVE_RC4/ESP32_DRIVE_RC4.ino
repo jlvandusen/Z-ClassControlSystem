@@ -181,6 +181,7 @@ bool debugFlywheel = false;
 bool debugTo32u4 = false;
 bool debugFrom32u4 = false;
 bool telemetryEnabled = false;
+bool telemetryFast = false;   // RC4: 100 Hz stream for rig/system-ID captures
 
 bool imuHasSample = false;
 
@@ -340,7 +341,8 @@ void applyFlywheelPWM(int pwm) {
   gFlywheelDirFwd = (pwm < 0);
 }
 
-// ------------------- Serial Commands -------------------
+// ------------------- Rig experiments + Serial Commands -------------------
+#include "TuneExperiments.h"
 #include "SerialCommands.h"
 
 // ------------------- Calibration -------------------
@@ -617,6 +619,7 @@ void runControl(float dt) {
 
   // Special modes (same precedence as RC3)
   if (domeController.L1.held) {
+    abortExperiment("flywheel mode engaged");
     brakeDrive();
     brakeS2S();
     applyFlywheelPWM(map(driveController.joyX, -127, 127, 255, -255));
@@ -625,6 +628,7 @@ void runControl(float dt) {
   }
 
   if (driveController.L1.held) {
+    abortExperiment("dome-spin mode engaged");
     brakeDrive();
     brakeS2S();
     brakeFlywheel();
@@ -634,6 +638,7 @@ void runControl(float dt) {
   sendTo32u4.DomeSpin = 0;
 
   if (!driveEnabled) {
+    abortExperiment("drive disabled");
     brakeDrive();
     brakeS2S();
     brakeFlywheel();
@@ -646,6 +651,18 @@ void runControl(float dt) {
   // Corrected angles — NO deadzone in the control path (RC4 fix #5)
   float pitch = mpudata.pitch + cfg.pitchOffset;
   float roll  = mpudata.roll + cfg.rollOffset;
+
+  // RC4: rig experiments (step / relay autotune) own the motors while active.
+  // Grabbing a stick aborts back to normal control.
+  if (experimentActive()) {
+    if (abs(driveController.joyX) > 40 || abs(driveController.joyY) > 40) {
+      abortExperiment("joystick grab");
+    } else if (serviceExperiment(pitch, roll, potFiltered, (float)cfg.potCenter,
+                                 s2sInnerKp, S2S_POS_DEADBAND, S2S_STICTION_PWM)) {
+      brakeFlywheel();
+      return;
+    }
+  }
 
   // ---------- DRIVE (pitch axis) ----------
   // Joystick: expo + L2 throttle scale + slew limit
@@ -1171,13 +1188,17 @@ void printDebugInfo() {
   }
 }
 
-// RC4 fix #12: 20 Hz plotter/tool-friendly telemetry
+// RC4 fix #12: plotter/tool-friendly telemetry — 20 Hz, or 100 Hz in
+// 'telemetry fast' mode for rig captures / system ID. t = millis for a
+// proper time base offline; exp = active experiment mode (0 = none).
 void serviceTelemetry() {
   if (!telemetryEnabled) return;
   static unsigned long lastTlm = 0;
-  if (millis() - lastTlm < 50) return;
+  unsigned long interval = telemetryFast ? 10 : 50;
+  if (millis() - lastTlm < interval) return;
   lastTlm = millis();
 
+  Serial.printf("t:%lu,exp:%d,", (unsigned long)millis(), (int)exper.mode);
   Serial.printf("pitch:%.2f,roll:%.2f,pot:%d,tgt:%d,drv:%d,s2s:%d,fly:%d,en:%d,bal:%d,jx:%d,jy:%d,hz:%u\n",
                 mpudata.pitch + cfg.pitchOffset,
                 mpudata.roll + cfg.rollOffset,

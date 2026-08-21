@@ -46,6 +46,7 @@ try
             return await CmdMonitor(PositionalArgs(1), port);
         }
         case "monitor":  return await CmdMonitor(PositionalArgs(1), Opt("--port"));
+        case "analyze":  return CmdAnalyze(Arg(1));
         case "identify": return await CmdIdentify();
         case "help": case "-h": case "--help": PrintHelp(); return 0;
         default:
@@ -109,6 +110,7 @@ void PrintHelp()
           bb8 upload <target> [--port COMx]       compile + flash
           bb8 deploy <target> [--port COMx]       build + upload + monitor
           bb8 monitor <targets...|COMx> [--baud n] [--log file.csv] [--raw] [--show-tlm]
+          bb8 analyze <file.csv>                  tuning analysis of a logged session
           bb8 identify                            probe ports, read boot banners
 
         Monitor (full-screen):
@@ -357,6 +359,124 @@ async Task<int> CmdMonitor(List<string> names, string? portOpt)
     log?.Dispose();
     foreach (var ch in channels) ch.Close();
     return rc2;
+}
+
+// ------------------------------------------------------------------
+//  ANALYZE — tuning analysis of a logged monitor session
+// ------------------------------------------------------------------
+int CmdAnalyze(string? file)
+{
+    if (file is null || !File.Exists(file)) { Fail("analyze: give a CSV logged with 'bb8 monitor ... --log file.csv'."); return 1; }
+
+    var samples = new List<Dictionary<string, double>>();
+    var events = new List<string>();
+    foreach (var rawLine in File.ReadLines(file).Skip(1))
+    {
+        // format: HH:mm:ss.fff,board,line  (line may be CSV-quoted)
+        var c1 = rawLine.IndexOf(',');
+        if (c1 < 0) continue;
+        var c2 = rawLine.IndexOf(',', c1 + 1);
+        if (c2 < 0) continue;
+        var line = rawLine[(c2 + 1)..];
+        if (line.StartsWith('"') && line.EndsWith('"'))
+            line = line[1..^1].Replace("\"\"", "\"");
+
+        if (line.Contains("[EXP]")) { events.Add($"{rawLine[..c1]}  {line.Trim()}"); continue; }
+        if (!line.Contains("pitch:") || !line.Contains("roll:")) continue;
+
+        var d = new Dictionary<string, double>();
+        foreach (var kv in line.Split(','))
+        {
+            var i = kv.IndexOf(':');
+            if (i <= 0) continue;
+            if (double.TryParse(kv[(i + 1)..], System.Globalization.CultureInfo.InvariantCulture, out var v))
+                d[kv[..i].Trim()] = v;
+        }
+        if (d.ContainsKey("pitch") && d.ContainsKey("roll")) samples.Add(d);
+    }
+
+    if (samples.Count < 20) { Fail($"analyze: only {samples.Count} telemetry rows found — run 'telemetry on' (or 'telemetry fast') while logging."); return 1; }
+
+    double durS;
+    if (samples[0].ContainsKey("t") && samples[^1].ContainsKey("t"))
+        durS = (samples[^1]["t"] - samples[0]["t"]) / 1000.0;
+    else durS = samples.Count / 20.0;
+    double rate = samples.Count / Math.Max(0.001, durS);
+
+    Console.WriteLine($"[36m=== bb8 analyze — {Path.GetFileName(file)} ===[0m");
+    Console.WriteLine($"samples: {samples.Count}   duration: {durS:F1}s   effective rate: {rate:F1} Hz");
+
+    var report = new List<string>();
+
+    void Axis(string name, string pwmKey)
+    {
+        var x = samples.Where(s => s.ContainsKey(name)).Select(s => s[name]).ToArray();
+        if (x.Length < 20) return;
+        double mean = x.Average();
+        double sd = Math.Sqrt(x.Select(v => (v - mean) * (v - mean)).Average());
+        double min = x.Min(), max = x.Max();
+
+        // dominant oscillation via hysteresis zero-crossings of (x - mean)
+        double hyst = Math.Max(0.15, 0.5 * sd);
+        int crossings = 0; int sign = 0;
+        foreach (var v in x)
+        {
+            var e = v - mean;
+            if (sign >= 0 && e < -hyst) { if (sign > 0) crossings++; sign = -1; }
+            else if (sign <= 0 && e > hyst) { if (sign < 0) crossings++; sign = 1; }
+            else if (sign == 0 && Math.Abs(e) > hyst) sign = Math.Sign(e);
+        }
+        double freq = crossings / 2.0 / Math.Max(0.001, durS);
+
+        double satPct = 0, meanAbsPwm = 0;
+        var pwm = samples.Where(s => s.ContainsKey(pwmKey)).Select(s => s[pwmKey]).ToArray();
+        if (pwm.Length > 0)
+        {
+            satPct = 100.0 * pwm.Count(v => Math.Abs(v) >= 250) / pwm.Length;
+            meanAbsPwm = pwm.Select(Math.Abs).Average();
+        }
+
+        Console.WriteLine($"\n[33m{name}[0m  mean {mean,7:F2}   sigma {sd,6:F2}   range [{min:F2} .. {max:F2}]");
+        Console.WriteLine($"       oscillation ~{freq:F2} Hz ({crossings} crossings)   {pwmKey}: mean|PWM| {meanAbsPwm:F0}, saturated {satPct:F0}%");
+
+        bool activelyDriven = meanAbsPwm > 15;
+        if (!activelyDriven && sd < 0.3)
+            report.Add($"{name}: static capture — bias {mean:F2} deg, noise sigma {sd:F2} deg. Good baseline; if |bias| > 1 deg re-run level calibration.");
+        if (activelyDriven && sd > 1.5 && freq is > 0.3 and < 6)
+            report.Add($"{name}: sustained ~{freq:F1} Hz oscillation (amplitude ~{sd * 1.41:F1} deg) while driven -> lower that loop's Kp ~30% or raise Kd ~50%.");
+        if (satPct > 30)
+            report.Add($"{pwmKey}: saturated {satPct:F0}% of the time -> gains (or experiment amplitude) too high; the loop can't act linearly.");
+        if (activelyDriven && sd > 4)
+            report.Add($"{name}: very large swings ({sd:F1} deg sigma) -> check the sign conventions first (S2S_BALANCE_INVERT / GYRO_*_SIGN) before touching gains.");
+    }
+
+    Axis("pitch", "drv");
+    Axis("roll", "s2s");
+
+    // pot tracking quality
+    var track = samples.Where(s => s.ContainsKey("pot") && s.ContainsKey("tgt")).Select(s => Math.Abs(s["tgt"] - s["pot"])).ToArray();
+    if (track.Length > 20)
+    {
+        double meanErr = track.Average(), p95 = track.OrderBy(v => v).ElementAt((int)(track.Length * 0.95));
+        Console.WriteLine($"\n[33mS2S position[0m  mean |tgt-pot| {meanErr:F0} counts   p95 {p95:F0} counts");
+        if (meanErr > 40) report.Add($"S2S inner loop: mean position error {meanErr:F0} counts -> raise 'pref innerkp' by 0.1-0.2, or the mechanism is binding.");
+    }
+
+    var hz = samples.Where(s => s.ContainsKey("hz")).Select(s => s["hz"]).ToArray();
+    if (hz.Length > 0 && hz.Average() < 400)
+        report.Add($"loop rate averaged {hz.Average():F0} Hz (healthy is 500+) -> something is stalling the ESP32 loop; turn off extra debug flags.");
+
+    if (events.Count > 0)
+    {
+        Console.WriteLine($"\n[36mExperiments in this capture:[0m");
+        foreach (var e in events.Take(20)) Console.WriteLine($"  {e}");
+    }
+
+    Console.WriteLine($"\n[36mAssessment:[0m");
+    if (report.Count == 0) Console.WriteLine("  Nothing alarming — angles quiet, no sustained oscillation, no saturation.");
+    foreach (var r in report) Console.WriteLine($"  [33m-[0m {r}");
+    Console.WriteLine("\nDeeper dive: hand this CSV to Claude in the BB8 workspace — it reads the physics out of it.");
+    return 0;
 }
 
 (int rc, string stdout, string stderr) Run(string file, string arguments, bool capture)
