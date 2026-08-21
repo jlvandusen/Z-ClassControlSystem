@@ -363,13 +363,18 @@ void applyFlywheelPWM(int pwm) {
 #include "SerialCommands.h"
 
 // ------------------- Calibration -------------------
+// RC4.1: per-axis calibration. mask bits: 1=pitch zero (drive axis),
+// 2=roll zero, 4=pot center. 'cfg calibrate' = all three;
+// 'cfg calibrate drive' = pitch only; 'cfg calibrate s2s' = roll+pot.
 bool s2sCalibrating = false;
 unsigned long s2sCalStartMs = 0;
 uint32_t s2sCalSamples = 0;
 uint64_t s2sCalSumPot = 0;
 double s2sCalSumPitch = 0.0, s2sCalSumRoll = 0.0;
+uint8_t calMask = 0x7;
 
-void beginS2SCenterCalibration() {
+void beginCalibration(uint8_t mask) {
+  calMask = mask;
   s2sCalibrating = true;
   s2sCalStartMs = millis();
   s2sCalSamples = 0;
@@ -378,8 +383,14 @@ void beginS2SCenterCalibration() {
   s2sCalSumRoll = 0.0;
   brakeDrive();
   brakeS2S();
-  Serial.println(F("[CAL] Started calibration"));
+  Serial.printf("[CAL] Calibrating%s%s%s — 3 s, keep the droid level and still\n",
+                (mask & 1) ? " pitch-zero" : "",
+                (mask & 2) ? " roll-zero" : "",
+                (mask & 4) ? " pot-center" : "");
 }
+
+// legacy name (docs/operator card)
+void beginS2SCenterCalibration() { beginCalibration(0x7); }
 
 void finishS2SCalibration() {
   s2sCalibrating = false;
@@ -387,12 +398,15 @@ void finishS2SCalibration() {
     int32_t avgPot = (int32_t)(s2sCalSumPot / s2sCalSamples);
     double avgPitch = s2sCalSumPitch / s2sCalSamples;
     double avgRoll = s2sCalSumRoll / s2sCalSamples;
-    cfg.potCenter = avgPot;
-    cfg.pitchOffset = (float)(-avgPitch);
-    cfg.rollOffset = (float)(-avgRoll);
+    if (calMask & 1) cfg.pitchOffset = (float)(-avgPitch);
+    if (calMask & 2) cfg.rollOffset = (float)(-avgRoll);
+    if (calMask & 4) cfg.potCenter = avgPot;
     saveConfig();
-    Serial.printf("[CAL] Done. potCenter=%ld pitchOffset=%.3f rollOffset=%.3f\n",
-                  (long)avgPot, cfg.pitchOffset, cfg.rollOffset);
+    Serial.printf("[CAL] Done (saved). pitchOffset=%.3f%s rollOffset=%.3f%s potCenter=%ld%s (samples=%lu)\n",
+                  cfg.pitchOffset, (calMask & 1) ? "*" : "",
+                  cfg.rollOffset, (calMask & 2) ? "*" : "",
+                  (long)cfg.potCenter, (calMask & 4) ? "*" : "",
+                  (unsigned long)s2sCalSamples);
   }
 }
 

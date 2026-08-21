@@ -16,6 +16,7 @@ extern bool saveConfig();
 extern bool loadConfig();
 extern void resetConfigToDefaults();
 extern void beginS2SCenterCalibration();
+extern void beginCalibration(uint8_t mask);
 extern void printControllersSummary();
 extern bool savePidOnly();
 
@@ -86,7 +87,9 @@ inline void printHelpMenu() {
   Serial.println(F("cfg set rolloffset <float>"));
   Serial.println(F("cfg set potcenter <int>"));
   Serial.println(F("cfg set mpudeadzone <float>   (RC4: display deadzone only, NOT in the PID path)"));
-  Serial.println(F("cfg calibrate s2scenter - Start 3s calibration"));
+  Serial.println(F("cfg calibrate         - 3s level cal: pitch + roll zeros + pot center"));
+  Serial.println(F("cfg calibrate drive   - pitch zero only"));
+  Serial.println(F("cfg calibrate s2s     - roll zero + pot center only"));
   Serial.println(F("pref swing <float>    - Set S2S swing limit in deg (default 70)"));
   Serial.println(F("pref lean <float>     - Max joystick drive authority in PWM (default 255)"));
   Serial.println(F("pref innerkp <float>  - S2S position-loop Kp in PWM/count (default 0.9)"));
@@ -235,8 +238,12 @@ inline void handleSerialCommand(const String &cmd) {
     } else {
       Serial.println(F("[PREF] Invalid value. Must be 0-5."));
     }
-  } else if (cmd == "cfg calibrate s2scenter") {
-    beginS2SCenterCalibration();
+  } else if (cmd == "cfg calibrate" || cmd == "cfg calibrate all" || cmd == "cfg calibrate s2scenter") {
+    beginCalibration(0x7);      // pitch + roll + pot center
+  } else if (cmd == "cfg calibrate drive") {
+    beginCalibration(0x1);      // pitch zero only
+  } else if (cmd == "cfg calibrate s2s") {
+    beginCalibration(0x6);      // roll zero + pot center
   } else if (cmd == "debug") {
     debugAll = !debugAll;
     Serial.println(debugAll ? F("ALL debug ENABLED") : F("ALL debug DISABLED"));
