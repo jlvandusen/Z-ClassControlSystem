@@ -66,6 +66,9 @@ inline void printHelpMenu() {
   Serial.println(F("autotune apply        - apply suggested gains (then 'pid save')"));
   Serial.println(F("autotune abort        - stop any running experiment"));
   Serial.println(F("bt mac                - Show host BT MAC (PS3/Nav pads pair to this; see 'bb8 pair')"));
+  Serial.println(F("bt list               - Connected pads: slot, MAC, model + preferred assignment"));
+  Serial.println(F("bt prefer drive|dome <MAC|slot0|slot1|none> - Set primary/secondary pad (saved in NVS)"));
+  Serial.println(F("bt prefer show        - Show preferred pad assignment"));
   Serial.println(F("bt forget             - Forget Bluetooth keys (re-pair controllers)"));
   Serial.println(F("debug                 - Toggle ALL debug"));
   Serial.println(F("debug mpu             - Toggle MPU debug"));
@@ -160,7 +163,15 @@ inline void handleSerialCommand(const String &cmd) {
     abortExperiment("user request");
   }
 
-  else if (cmd == "bt mac") {
+  else if (cmd == "bt list") {
+    btList();
+  } else if (cmd == "bt prefer show") {
+    btPreferShow();
+  } else if (cmd.startsWith("bt prefer drive")) {
+    btPrefer(true, cmd.substring(15));
+  } else if (cmd.startsWith("bt prefer dome")) {
+    btPrefer(false, cmd.substring(14));
+  } else if (cmd == "bt mac") {
     // RC4.2: the address PS3/Nav pads must have written as their master
     // ('bb8 pair' reads this line)
     uint8_t m[6];

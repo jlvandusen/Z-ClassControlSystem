@@ -120,6 +120,13 @@ static const int32_t DEFAULT_JOY_DEADZONE = 5;
 static const uint8_t DEFAULT_PREF_DRIVE_MAC[6] = { 0x00, 0x06, 0xF5, 0x64, 0x60, 0x3E };
 static const uint8_t DEFAULT_PREF_DOME_MAC[6] = { 0, 0, 0, 0, 0, 0 };
 
+// RC4.2: preferred controller MACs are RUNTIME settable ('bt prefer ...',
+// 'bb8 pair') and stored in NVS keys "pdrv"/"pdome" — separate from the
+// config blob so no migration is needed. The defaults above apply when
+// nothing is stored.
+uint8_t prefDriveMac[6];
+uint8_t prefDomeMac[6];
+
 // MAC for ESPNOW (dome WiFi STA MAC)
 uint8_t domeMACAddress[] = { 0xC4, 0x5B, 0xBE, 0x90, 0x6A, 0x24 };
 
@@ -516,6 +523,83 @@ void resetConfigToDefaults() {
 }
 
 // ------------------- Callbacks -------------------
+// ---- RC4.2: preferred-controller persistence + 'bt' console helpers ----
+static void macToStr(const uint8_t* m, char* out) {
+  sprintf(out, "%02X:%02X:%02X:%02X:%02X:%02X", m[0], m[1], m[2], m[3], m[4], m[5]);
+}
+
+static bool parseMacStr(const String& s, uint8_t* out) {
+  unsigned v[6];
+  if (sscanf(s.c_str(), "%x:%x:%x:%x:%x:%x", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) != 6) return false;
+  for (int i = 0; i < 6; i++) out[i] = (uint8_t)v[i];
+  return true;
+}
+
+void loadPrefMacs() {
+  memcpy(prefDriveMac, DEFAULT_PREF_DRIVE_MAC, 6);
+  memcpy(prefDomeMac, DEFAULT_PREF_DOME_MAC, 6);
+  prefs.begin("drivecfg", true);
+  if (prefs.getBytesLength("pdrv") == 6) prefs.getBytes("pdrv", prefDriveMac, 6);
+  if (prefs.getBytesLength("pdome") == 6) prefs.getBytes("pdome", prefDomeMac, 6);
+  prefs.end();
+}
+
+void savePrefMacs() {
+  prefs.begin("drivecfg", false);
+  prefs.putBytes("pdrv", prefDriveMac, 6);
+  prefs.putBytes("pdome", prefDomeMac, 6);
+  prefs.end();
+}
+
+void btPreferShow() {
+  char a[18], b[18];
+  macToStr(prefDriveMac, a);
+  macToStr(prefDomeMac, b);
+  bool dz = memcmp(prefDriveMac, "\0\0\0\0\0\0", 6) == 0;
+  bool mz = memcmp(prefDomeMac, "\0\0\0\0\0\0", 6) == 0;
+  Serial.printf("[BT] preferred DRIVE (primary):   %s\n", dz ? "(none - first pad to connect)" : a);
+  Serial.printf("[BT] preferred DOME  (secondary): %s\n", mz ? "(none)" : b);
+}
+
+// 'bt list' — connected pads with their MACs and current slots
+void btList() {
+  bool any = false;
+  for (int s = 0; s < 2; s++) {
+    GamepadPtr gp = myControllers[s];
+    if (!gp || !gp->isConnected()) continue;
+    any = true;
+    char m[18];
+    macToStr(gp->getProperties().btaddr, m);
+    Serial.printf("[BT] slot%d %-5s MAC=%s  model=%s\n", s, s == 0 ? "DRIVE" : "DOME", m, gp->getModelName().c_str());
+  }
+  if (!any) Serial.println(F("[BT] no controllers connected (press PS on a paired pad)"));
+  btPreferShow();
+}
+
+// 'bt prefer drive|dome <MAC|slot0|slot1|none>'
+void btPrefer(bool driveSlot, String arg) {
+  arg.trim();
+  uint8_t* target = driveSlot ? prefDriveMac : prefDomeMac;
+  uint8_t mac[6] = {0, 0, 0, 0, 0, 0};
+  if (arg == "none" || arg == "clear") {
+    // zeros = unset
+  } else if (arg == "slot0" || arg == "slot1") {
+    int s = (arg == "slot0") ? 0 : 1;
+    if (!myControllers[s] || !myControllers[s]->isConnected()) {
+      Serial.printf("[BT] slot%d has no connected controller\n", s);
+      return;
+    }
+    memcpy(mac, myControllers[s]->getProperties().btaddr, 6);
+  } else if (!parseMacStr(arg, mac)) {
+    Serial.println(F("[BT] usage: bt prefer drive|dome <XX:XX:XX:XX:XX:XX | slot0 | slot1 | none>"));
+    return;
+  }
+  memcpy(target, mac, 6);
+  savePrefMacs();
+  Serial.printf("[BT] saved preferred %s controller\n", driveSlot ? "DRIVE" : "DOME");
+  btPreferShow();
+}
+
 void onConnectedGamepad(GamepadPtr gp) {
   uint8_t mac[6];
   memcpy(mac, gp->getProperties().btaddr, 6);
@@ -523,10 +607,10 @@ void onConnectedGamepad(GamepadPtr gp) {
   Serial.printf("Controller connected: MAC=%02X:%02X:%02X:%02X:%02X:%02X\n",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
-  bool driveMacUnset = memcmp(DEFAULT_PREF_DRIVE_MAC, "\0\0\0\0\0\0", 6) == 0;
-  bool domeMacUnset = memcmp(DEFAULT_PREF_DOME_MAC, "\0\0\0\0\0\0", 6) == 0;
+  bool driveMacUnset = memcmp(prefDriveMac, "\0\0\0\0\0\0", 6) == 0;
+  bool domeMacUnset = memcmp(prefDomeMac, "\0\0\0\0\0\0", 6) == 0;
 
-  if (!driveMacUnset && memcmp(mac, DEFAULT_PREF_DRIVE_MAC, 6) == 0) {
+  if (!driveMacUnset && memcmp(mac, prefDriveMac, 6) == 0) {
     if (myControllers[0] != gp) {
       if (myControllers[0] && myControllers[0] != gp) {
         myControllers[1] = myControllers[0];
@@ -538,7 +622,7 @@ void onConnectedGamepad(GamepadPtr gp) {
     return;
   }
 
-  if (!domeMacUnset && memcmp(mac, DEFAULT_PREF_DOME_MAC, 6) == 0) {
+  if (!domeMacUnset && memcmp(mac, prefDomeMac, 6) == 0) {
     if (myControllers[0] == nullptr) {
       myControllers[0] = gp;
       Serial.println(F("[INFO] Dome controller assigned to DRIVE slot (temporary)"));
@@ -841,6 +925,7 @@ void setup() {
   bootMs = millis();
   showBuildInfoSerial("BOOT");
 
+  loadPrefMacs();           // RC4.2: preferred controller MACs from NVS
   if (loadConfig()) {
     Serial.println(F("[NVS] Config loaded successfully"));
   } else {

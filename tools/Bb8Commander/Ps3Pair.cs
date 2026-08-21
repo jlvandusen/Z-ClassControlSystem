@@ -72,6 +72,20 @@ static class Ps3Pair
         return buf.Skip(2).Take(6).ToArray();
     }
 
+    // The pad's OWN Bluetooth address: feature report 0xF2, BD_ADDR at
+    // offsets 4..9 (same report hid-sony / Bluepad32 use to identify a pad).
+    public static byte[]? ReadOwnMac(Pad pad)
+    {
+        using var h = Open(pad.Path);
+        if (h.IsInvalid) return null;
+        var len = Math.Max(pad.FeatureLen, (ushort)18);
+        var buf = new byte[len];
+        buf[0] = 0xF2;
+        if (!HidD_GetFeature(h, buf, buf.Length)) return null;
+        var mac = buf.Skip(4).Take(6).ToArray();
+        return mac.All(b => b == 0) ? null : mac;
+    }
+
     public static bool WriteMaster(Pad pad, byte[] mac)
     {
         using var h = Open(pad.Path);

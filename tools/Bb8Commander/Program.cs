@@ -116,7 +116,7 @@ void PrintHelp()
           bb8 monitor <targets...|COMx> [--baud n] [--log file.csv] [--raw] [--show-tlm]
           bb8 analyze <file.csv>                  tuning analysis of a logged session
           bb8 tune <s2s|drive|dome> [--nudges N]   LIVE closed-loop tuner (balance PID / dome tilt)
-          bb8 pair [--mac XX:..] [--list]         pair USB-connected PS3/Nav pads to the drive's BT MAC
+          bb8 pair [--list] [--auto] [--mac XX:..] guided PS3/Nav pairing + primary/secondary assignment
           bb8 identify                            probe ports, read boot banners
 
         Monitor (full-screen):
@@ -909,71 +909,177 @@ async Task<int> TuneDome(string? portOpt, int rocksPer, int maxCycles)
 static double ParseD(string s) => double.Parse(s, System.Globalization.CultureInfo.InvariantCulture);
 
 // ------------------------------------------------------------------
-//  PAIR — write the drive's Bluetooth MAC into PS3 / Nav controllers
-//  (replaces SixaxisPairTool; no libusb driver needed)
+//  PAIR — guided wizard: read the drive's Bluetooth MAC, then for every
+//  PS3 / Nav pad plugged into USB: show its own MAC, write the drive as
+//  its master, and store it in the drive as PRIMARY (drive) or
+//  SECONDARY (dome) controller. Replaces SixaxisPairTool + hand-editing
+//  DEFAULT_PREF_*_MAC in the sketch.
+//
+//  bb8 pair                 interactive wizard
+//  bb8 pair --list          pads on USB: own MAC + current master
+//  bb8 pair --mac XX:..     use this drive MAC (no serial needed)
+//  bb8 pair --auto          no prompts: pair all pads now; 1st = drive, 2nd = dome
 // ------------------------------------------------------------------
 async Task<int> CmdPair(string? macOpt, string? portOpt, bool listOnly)
 {
-    var pads = Ps3Pair.FindPads();
-    if (pads.Count == 0)
-    {
-        Fail("No PS3 Sixaxis / DualShock 3 / Navigation controller found on USB. Plug the pad in with a DATA cable (many micro-USB cables are charge-only).");
-        return 1;
-    }
-    Console.WriteLine($"[36m[PAIR] {pads.Count} controller(s) on USB:[0m");
-    foreach (var p in pads)
-    {
-        var cur = Ps3Pair.ReadMaster(p);
-        Console.WriteLine($"  {p.Name} (PID {p.Pid:X4})  current master: {(cur is null ? "unreadable" : Ps3Pair.Fmt(cur))}");
-    }
-    if (listOnly) return 0;
+    bool auto = Flag("--auto") || Console.IsInputRedirected;
 
-    byte[]? mac = macOpt is not null ? Ps3Pair.ParseMac(macOpt) : null;
-    if (macOpt is not null && mac is null) { Fail($"--mac '{macOpt}' is not a MAC (use XX:XX:XX:XX:XX:XX)."); return 1; }
-
-    if (mac is null)
+    if (listOnly)
     {
-        // Read the drive's BT MAC over serial: it prints it at boot
-        // ([BT] Host MAC) and on 'bt mac'.
-        var t = ResolveTarget("drive");
-        var port = portOpt ?? await AutoPort(t);
-        if (port is null) { Fail("Drive not found on USB — plug it in, or pass --mac XX:XX:XX:XX:XX:XX from its boot banner."); return 1; }
-        Console.WriteLine($"[36m[PAIR] reading the drive's Bluetooth MAC from {port}...[0m");
+        var pads0 = Ps3Pair.FindPads();
+        if (pads0.Count == 0) { Fail("No PS3 Sixaxis / DualShock 3 / Navigation controller on USB (use a DATA cable)."); return 1; }
+        foreach (var p in pads0)
+        {
+            var own = Ps3Pair.ReadOwnMac(p); var cur = Ps3Pair.ReadMaster(p);
+            Console.WriteLine($"  {p.Name,-22} pad MAC {(own is null ? "?" : Ps3Pair.Fmt(own)),-18} master {(cur is null ? "?" : Ps3Pair.Fmt(cur))}");
+        }
+        return 0;
+    }
+
+    Console.WriteLine("""
+        [36m=== bb8 pair — controller pairing wizard ===[0m
+        Step 1  read the drive's Bluetooth address
+        Step 2  plug a pad in over USB -> I show its MAC and ask to pair it
+        Step 3  choose PRIMARY (drive) or SECONDARY (dome); the choice is saved in the drive
+        Repeat for each pad. q + Enter finishes.
+        """);
+
+    // ---- Step 1: drive MAC + a live serial session for 'bt prefer' ----
+    byte[]? driveMac = macOpt is not null ? Ps3Pair.ParseMac(macOpt) : null;
+    if (macOpt is not null && driveMac is null) { Fail($"--mac '{macOpt}' is not a MAC (XX:XX:XX:XX:XX:XX)."); return 1; }
+
+    SerialPort? drive = null;
+    var rxBuf = new StringBuilder();
+    string DrainDrive(int ms)
+    {
+        if (drive is null) return "";
+        var sw = Stopwatch.StartNew(); var got = new StringBuilder();
+        while (sw.ElapsedMilliseconds < ms)
+        {
+            try { got.Append(drive.ReadExisting()); } catch (TimeoutException) { }
+            Thread.Sleep(50);
+        }
+        return got.ToString();
+    }
+
+    var t = ResolveTarget("drive");
+    var port = portOpt ?? await AutoPort(t);
+    if (port is not null)
+    {
         try
         {
-            using var sp = new SerialPort(port, t.Baud) { ReadTimeout = 100, NewLine = "\n", DtrEnable = true, RtsEnable = true };
-            sp.Open();                       // resets the ESP32 -> boot banner includes the MAC
-            var sb = new StringBuilder();
-            var sw = Stopwatch.StartNew();
-            long lastAsk = -5000;
-            while (sw.ElapsedMilliseconds < 12000 && mac is null)
+            drive = new SerialPort(port, t.Baud) { ReadTimeout = 100, NewLine = "\n", DtrEnable = true, RtsEnable = true };
+            drive.Open();
+            Console.WriteLine($"[36m[PAIR] drive on {port} — it reboots on connect, reading its Bluetooth MAC...[0m");
+            var sw = Stopwatch.StartNew(); long lastAsk = -9000;
+            while (sw.ElapsedMilliseconds < 14000 && driveMac is null)
             {
-                if (sw.ElapsedMilliseconds - lastAsk > 2500) { try { sp.WriteLine("bt mac"); } catch { } lastAsk = sw.ElapsedMilliseconds; }
-                try { sb.Append(sp.ReadExisting()); } catch (TimeoutException) { }
-                var m = System.Text.RegularExpressions.Regex.Match(sb.ToString(), @"\[BT\] Host MAC: ([0-9A-Fa-f:]{17})");
-                if (m.Success) mac = Ps3Pair.ParseMac(m.Groups[1].Value);
-                await Task.Delay(100);
+                if (sw.ElapsedMilliseconds - lastAsk > 3000) { try { drive.WriteLine("bt mac"); } catch { } lastAsk = sw.ElapsedMilliseconds; }
+                rxBuf.Append(DrainDrive(200));
+                var m = System.Text.RegularExpressions.Regex.Match(rxBuf.ToString(), @"\[BT\] Host MAC: ([0-9A-Fa-f:]{17})");
+                if (m.Success) driveMac = Ps3Pair.ParseMac(m.Groups[1].Value);
             }
         }
-        catch (Exception ex) { Fail($"Could not read from {port}: {ex.Message} (close the monitor?)"); return 1; }
-        if (mac is null) { Fail("Drive never reported its MAC. Is it running RC4.2 ('bt mac')? Fallback: read '[BT] Host MAC' from its boot banner and pass --mac."); return 1; }
+        catch (Exception ex) { Console.WriteLine($"[33m[PAIR] could not use {port}: {ex.Message}[0m"); drive = null; }
+    }
+    if (driveMac is null)
+    {
+        Fail(drive is null
+            ? "Drive not on USB and no --mac given. Plug the drive in (close monitors), or pass --mac from its '[BT] Host MAC' banner."
+            : "Drive never reported its MAC (pre-RC4.2 firmware?). Pass --mac from its boot banner, or reflash the drive.");
+        drive?.Dispose();
+        return 1;
+    }
+    Console.WriteLine($"[32m[PAIR] drive Bluetooth MAC: {Ps3Pair.Fmt(driveMac)}[0m");
+    bool canStore = drive is not null;
+    if (!canStore) Console.WriteLine("[33m[PAIR] (no serial link to the drive — pads will be paired, but primary/secondary can't be stored; do it later with 'bt prefer drive|dome <MAC>')[0m");
+
+    string Ask(string prompt, string def)
+    {
+        if (auto) return def;
+        Console.Write($"[33m{prompt}[0m");
+        var s = Console.ReadLine();
+        return string.IsNullOrWhiteSpace(s) ? def : s.Trim();
     }
 
-    Console.WriteLine($"[36m[PAIR] target master MAC: {Ps3Pair.Fmt(mac)}[0m");
-    int ok = 0;
-    foreach (var p in pads)
+    // ---- Step 2/3: watch for pads ----
+    var seen = new HashSet<string>();
+    int paired = 0, assigned = 0, autoSlot = 0;
+    Console.WriteLine("\n[36m[PAIR] Plug a controller into USB now (DATA cable). q + Enter to finish.[0m");
+    var idle = Stopwatch.StartNew();
+    while (true)
     {
-        if (!Ps3Pair.WriteMaster(p, mac)) { Console.WriteLine($"[31m  {p.Name}: write FAILED (try a different USB port / cable; run the terminal as Administrator if it persists)[0m"); continue; }
-        var back = Ps3Pair.ReadMaster(p);
-        if (back is not null && back.SequenceEqual(mac)) { Console.WriteLine($"[32m  {p.Name}: paired -> {Ps3Pair.Fmt(back)} (verified)[0m"); ok++; }
-        else Console.WriteLine($"[33m  {p.Name}: wrote, but read-back = {(back is null ? "unreadable" : Ps3Pair.Fmt(back))}[0m");
+        if (!auto && Console.KeyAvailable)
+        {
+            var k = Console.ReadKey(intercept: true);
+            if (k.KeyChar is 'q' or 'Q') break;
+        }
+        var pads = Ps3Pair.FindPads().Where(p => !seen.Contains(p.Path)).ToList();
+        if (pads.Count == 0)
+        {
+            if (auto && (seen.Count > 0 || idle.ElapsedMilliseconds > 8000)) break;
+            await Task.Delay(600);
+            continue;
+        }
+        foreach (var p in pads)
+        {
+            seen.Add(p.Path);
+            await Task.Delay(400);   // let the HID stack settle after enumeration
+            var own = Ps3Pair.ReadOwnMac(p);
+            var cur = Ps3Pair.ReadMaster(p);
+            Console.WriteLine($"\n[36m[PAIR] detected: {p.Name}[0m");
+            Console.WriteLine($"       pad MAC:        {(own is null ? "(unreadable)" : Ps3Pair.Fmt(own))}");
+            Console.WriteLine($"       current master: {(cur is null ? "(unreadable)" : Ps3Pair.Fmt(cur))}{(cur is not null && cur.SequenceEqual(driveMac) ? "  (already this drive)" : "")}");
+
+            var yn = Ask($"Pair this pad to the drive ({Ps3Pair.Fmt(driveMac)})? [Y/n] ", "y");
+            if (yn.StartsWith("n", StringComparison.OrdinalIgnoreCase)) { Console.WriteLine("       skipped"); continue; }
+
+            if (!Ps3Pair.WriteMaster(p, driveMac))
+            {
+                Console.WriteLine("[31m       write FAILED — try another USB port/cable, or run as Administrator. (Fallback: SixaxisPairTool with the MAC above)[0m");
+                continue;
+            }
+            var back = Ps3Pair.ReadMaster(p);
+            if (back is not null && back.SequenceEqual(driveMac)) { Console.WriteLine($"[32m       master written and verified: {Ps3Pair.Fmt(back)}[0m"); paired++; }
+            else Console.WriteLine($"[33m       written, but read-back = {(back is null ? "unreadable" : Ps3Pair.Fmt(back))} — try once more[0m");
+
+            if (own is null) { Console.WriteLine("[33m       pad MAC unreadable, so it can't be stored as primary/secondary (use 'bt list' on the drive after it connects, then 'bt prefer drive slot0').[0m"); continue; }
+            if (!canStore) continue;
+
+            string choice = auto ? (autoSlot++ == 0 ? "1" : "2")
+                                 : Ask("Assign as [1] PRIMARY = drive pad   [2] SECONDARY = dome pad   [Enter] skip: ", "");
+            if (choice is "1" or "2")
+            {
+                var which = choice == "1" ? "drive" : "dome";
+                drive!.WriteLine($"bt prefer {which} {Ps3Pair.Fmt(own)}");
+                var reply = DrainDrive(1200);
+                if (reply.Contains("saved preferred"))
+                {
+                    Console.WriteLine($"[32m       stored in drive NVS as {(which == "drive" ? "PRIMARY (drive)" : "SECONDARY (dome)")}[0m");
+                    assigned++;
+                }
+                else Console.WriteLine("[33m       drive did not acknowledge 'bt prefer' — it may run pre-RC4.2 firmware. Reflash, then: bt prefer " + which + " " + Ps3Pair.Fmt(own) + "[0m");
+            }
+            Console.WriteLine("[36m       Unplug this pad. Plug the next one, or q + Enter to finish.[0m");
+        }
     }
-    if (ok > 0)
-        Console.WriteLine("""
-            [32m[PAIR] Done. Unplug the pad(s); with the drive powered, press PS on each pad — it connects to the droid.[0m
-            First pad to connect takes the DRIVE slot unless its MAC matches DEFAULT_PREF_DRIVE_MAC in the sketch.
-            """);
-    return ok > 0 ? 0 : 1;
+
+    // ---- summary ----
+    if (drive is not null)
+    {
+        drive.WriteLine("bt prefer show");
+        var rep = DrainDrive(900);
+        foreach (var l in rep.Split('\n').Select(x => x.Trim()).Where(x => x.StartsWith("[BT] preferred")))
+            Console.WriteLine("  " + l);
+        drive.Dispose();
+    }
+    Console.WriteLine($"""
+
+        [32m[PAIR] done — {paired} pad(s) paired, {assigned} assignment(s) stored.[0m
+        Next: unplug the pads, power the drive, press PS on each pad. On the drive console,
+        'bt list' shows who landed in which slot; 'bt prefer drive slot0' can re-assign live.
+        """);
+    return 0;
 }
 
 // ------------------------------------------------------------------

@@ -281,21 +281,60 @@ By eye, before/after: the dome should **lean opposite the body (stay level)**. I
 
 ---
 
-## 14. Pairing PS3 / Navigation controllers — `bb8 pair`
+## 14. Pairing PS3 / Navigation controllers — `bb8 pair` (self-help walkthrough)
 
-PS3-era pads (Sixaxis, DualShock 3, **PS Move Navigation**) only connect to the one Bluetooth
-master address stored inside them. That's what SixaxisPairTool does; bb8 does it natively:
+PS3-era pads (Sixaxis, DualShock 3, **PS Move Navigation**) connect only to the one Bluetooth
+**master address** stored inside them — the drive's ESP32. The drive in turn decides which pad is
+**PRIMARY (drive slot)** and which is **SECONDARY (dome slot)** by the pad's own MAC. `bb8 pair`
+walks through all of it; nothing needs SixaxisPairTool or editing the sketch.
+
+### What you need
+- Drive board on USB (close any monitor — one program per port)
+- Each pad + a **data** micro-USB cable (charge-only cables are the #1 failure)
+
+### The walkthrough
 
 ```powershell
-bb8 pair --list                  # show pads on USB and the master MAC each one currently holds
-bb8 pair                         # read the drive's BT MAC over serial, write it into every pad, verify
-bb8 pair --mac C4:5B:BE:90:6A:6A # same, MAC given by hand (from the drive's '[BT] Host MAC' banner / 'bt mac')
+bb8 pair
 ```
 
-Procedure: drive on USB (close monitors) → pad(s) on USB with a **data** cable → `bb8 pair` →
-unplug the pads → power the drive → press **PS** on each pad. First connected pad takes the DRIVE
-slot unless its MAC matches `DEFAULT_PREF_DRIVE_MAC` in the drive sketch.
+1. **Drive MAC** — the tool opens the drive (it reboots — normal), sends `bt mac`, and prints
+   `drive Bluetooth MAC: C4:5B:BE:…`. (No drive handy? `bb8 pair --mac C4:5B:BE:90:6A:6A` — the MAC is
+   also in the drive's boot banner `[BT] Host MAC:`.)
+2. **Plug pad #1 in.** Within a second the tool shows:
+   ```
+   [PAIR] detected: PS Move Navigation
+          pad MAC:        00:06:F5:64:60:3E     <- the pad's OWN address (feature report 0xF2)
+          current master: 00:00:00:00:00:00     <- who it currently pairs to (feature report 0xF5)
+   Pair this pad to the drive (C4:5B:BE:90:6A:6A)? [Y/n]
+   ```
+   Enter → it writes the master and reads it back: `master written and verified`.
+3. **Assign it:** `[1] PRIMARY = drive pad  [2] SECONDARY = dome pad  [Enter] skip`.
+   The tool sends `bt prefer drive <padMAC>` (or `dome`) to the drive, which saves it in NVS and
+   confirms: `stored in drive NVS as PRIMARY (drive)`.
+4. **Unplug, plug pad #2**, repeat (choose `2`). `q` + Enter finishes; the tool prints the drive's
+   stored assignment (`[BT] preferred DRIVE … / preferred DOME …`).
+5. **Use them:** power the drive, press **PS** on each pad. They connect and land in their assigned
+   slots regardless of connection order. `bt list` on the drive console shows slot, MAC and model.
 
-If Windows refuses the write (`write FAILED`), the fallback is the original SixaxisPairTool
-(libusb) — write the MAC shown by `bt mac`. The report used is the standard feature report `0xF5`,
-layout `[F5][00][MAC×6]`, identical to Bluepad32's `tools/sixaxispairer`.
+`bb8 pair --auto` does the same with no prompts (first pad = primary, second = secondary);
+`bb8 pair --list` only shows the pads' MACs and masters.
+
+### Doing it by hand (no tool) / fixing a live assignment
+| On the drive console | Does |
+|---|---|
+| `bt mac` | the master address pads must hold |
+| `bt list` | connected pads: slot, MAC, model, and the stored preference |
+| `bt prefer drive slot0` / `bt prefer dome slot1` | store *the pad currently in that slot* as primary/secondary |
+| `bt prefer drive 00:06:F5:64:60:3E` | store by MAC |
+| `bt prefer drive none` | clear (first pad to connect takes the slot) |
+| `bt forget` | forget Bluetooth link keys (pads must reconnect) |
+
+Slot rules: the preferred DRIVE pad always claims slot 0 (any occupant moves to the dome slot);
+the preferred DOME pad takes slot 1 (or slot 0 temporarily if no drive pad yet); anything else fills
+the first free slot. If the drive pad disconnects, drive is force-DISABLED and the dome pad is
+promoted — but drive stays disabled until you press CIRCLE.
+
+Protocol notes: master = HID feature report `0xF5` `[F5][00][MAC×6]`; own address = report `0xF2`
+bytes 4..9 — identical to Bluepad32's `tools/sixaxispairer` and hid-sony. If Windows refuses the
+write, the original SixaxisPairTool (libusb) is the fallback — write the MAC from `bt mac`.
