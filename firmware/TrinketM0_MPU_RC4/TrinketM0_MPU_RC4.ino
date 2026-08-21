@@ -16,6 +16,7 @@
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
 #include <Kalman.h>  // TKJElectronics Kalman filter library
+#include "BuildStamp.h"
 
 SerialTransfer ComsESP32;
 
@@ -68,8 +69,12 @@ void showBuildInfoSerial(const char* prefix) {
   Serial.print(prefix);
   Serial.print(F(" | "));
   Serial.print(DEFAULT_REVISION);
+  Serial.print(F(" | build "));
+  Serial.print(BB8_BUILD_NUM);
   Serial.print(F(" | "));
-  Serial.println(DEFAULT_REVISION_DATE);
+  Serial.print(F(BB8_BUILD_DATE));
+  Serial.print(F(" | git "));
+  Serial.println(F(BB8_BUILD_GIT));
 }
 
 // RC4: USB serial commands (the Trinket had none — debug was only

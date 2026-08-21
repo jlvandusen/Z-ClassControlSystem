@@ -56,6 +56,7 @@
 #include <Arduino.h>
 #include <SerialTransfer.h>
 #include "ConfigTypes.h"
+#include "BuildStamp.h"
 #include <esp_now.h>
 #include "esp_wifi.h"
 #include <WiFi.h>
@@ -1152,8 +1153,12 @@ void showBuildInfoSerial(const char* prefix) {
   Serial.print(prefix);
   Serial.print(F(" | "));
   Serial.print(DEFAULT_REVISION);
+  Serial.print(F(" | build "));
+  Serial.print(BB8_BUILD_NUM);
   Serial.print(F(" | "));
-  Serial.println(DEFAULT_REVISION_DATE);
+  Serial.print(F(BB8_BUILD_DATE));
+  Serial.print(F(" | git "));
+  Serial.println(F(BB8_BUILD_GIT));
 }
 
 // ------------------- Debug / Telemetry -------------------

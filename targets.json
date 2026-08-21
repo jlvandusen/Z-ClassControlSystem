@@ -11,7 +11,8 @@
       "baud": 115200,
       "usbVid": "10C4",
       "usbPid": "EA60",
-      "bannerMatch": "BB-8 Drive System Starting"
+      "bannerMatch": "BB-8 Drive System Starting",
+      "connectCommands": ["version", "cfg show", "pid show"]
     },
     {
       "name": "dome",

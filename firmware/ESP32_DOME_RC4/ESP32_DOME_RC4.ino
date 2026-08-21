@@ -6,6 +6,7 @@
 #include "esp_sleep.h"
 
 #include <Preferences.h>
+#include "BuildStamp.h"
 Preferences prefs;
 
 // ---------------- CONFIG ----------------
@@ -396,7 +397,11 @@ void showBuildInfoSerial(const char* prefix)
   Serial.print(prefix);
   Serial.print(" | ");
   Serial.print(DEFAULT_REVISION);
-  Serial.print(" | ");
-  Serial.println(DEFAULT_REVISION_DATE);
+  Serial.print(F(" | build "));
+  Serial.print(BB8_BUILD_NUM);
+  Serial.print(F(" | "));
+  Serial.print(F(BB8_BUILD_DATE));
+  Serial.print(F(" | git "));
+  Serial.println(F(BB8_BUILD_GIT));
 }
 
