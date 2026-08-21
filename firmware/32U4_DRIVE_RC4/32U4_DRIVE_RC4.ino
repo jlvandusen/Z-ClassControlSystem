@@ -42,9 +42,24 @@
 #define FILTERMPU 0                  // RC4: 0/1 value, tested with #if
 
 // RC4: servo motion profile
-const float SERVO_MAX_DEG_PER_S = 220.0f;  // slew limit (visible smoothness knob)
-const float SERVO_SMOOTH_ALPHA  = 0.35f;   // target low-pass (0..1, higher = snappier)
 const unsigned long SERVO_TICK_MS = 15;    // easing update period (~66 Hz)
+
+// RC4.2: tilt-compensation parameters are RUNTIME tunable ('tilt ...'
+// serial commands, 'bb8 tune dome') and persisted in EEPROM.
+#include <EEPROM.h>
+struct TiltParams {
+  uint16_t magic;
+  float    gain;     // servo deg per body deg (1.0 = dome stays level)
+  float    alpha;    // target low-pass 0..1 (higher = snappier)
+  float    slew;     // deg/s slew limit
+  uint8_t  invertX;  // flip roll -> tilt
+  uint8_t  invertY;  // flip pitch -> tilt
+};
+const uint16_t TILT_MAGIC = 0x7E12;
+TiltParams tilt;
+float lastTiltX = 0, lastTiltY = 0;       // for telemetry
+bool  bodyTelemetry = false;
+
 
 // ------------------- PIN ASSIGNMENTS -------------------
 #define DFPLAYER_TX_PIN      22
@@ -189,6 +204,29 @@ static inline float stickToTilt(int8_t v, int deadband) {
   return (v > 0) ? -t : t;
 }
 
+// RC4.2: tilt param helpers (defined after the struct typedefs so the
+// Arduino prototype generator does not hoist them above SendToESP32)
+void tiltDefaults() {
+  tilt.magic = TILT_MAGIC;
+  tilt.gain = 1.0f; tilt.alpha = 0.35f; tilt.slew = 220.0f;
+  tilt.invertX = 0; tilt.invertY = 0;
+}
+void tiltLoad() {
+  EEPROM.get(0, tilt);
+  if (tilt.magic != TILT_MAGIC || isnan(tilt.gain) || tilt.alpha <= 0 || tilt.alpha > 1 || tilt.slew < 10) {
+    tiltDefaults();
+    Serial.println(F("[TILT] defaults (no saved params)"));
+  }
+}
+void tiltSave() { EEPROM.put(0, tilt); }
+void tiltShow() {
+  Serial.print(F("[TILT] gain=")); Serial.print(tilt.gain, 2);
+  Serial.print(F(" alpha=")); Serial.print(tilt.alpha, 2);
+  Serial.print(F(" slew=")); Serial.print(tilt.slew, 0);
+  Serial.print(F(" invX=")); Serial.print(tilt.invertX);
+  Serial.print(F(" invY=")); Serial.println(tilt.invertY);
+}
+
 // ------------------- SETUP -------------------
 void setup() {
 
@@ -202,6 +240,8 @@ void setup() {
 
   bootMs = millis();
   showBuildInfoSerial("BOOT");
+  tiltLoad();              // RC4.2: tilt-compensation params from EEPROM
+  tiltShow();
 
   Serial1.begin(74880);
   ComsESP32.begin(Serial1);
@@ -287,6 +327,23 @@ void loop() {
 
   handleSerialCommands();
   printDebugInfo();
+
+  // RC4.2: 50 Hz tilt telemetry for 'bb8 tune dome' / bb8 analyze
+  if (bodyTelemetry) {
+    static unsigned long lastTlm = 0;
+    if (millis() - lastTlm >= 20) {
+      lastTlm = millis();
+      Serial.print(F("t:"));    Serial.print(lastTlm);
+      Serial.print(F(",pitch:")); Serial.print(incoming.pitch, 2);
+      Serial.print(F(",roll:"));  Serial.print(incoming.roll, 2);
+      Serial.print(F(",tx:"));    Serial.print(lastTiltX, 1);
+      Serial.print(F(",ty:"));    Serial.print(lastTiltY, 1);
+      Serial.print(F(",l:"));     Serial.print(leftActualDeg, 1);
+      Serial.print(F(",r:"));     Serial.print(rightActualDeg, 1);
+      Serial.print(F(",bal:"));   Serial.print(incoming.autoBalance ? 1 : 0);
+      Serial.print(F(",en:"));    Serial.println(incoming.driveEnabled ? 1 : 0);
+    }
+  }
 
   // Drain DFPlayer responses — RC4.1: surface errors instead of eating
   // them (a missing track number used to fail in total silence)
@@ -392,11 +449,14 @@ void updateTiltTargets() {
 
     if (incoming.autoBalance) {
         // RC4: float math, clamped (was integer map() truncation)
-        tiltX = constrain(roll,  (float)SERVO_MIN, (float)SERVO_MAX);
-        tiltY = constrain(pitch, (float)SERVO_MIN, (float)SERVO_MAX);
+        // RC4.2: runtime gain + per-axis invert
+        tiltX = constrain(roll  * tilt.gain, (float)SERVO_MIN, (float)SERVO_MAX);
+        tiltY = constrain(pitch * tilt.gain, (float)SERVO_MIN, (float)SERVO_MAX);
 
-        tiltX = REVERSE_AUTO_BALANCE ? -tiltX : tiltX;
-        tiltY = REVERSE_AUTO_BALANCE ? tiltY : -tiltY;
+        bool rx = REVERSE_AUTO_BALANCE ^ (tilt.invertX != 0);
+        bool ry = REVERSE_AUTO_BALANCE ^ (tilt.invertY != 0);
+        tiltX = rx ? -tiltX : tiltX;
+        tiltY = ry ? tiltY : -tiltY;
     } else {
         // RC4: continuous deadband rescale (was jump at threshold 20)
         tiltX = stickToTilt(incoming.leftStickX, 12);
@@ -417,16 +477,18 @@ void updateTiltTargets() {
 
     leftTargetDeg  = constrain(l, 40.0f, 100.0f);
     rightTargetDeg = constrain(r, 80.0f, 140.0f);
+    lastTiltX = tiltX;
+    lastTiltY = tiltY;
 }
 
 // RC4: easing tick — low-pass the target, slew the output, write in µs
 void serviceServoEasing() {
   // 1) smooth the target (kills packet-rate steps)
-  leftSmoothDeg  += SERVO_SMOOTH_ALPHA * (leftTargetDeg  - leftSmoothDeg);
-  rightSmoothDeg += SERVO_SMOOTH_ALPHA * (rightTargetDeg - rightSmoothDeg);
+  leftSmoothDeg  += tilt.alpha * (leftTargetDeg  - leftSmoothDeg);
+  rightSmoothDeg += tilt.alpha * (rightTargetDeg - rightSmoothDeg);
 
   // 2) slew-limit actual motion
-  const float maxStep = SERVO_MAX_DEG_PER_S * (SERVO_TICK_MS / 1000.0f);
+  const float maxStep = tilt.slew * (SERVO_TICK_MS / 1000.0f);
 
   float dl = leftSmoothDeg - leftActualDeg;
   if (dl >  maxStep) dl =  maxStep;
@@ -614,7 +676,34 @@ void handleSerialCommands() {
     }
     else if (cmd == "help") {
         Serial.println(F("Commands: help, version, debug, debug encoder, center, set zero, play <n>"));
+        Serial.println(F("  telemetry on|off      50 Hz tilt stream (t,pitch,roll,tx,ty,l,r,bal,en)"));
+        Serial.println(F("  tilt show             current tilt-compensation params"));
+        Serial.println(F("  tilt gain <f>         servo deg per body deg (default 1.0)"));
+        Serial.println(F("  tilt alpha <0.05-1>   smoothing (higher = snappier, default 0.35)"));
+        Serial.println(F("  tilt slew <deg/s>     slew limit (default 220)"));
+        Serial.println(F("  tilt invert x|y       flip an axis"));
+        Serial.println(F("  tilt save | tilt reset"));
     }
+    // ---- RC4.2: tilt compensation tuning ----
+    else if (cmd == "telemetry on")  { bodyTelemetry = true;  Serial.println(F("[TLM] body telemetry ON (50 Hz)")); }
+    else if (cmd == "telemetry off") { bodyTelemetry = false; Serial.println(F("[TLM] body telemetry OFF")); }
+    else if (cmd == "tilt show")     { tiltShow(); }
+    else if (cmd.startsWith("tilt gain")) {
+        float v = cmd.substring(9).toFloat();
+        if (v >= 0.1f && v <= 3.0f) { tilt.gain = v; tiltShow(); } else Serial.println(F("[TILT] gain 0.1-3.0"));
+    }
+    else if (cmd.startsWith("tilt alpha")) {
+        float v = cmd.substring(10).toFloat();
+        if (v >= 0.05f && v <= 1.0f) { tilt.alpha = v; tiltShow(); } else Serial.println(F("[TILT] alpha 0.05-1.0"));
+    }
+    else if (cmd.startsWith("tilt slew")) {
+        float v = cmd.substring(9).toFloat();
+        if (v >= 20 && v <= 900) { tilt.slew = v; tiltShow(); } else Serial.println(F("[TILT] slew 20-900 deg/s"));
+    }
+    else if (cmd == "tilt invert x") { tilt.invertX = !tilt.invertX; tiltShow(); }
+    else if (cmd == "tilt invert y") { tilt.invertY = !tilt.invertY; tiltShow(); }
+    else if (cmd == "tilt save")     { tiltSave(); Serial.println(F("[TILT] saved to EEPROM")); tiltShow(); }
+    else if (cmd == "tilt reset")    { tiltDefaults(); tiltSave(); Serial.println(F("[TILT] reset to defaults (saved)")); tiltShow(); }
     else if (cmd.length() > 0) {
         // RC4.1: never answer with silence — old firmware did, making it
         // impossible to tell 'unknown command' from 'not listening'
