@@ -12,6 +12,7 @@
       "usbVid": "10C4",
       "usbPid": "EA60",
       "bannerMatch": "BB-8 Drive System Starting",
+      "revMatch": "RC4",
       "connectCommands": ["version", "cfg show", "pid show"]
     },
     {
@@ -22,7 +23,8 @@
       "baud": 115200,
       "usbVid": "10C4",
       "usbPid": "EA60",
-      "bannerMatch": "Dome ESP32 Boot"
+      "bannerMatch": "Dome ESP32 Boot",
+      "revMatch": "RC4 DOME"
     },
     {
       "name": "body",
@@ -32,7 +34,8 @@
       "baud": 115200,
       "usbVid": "239A",
       "usbPid": "800C",
-      "bannerMatch": "RC4 DRIVE"
+      "bannerMatch": "RC4 DRIVE",
+      "revMatch": "RC4 DRIVE"
     },
     {
       "name": "imu",
@@ -42,7 +45,8 @@
       "baud": 115200,
       "usbVid": "239A",
       "usbPid": "801E",
-      "bannerMatch": "Trinket M0 IMU Node"
+      "bannerMatch": "Trinket M0 IMU Node",
+      "revMatch": "RC4 IMU"
     }
   ]
 }

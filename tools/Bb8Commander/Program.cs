@@ -342,17 +342,23 @@ async Task<BannerStamp> ReadBannerStamp(Bb8Target t, string port, bool nativeUsb
                 if (sw.ElapsedMilliseconds - lastAsk > 1500) { try { sp.WriteLine("version"); } catch { } lastAsk = sw.ElapsedMilliseconds; }
                 try { sb.Append(sp.ReadExisting()); } catch (TimeoutException) { }
                 var m = System.Text.RegularExpressions.Regex.Match(sb.ToString(),
-                    @"(BOOT|VERSION|CONNECT|AFTER WAIT) \| [^\r\n]*?build (\d+)(?: \| [^|\r\n]* \| git ([^\s|]+))?");
+                    @"(BOOT|VERSION|CONNECT|AFTER WAIT) \| ([^\r\n|]*?) \| build (\d+)(?: \| [^|\r\n]* \| git ([^\s|]+))?");
                 if (m.Success)
-                    return new BannerStamp(int.Parse(m.Groups[2].Value), m.Groups[3].Success ? m.Groups[3].Value : null, sb.ToString());
+                    return new BannerStamp(int.Parse(m.Groups[3].Value), m.Groups[4].Success ? m.Groups[4].Value : null,
+                                           m.Groups[2].Value.Trim(), sb.ToString());
                 await Task.Delay(100);
             }
             raw.Append(sb);
-            return new BannerStamp(-1, null, raw.ToString());   // port opened, no build stamp in 8 s
+            return new BannerStamp(-1, null, null, raw.ToString());   // port opened, no build stamp in 8 s
         }
-        catch (Exception) { await Task.Delay(700); }   // port busy / re-enumerating — retry
+        catch (Exception ex)   // port busy / re-enumerating — retry
+        {
+            if (Environment.GetEnvironmentVariable("BB8_DEBUG") == "1")
+                Console.WriteLine($"[90m[VERIFY] {p}: {ex.GetType().Name}: {ex.Message}[0m");
+            await Task.Delay(700);
+        }
     }
-    return new BannerStamp(-1, null, raw.ToString());
+    return new BannerStamp(-1, null, null, raw.ToString());
 }
 
 async Task<string?> AutoPort(Bb8Target t)
@@ -1201,7 +1207,9 @@ async Task<int> CmdUpdate(bool flash)
         {
             var s = await ReadBannerStamp(t, c.Port, IsNativeUsb(t), quiet: true);
             if (s.Raw.Length == 0) continue;
-            if (t.BannerMatch is not null && !s.Raw.Contains(t.BannerMatch, StringComparison.OrdinalIgnoreCase)) continue;
+            bool byBanner = t.BannerMatch is not null && s.Raw.Contains(t.BannerMatch, StringComparison.OrdinalIgnoreCase);
+            bool byRev = t.RevMatch is not null && s.Rev is not null && s.Rev.EndsWith(t.RevMatch, StringComparison.OrdinalIgnoreCase);
+            if (!byBanner && !byRev) continue;
             found = s; port = c.Port; break;
         }
         if (found is null || port is null)
@@ -1237,7 +1245,7 @@ string? StaleReason(Bb8Target t, BannerStamp s)
     var hash = s.Git.TrimEnd('+');
     if (Run("git", G($"cat-file -e {hash}^{{commit}}"), capture: true).rc != 0)
         return $"built from {hash}, which this checkout doesn't have";
-    var since = Git(G($"rev-list --count {hash}..HEAD -- \"{sketchPath}\"")).Trim();
+    var since = Git(G($"rev-list --count {hash}..HEAD -- \"{sketchPath}\" \":(exclude){sketchPath}/BuildStamp.h\"")).Trim();
     if (int.TryParse(since, out var n) && n > 0)
         return $"build {s.Build} is {n} firmware commit{(n == 1 ? "" : "s")} behind ({hash} -> {Git(G("rev-parse --short HEAD")).Trim()})";
     var dirty = Git(G($"status --porcelain -- \"{sketchPath}\"")).Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -1490,7 +1498,7 @@ void Fail(string msg) => Console.WriteLine($"\u001b[31m[ERROR] {msg}\u001b[0m");
 
 // ------------------------------------------------------------------
 record PortInfo(string Port, string? Vid, string? Pid);
-record BannerStamp(int Build, string? Git, string Raw);
+record BannerStamp(int Build, string? Git, string? Rev, string Raw);
 record UpdateResult(bool Applied, bool ToolChanged, List<string> ChangedTargets);
 
 class Channel(string label, string portName, int baud, string color, List<string> connectCmds)
@@ -1977,6 +1985,7 @@ public class Bb8Target
     [JsonPropertyName("usbVid")] public string? UsbVid { get; set; }
     [JsonPropertyName("usbPid")] public string? UsbPid { get; set; }
     [JsonPropertyName("bannerMatch")] public string? BannerMatch { get; set; }
+    [JsonPropertyName("revMatch")] public string? RevMatch { get; set; }        // suffix of the revision field in "BOOT | <rev> | build N"
     [JsonPropertyName("connectCommands")] public List<string>? ConnectCommands { get; set; }
 }
 
