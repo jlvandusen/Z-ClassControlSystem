@@ -37,12 +37,17 @@ static class LibUsb0
 
     // Walk bus -> device linked lists reading vid/pid straight out of the
     // packed usb_device_descriptor embedded in struct usb_device.
+    static readonly bool Dbg = Environment.GetEnvironmentVariable("BB8_DEBUG") == "1";
+
     public static List<Dev> Find(ushort vid, Func<ushort, bool> pidOk)
     {
         var list = new List<Dev>();
-        if (!Available) return list;
-        usb_find_busses();
-        usb_find_devices();
+        bool avail;
+        try { Init(); avail = true; }
+        catch (Exception ex) { if (Dbg) Console.WriteLine("    [dbg] libusb0 load failed: " + ex.GetType().Name + " " + ex.Message); return list; }
+        int nb = usb_find_busses();
+        int nd = usb_find_devices();
+        if (Dbg) Console.WriteLine("    [dbg] libusb0: busses=" + nb + " devices=" + nd);
         int P = IntPtr.Size;
         int busDevices = 2 * P + PATH_MAX;          // struct usb_bus.devices
         int devDescriptor = 3 * P + PATH_MAX;       // struct usb_device.descriptor (packed, 18 bytes)
@@ -52,6 +57,7 @@ static class LibUsb0
             {
                 ushort v = (ushort)Marshal.ReadInt16(dev, devDescriptor + 8);
                 ushort p = (ushort)Marshal.ReadInt16(dev, devDescriptor + 10);
+                if (Dbg) Console.WriteLine("    [dbg] libusb0 dev " + v.ToString("X4") + ":" + p.ToString("X4"));
                 if (v == vid && pidOk(p)) list.Add(new Dev(dev, v, p));
             }
         }
