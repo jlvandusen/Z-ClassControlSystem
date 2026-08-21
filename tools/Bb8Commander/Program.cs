@@ -47,6 +47,7 @@ try
         }
         case "monitor":  return await CmdMonitor(PositionalArgs(1), Opt("--port"));
         case "analyze":  return CmdAnalyze(Arg(1));
+        case "tune":     return await CmdTune(Arg(1), Opt("--port"));
         case "identify": return await CmdIdentify();
         case "help": case "-h": case "--help": PrintHelp(); return 0;
         default:
@@ -111,6 +112,7 @@ void PrintHelp()
           bb8 deploy <target> [--port COMx]       build + upload + monitor
           bb8 monitor <targets...|COMx> [--baud n] [--log file.csv] [--raw] [--show-tlm]
           bb8 analyze <file.csv>                  tuning analysis of a logged session
+          bb8 tune <s2s|drive> [--port COMx]      LIVE closed-loop gain tuner (rig)
           bb8 identify                            probe ports, read boot banners
 
         Monitor (full-screen):
@@ -510,6 +512,210 @@ int CmdAnalyze(string? file)
     if (report.Count == 0) Console.WriteLine("  Nothing alarming — angles quiet, no sustained oscillation, no saturation.");
     foreach (var r in report) Console.WriteLine($"  [33m-[0m {r}");
     Console.WriteLine("\nDeeper dive: hand this CSV to Claude in the BB8 workspace — it reads the physics out of it.");
+    return 0;
+}
+
+// ------------------------------------------------------------------
+//  TUNE — live closed-loop gain tuner
+//  Owns the serial port, streams 100 Hz telemetry, measures each
+//  nudge transient, adjusts PID gains over the wire, repeats until
+//  the response is critically damped, then saves.
+// ------------------------------------------------------------------
+async Task<int> CmdTune(string? axis, string? portOpt)
+{
+    axis = axis?.ToLowerInvariant();
+    if (axis is not ("s2s" or "drive"))
+    {
+        Fail("tune: axis must be 's2s' (roll) or 'drive' (pitch).");
+        return 1;
+    }
+    bool isS2s = axis == "s2s";
+    string chan = isS2s ? "roll" : "pitch";
+
+    var t = ResolveTarget("drive");
+    var port = portOpt ?? await AutoPort(t);
+    if (port is null) { Fail("No drive port found. Close any monitor and plug the drive in."); return 1; }
+
+    Console.WriteLine($"""
+        [36m=== bb8 tune {axis} — live closed-loop tuner ===[0m
+        Droid on the ROLLERS, drive enabled (CIRCLE), autoBalance ON (CROSS).
+        When prompted: nudge the top ~5 deg {(isS2s ? "SIDEWAYS" : "FORWARD")} and LET GO.
+        Ctrl+C aborts (gains stay whatever was last set, not saved).
+        """);
+
+    using var sp = new SerialPort(port, t.Baud) { ReadTimeout = 50, NewLine = "\n", DtrEnable = true, RtsEnable = true };
+    try { sp.Open(); } catch (Exception ex) { Fail($"Cannot open {port}: {ex.Message} (close the monitor?)"); return 1; }
+
+    var lineBuf = new StringBuilder();
+    var quit = false;
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; quit = true; };
+
+    void Send(string cmd)
+    {
+        sp.WriteLine(cmd);
+        Console.WriteLine($"[35m>> {cmd}[0m");
+    }
+
+    // Pump serial; invoke onTlm per telemetry sample, collect raw lines
+    List<string> Pump(int ms, Action<Dictionary<string, double>>? onTlm)
+    {
+        var lines = new List<string>();
+        var sw = Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < ms && !quit)
+        {
+            string chunk = "";
+            try { chunk = sp.ReadExisting(); } catch (TimeoutException) { }
+            foreach (var c in chunk)
+            {
+                if (c != '\n') { if (lineBuf.Length < 512) lineBuf.Append(c); continue; }
+                var line = lineBuf.ToString().TrimEnd('\r');
+                lineBuf.Clear();
+                if (line.Length == 0) continue;
+                lines.Add(line);
+                if (line.Contains("pitch:") && line.Contains("roll:") && onTlm is not null)
+                {
+                    var d = new Dictionary<string, double>();
+                    foreach (var kv in line.Split(','))
+                    {
+                        var i = kv.IndexOf(':');
+                        if (i > 0 && double.TryParse(kv[(i + 1)..], System.Globalization.CultureInfo.InvariantCulture, out var v))
+                            d[kv[..i]] = v;
+                    }
+                    if (d.ContainsKey(chan)) onTlm(d);
+                }
+            }
+            Thread.Sleep(5);
+        }
+        return lines;
+    }
+
+    // ---- session setup ----
+    Send("telemetry fast");
+    double kp = 0, ki = 0, kd = 0;
+    var pidLines = Pump(700, null);
+    Send("pid show");
+    foreach (var l in Pump(900, null))
+    {
+        // [PID] Drive: Kp=12.00 Ki=6.00 Kd=0.50 | S2S: Kp=30.00 Ki=10.00 Kd=1.00
+        var m = System.Text.RegularExpressions.Regex.Match(l,
+            isS2s ? @"S2S: Kp=([\d.]+) Ki=([\d.]+) Kd=([\d.]+)"
+                  : @"Drive: Kp=([\d.]+) Ki=([\d.]+) Kd=([\d.]+)");
+        if (m.Success)
+        {
+            kp = double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            ki = double.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+            kd = double.Parse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture);
+        }
+    }
+    if (kp == 0) { Fail("Could not read current PID gains (is this the drive board? monitor closed?)"); return 1; }
+    Console.WriteLine($"[36m[TUNE] starting gains: Kp={kp:F1} Ki={ki:F1} Kd={kd:F2}[0m");
+
+    // Wait for en=1 & bal=1
+    bool ready = false; var readyDeadline = DateTime.Now.AddSeconds(60);
+    Console.WriteLine("[TUNE] waiting for drive ENABLED + autoBalance ON (CIRCLE then CROSS)...");
+    while (!ready && DateTime.Now < readyDeadline && !quit)
+        Pump(400, d => { if (d.GetValueOrDefault("en") == 1 && d.GetValueOrDefault("bal") == 1) ready = true; });
+    if (!ready) { Fail("Timed out waiting for drive+balance to be enabled."); return 1; }
+    Console.WriteLine("[32m[TUNE] balance active — beginning cycles[0m");
+
+    void SetGains()
+    {
+        Send($"pid set {axis} kp {kp:F1}"); Pump(250, null);
+        Send($"pid set {axis} ki {ki:F1}"); Pump(250, null);
+        Send($"pid set {axis} kd {kd:F2}"); Pump(250, null);
+    }
+
+    // ---- tuning cycles ----
+    const int MAX_CYCLES = 7;
+    int goodStreak = 0;
+    for (int cycle = 1; cycle <= MAX_CYCLES && !quit; cycle++)
+    {
+        Console.WriteLine($"\n[33m[TUNE {cycle}/{MAX_CYCLES}] >>> NUDGE the droid ~5 deg and LET GO <<<[0m");
+
+        // wait for the nudge: |chan| exceeding 3 deg
+        double baseline = 0; int baseN = 0;
+        Pump(800, d => { baseline += d[chan]; baseN++; });
+        if (baseN > 0) baseline /= baseN;
+
+        bool kicked = false; var kickDeadline = DateTime.Now.AddSeconds(20);
+        while (!kicked && DateTime.Now < kickDeadline && !quit)
+            Pump(100, d => { if (Math.Abs(d[chan] - baseline) > 3.0) kicked = true; });
+        if (!kicked) { Console.WriteLine("[TUNE] no nudge detected in 20 s — skipping cycle"); continue; }
+
+        // capture the transient: 6 s
+        var samp = new List<double>(700);
+        var satC = 0; var total = 0;
+        string pwmKey = isS2s ? "s2s" : "drv";
+        Pump(6000, d =>
+        {
+            samp.Add(d[chan] - baseline);
+            total++;
+            if (Math.Abs(d.GetValueOrDefault(pwmKey)) >= 250) satC++;
+        });
+        if (samp.Count < 100) { Console.WriteLine("[TUNE] too little data — retry"); cycle--; continue; }
+
+        // metrics: peak, overshoot count (sign reversals of extremes), settle time, tail sigma
+        double peak = samp.Take(100).Select(Math.Abs).Max();
+        int overshoots = 0; int sign = 0;
+        foreach (var v in samp)
+        {
+            if (sign >= 0 && v < -Math.Max(0.8, peak * 0.15)) { if (sign > 0) overshoots++; sign = -1; }
+            else if (sign <= 0 && v > Math.Max(0.8, peak * 0.15)) { if (sign < 0) overshoots++; sign = 1; }
+        }
+        double settleT = 6.0;
+        for (int i = 0; i < samp.Count - 50; i++)
+        {
+            if (samp.Skip(i).Take(50).All(v => Math.Abs(v) < 1.2)) { settleT = i / 100.0; break; }
+        }
+        var tail = samp.Skip((int)(samp.Count * 0.7)).ToList();
+        double tailMean = tail.Average();
+        double tailSigma = Math.Sqrt(tail.Select(v => (v - tailMean) * (v - tailMean)).Average());
+        double satPct = 100.0 * satC / Math.Max(1, total);
+
+        Console.WriteLine($"[TUNE] peak={peak:F1} deg overshoots={overshoots} settle={settleT:F1}s tailSigma={tailSigma:F2} sat={satPct:F0}%");
+
+        // classify + adjust
+        string verdict;
+        if (tailSigma > 2.0 || settleT >= 5.9)
+        {
+            verdict = "STILL OSCILLATING"; kp *= 0.65; kd *= 1.15; ki = Math.Min(ki, 2); goodStreak = 0;
+        }
+        else if (overshoots >= 3)
+        {
+            verdict = "RINGING"; kp *= 0.8; kd *= 1.2; goodStreak = 0;
+        }
+        else if (overshoots <= 1 && settleT < 2.0)
+        {
+            goodStreak++;
+            if (goodStreak == 1 && ki < 2) { verdict = "GOOD — adding centering Ki"; ki = 3; }
+            else if (goodStreak >= 2) { verdict = "GOOD — confirmed"; Console.WriteLine($"[32m[TUNE] {verdict}[0m"); break; }
+            else verdict = "GOOD — confirming";
+        }
+        else if (overshoots == 0 && settleT > 3.0)
+        {
+            verdict = "SLUGGISH"; kp *= 1.25; goodStreak = 0;
+        }
+        else
+        {
+            verdict = "ACCEPTABLE — small refine"; kd *= 1.1; goodStreak = 0;
+        }
+
+        kp = Math.Clamp(kp, 1, isS2s ? 200 : 100);
+        kd = Math.Clamp(kd, 0, 20);
+        ki = Math.Clamp(ki, 0, 100);
+        Console.WriteLine($"[36m[TUNE] {verdict} -> Kp={kp:F1} Ki={ki:F1} Kd={kd:F2}[0m");
+        SetGains();
+    }
+
+    if (!quit)
+    {
+        Send("pid save");
+        Pump(600, null);
+        Console.WriteLine($"[32m[TUNE] DONE — saved {axis}: Kp={kp:F1} Ki={ki:F1} Kd={kd:F2}[0m");
+    }
+    else Console.WriteLine("[TUNE] aborted — gains left as last set, NOT saved.");
+    Send("telemetry off");
+    Pump(300, null);
     return 0;
 }
 
