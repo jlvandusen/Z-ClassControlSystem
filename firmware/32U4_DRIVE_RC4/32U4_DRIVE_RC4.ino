@@ -264,8 +264,9 @@ void loop() {
   if (gotPacket) {
     lastPacketTime = millis();
     updateTiltTargets();     // RC4: packets only update TARGETS
-    handleAudio();
   }
+  handleAudio();             // RC4.1: every loop — services latched sound
+                             // commands even between packets
 
   // RC4: motion runs on its own clock, independent of packet arrival
   static unsigned long lastServoTick = 0;
@@ -489,61 +490,71 @@ void stopDomeMotor() {
   digitalWrite(domeMotor_pin_B, LOW);
 }
 
+// RC4.1: fixed "toggle sound only plays every few presses".
+// RC3 stacked three suppressors here:
+//   - 'soundcmd != lastTrack' silently blocked ANY repeat of the same
+//     sound until a different one played in between (the main culprit),
+//   - '!isPlayingNow' DROPPED commands while a clip was still playing
+//     (long MP3s widened that window),
+//   - deferred commands sat in incoming.soundcmd, where the next 50 Hz
+//     state packet (soundcmd=0) overwrote them ~20 ms later.
+// Now: commands are LATCHED immediately, repeats are allowed, and a new
+// command plays at once (interrupting the current clip — right feel for
+// toggle feedback).
+int8_t pendingSound = 0;
+
 void handleAudio() {
+    // Latch first, so a following state packet can't clobber a command
+    if (incoming.soundcmd != 0) {
+        pendingSound = incoming.soundcmd;
+        incoming.soundcmd = 0;
+    }
+
     if (!dfPlayerReady) {
-        if (incoming.soundcmd != 0) {
+        if (pendingSound != 0) {
             Serial.println(F("[AUDIO] Ignoring sound command - DFPlayer not ready"));
-            incoming.soundcmd = 0;
+            pendingSound = 0;
         }
         return;
     }
 
-    bool isPlayingNow = (digitalRead(DFPLAYER_BUSY_PIN) == LOW);
-
-    static int lastTrack = 0;
     static unsigned long lastCommandTime = 0;
 
-    if (incoming.soundcmd != 0 && millis() - lastCommandTime >= 250) {
-        Serial.print(F("[AUDIO] Received cmd = "));
-        Serial.println(incoming.soundcmd);
+    if (pendingSound != 0 && millis() - lastCommandTime >= 250) {
+        int cmdv = pendingSound;
+        pendingSound = 0;
+        lastCommandTime = millis();
 
-        if (incoming.soundcmd == 100) {
+        Serial.print(F("[AUDIO] Received cmd = "));
+        Serial.println(cmdv);
+
+        if (cmdv == 100) {
             silentMode = !silentMode;
             currentVolume = silentMode ? 0 : AUDIO_DEFAULT_VOLUME;
             mp3.volume(currentVolume);
             Serial.print(F("[AUDIO] Silent mode "));
             Serial.println(silentMode ? F("ON") : F("OFF"));
         }
-        else if (incoming.soundcmd == 92) {
+        else if (cmdv == 92) {
             currentVolume = min(currentVolume + 1, 30);
             mp3.volume(currentVolume);
             Serial.print(F("[AUDIO] Volume up -> "));
             Serial.println(currentVolume);
         }
-        else if (incoming.soundcmd == 93) {
+        else if (cmdv == 93) {
             currentVolume = max(currentVolume - 1, 0);
             mp3.volume(currentVolume);
             Serial.print(F("[AUDIO] Volume down -> "));
             Serial.println(currentVolume);
         }
-        else if (!silentMode &&
-                 !isPlayingNow &&
-                 incoming.soundcmd != lastTrack &&
-                 incoming.soundcmd > 0 &&
-                 incoming.soundcmd < 100) {
-
+        else if (!silentMode && cmdv > 0 && cmdv < 100) {
             Serial.print(F("[AUDIO] Playing folder track: "));
-            Serial.println(incoming.soundcmd);
-
-            mp3.playMp3Folder(incoming.soundcmd);
-            lastTrack = incoming.soundcmd;
+            Serial.println(cmdv);
+            mp3.playMp3Folder(cmdv);
         }
         else {
-            Serial.println(F("[AUDIO] Command ignored (silent / busy / same track / invalid)"));
+            Serial.println(F("[AUDIO] Command ignored (silent / invalid)"));
         }
-
-        incoming.soundcmd = 0;
-        lastCommandTime = millis();
     }
 }
 

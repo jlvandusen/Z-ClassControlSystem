@@ -65,7 +65,7 @@ inline void printHelpMenu() {
   Serial.println(F("bt forget             - Forget Bluetooth keys (re-pair controllers)"));
   Serial.println(F("debug                 - Toggle ALL debug"));
   Serial.println(F("debug mpu             - Toggle MPU debug"));
-  Serial.println(F("debug 32u4            - Toggle 32u4 debug"));
+  Serial.println(F("debug 32u4            - 32u4 LINK health (pkt/s, staleness, CRC errors)"));
   Serial.println(F("debug dome            - Toggle Dome ESPNOW debug"));
   Serial.println(F("debug controllers     - Toggle controller input debug"));
   Serial.println(F("debug s2s             - Toggle S2S debug"));

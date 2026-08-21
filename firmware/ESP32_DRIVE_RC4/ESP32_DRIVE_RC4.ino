@@ -540,6 +540,13 @@ void onDisconnectedGamepad(GamepadPtr gp) {
   if (wasDrive) {
     myControllers[0] = nullptr;
     Serial.println(F("[INFO] DRIVE controller disconnected"));
+    // RC4.1 safety: never keep driving on a vanished drive controller
+    if (driveEnabled) {
+      driveEnabled = false;
+      autoBalance = false;
+      domeFunctionEnabled = false;
+      Serial.println(F("[SAFETY] Drive controller lost — drive DISABLED"));
+    }
   }
   if (wasDome) {
     myControllers[1] = nullptr;
@@ -549,7 +556,9 @@ void onDisconnectedGamepad(GamepadPtr gp) {
   if (wasDrive && myControllers[1] != nullptr) {
     myControllers[0] = myControllers[1];
     myControllers[1] = nullptr;
-    Serial.println(F("[INFO] Dome controller promoted to DRIVE slot"));
+    // RC4.1: promotion no longer silently hands a live drive to the dome
+    // pad — drive stays DISABLED until deliberately re-enabled.
+    Serial.println(F("[INFO] Dome controller promoted to DRIVE slot (drive remains DISABLED — CIRCLE to enable)"));
   }
 }
 
@@ -896,25 +905,45 @@ void toggleDriveEnabled() {
 }
 
 void handleControllerCombos() {
-  static bool psDriveLock = false;
   static bool psDomeLock = false;
   static bool crossDriveLock = false;
   static bool circleDriveLock = false;
 
-  // RC4: CIRCLE on the drive controller is the primary Drive Enable toggle
-  // (PS kept as a backup — some controllers don't report the system button
-  //  reliably through Bluepad32). Silent-mode sound moved to L1+CIRCLE.
+  // RC4: CIRCLE on the drive controller toggles Drive Enable
+  // (some controllers don't report the PS/system button reliably through
+  //  Bluepad32). Silent-mode sound moved to L1+CIRCLE.
   if (driveController.circle.pressed && !circleDriveLock && !driveController.L1.held) {
     toggleDriveEnabled();
     circleDriveLock = true;
   }
   if (!driveController.circle.held) circleDriveLock = false;
 
-  if (driveController.ps.pressed && !psDriveLock) {
-    toggleDriveEnabled();
-    psDriveLock = true;
+  // RC4.1: PS tap = toggle drive; PS held >= 2 s = FORCE DISABLE.
+  // Holding PS is how you power the remote off — the long-hold guarantees
+  // the droid ends up disabled before the controller drops, instead of
+  // the tap-toggle racing you into a random state.
+  {
+    static unsigned long psHoldStart = 0;
+    static bool psActionDone = false;
+    if (driveController.ps.held) {
+      if (psHoldStart == 0) { psHoldStart = millis(); psActionDone = false; }
+      if (!psActionDone && millis() - psHoldStart >= 2000) {
+        psActionDone = true;
+        if (driveEnabled) {
+          driveEnabled = false;
+          autoBalance = false;
+          domeFunctionEnabled = false;
+          Serial.println(F("[TOGGLE] Drive FORCE-DISABLED (PS held 2s)"));
+        }
+      }
+    } else {
+      if (psHoldStart != 0 && !psActionDone) {
+        toggleDriveEnabled();   // released before 2 s -> tap
+      }
+      psHoldStart = 0;
+      psActionDone = false;
+    }
   }
-  if (!driveController.ps.held) psDriveLock = false;
 
   if (domeController.ps.pressed && !psDomeLock) {
     domeFunctionEnabled = !domeFunctionEnabled;
@@ -1120,14 +1149,18 @@ void sendTo32u4Data() {
 }
 
 // RC4: drain the link — always consume every parsed packet
+uint32_t g32u4RxCount = 0;      // RC4.1: link statistics for 'debug 32u4'
+uint32_t g32u4CrcErrors = 0;
+
 void receiveFrom32u4() {
   while (Coms32u4.available()) {
     Coms32u4.rxObj(recFrom32u4);
     isPlaying = recFrom32u4.isplaying;
     last32u4Packet = millis();
+    g32u4RxCount++;
   }
-  if (Coms32u4.status == CRC_ERROR && debug32u4) {
-    Serial.println(F("[ERROR] 32u4 CRC_ERROR"));
+  if (Coms32u4.status == CRC_ERROR) {
+    g32u4CrcErrors++;
   }
 }
 
@@ -1166,13 +1199,29 @@ void printDebugInfo() {
   // RC4: all debug output rate-limited to 10 Hz
   static unsigned long lastDbg = 0;
   if (millis() - lastDbg < 100) return;
-  bool any = debugTo32u4 || debugFrom32u4 || debugMPU || debugS2S || debugDrive || debugControllersFlag || debugFlywheel;
+  bool any = debugTo32u4 || debugFrom32u4 || debug32u4 || debugMPU || debugS2S || debugDrive || debugControllersFlag || debugFlywheel;
   if (!any) return;
   lastDbg = millis();
 
   if (debugFrom32u4) {
     Serial.printf("[FROM 32u4] dometilt=%.2f isplaying=%d domedirection=%d\n",
                   recFrom32u4.dometilt, recFrom32u4.isplaying, recFrom32u4.domedirection);
+  }
+  // RC4.1: 'debug 32u4' = link HEALTH once per second (the old flag only
+  // gated CRC-error prints, so a healthy or dead link both showed nothing)
+  if (debug32u4) {
+    static unsigned long lastLink = 0;
+    static uint32_t lastCount = 0;
+    if (millis() - lastLink >= 1000) {
+      uint32_t pps = g32u4RxCount - lastCount;
+      lastCount = g32u4RxCount;
+      lastLink = millis();
+      long age = last32u4Packet ? (long)(millis() - last32u4Packet) : -1;
+      Serial.printf("[32u4-LINK] rx=%lu pkt/s lastPkt=%ldms crcErrs=%lu isplaying=%d domedir=%d %s\n",
+                    (unsigned long)pps, age, (unsigned long)g32u4CrcErrors,
+                    recFrom32u4.isplaying, recFrom32u4.domedirection,
+                    (age < 0) ? "(NEVER — check wiring/baud)" : (age > 500 ? "(STALE)" : "OK"));
+    }
   }
   if (debugMPU) {
     Serial.printf("[MPU] rawX=%.2f rawY=%.2f rawZ=%.2f pitch=%.2f roll=%.2f pot=%d\n",

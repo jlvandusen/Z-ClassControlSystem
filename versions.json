@@ -1,6 +1,6 @@
 {
-  "drive": 0,
-  "dome": 0,
   "body": 0,
+  "dome": 0,
+  "drive": 1,
   "imu": 0
 }
