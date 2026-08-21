@@ -191,7 +191,7 @@ Test points on 3V3, 5V_LOGIC, 5V_LED, 6V, VIN, both UART links, MOTOR_EN. Silksc
 
 **Goal:** the smallest, stiffest thing that can be bolted at the frame pivot.
 
-- **ICM-42688-P** (TDK) — 3-axis gyro/accel, SPI up to 24 MHz, internal 1 kHz ODR, on-chip low-pass; far lower noise than the MPU-6050. Alternative footprint: **BMI270**.
+- **Sensor: BMI160 (GY-BMI160 breakout) — adequate and chosen.** 0.008 °/s/√Hz gyro, 180 µg/√Hz accel, SPI + I²C, 3.3 V with an on-board LDO; at a 100 Hz gyro-dominant fusion its noise integrates to ~0.001° per step — not the limiting factor (the MPU-6050 problems were the 21 Hz DLPF and the serial hop, not noise). Wire **SPI**: SCL=SCK, SDA=MOSI, SAO/SDO=MISO, CS (confirm CS is broken out; if not, I²C at 400 kHz is fine for a 100 Hz angle). Mount by its **holes** (M2 standoffs), never by the header pins. Upgrade path on the same 6-pin connector: **ICM-42688-P** (0.0028 °/s/√Hz) or **BMI270**.
 - **No MCU.** SPI straight to the ESP32 (fusion on the control loop). If the cable must be long (> 20 cm) or routed near motor leads, the fallback is a **BNO085 in UART-RVC mode** (fused pitch/roll at 100 Hz over 3 wires, immune to SPI cable issues) — leave that footprint as a DNP option on the same board.
 - 20 × 20 mm, **4× M2.5 mounting holes**, 1.6 mm FR4, components on one side so it mounts flat against metal; orientation arrow and axis legend on silk.
 - 3.3 V in, 100 nF + 1 µF decoupling, 33 Ω series on SCK/MOSI, JST-SH 6-pin.
@@ -235,7 +235,7 @@ The protocol between drive and body stays SerialTransfer with the same structs, 
 | Main MCU | ELEGOO ESP-WROOM-32 DevKit ×2 (drive + dome, socketed) | 16 |
 | Body MCU | Waveshare RP2350-Zero (socketed) | 5 |
 | USB-UART | on the DevKits | — |
-| IMU | ICM-42688-P | 4 |
+| IMU | GY-BMI160 breakout (upgrade: ICM-42688-P) | 6 |
 | Bucks | Pololu D36V50F5 (5 V 5 A), D36V28F6 (6 V 2.7 A) | 20 + 12 |
 | LDOs | AP7361C-33 ×2 | 1 |
 | Level shift | 74AHCT125 ×2, 74LVC245 | 2 |
