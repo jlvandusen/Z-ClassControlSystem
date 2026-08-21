@@ -19,6 +19,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+VtConsole.Enable();   // ANSI colors on classic conhost too
+
 var configPath = FindConfig();
 if (configPath is null)
 {
@@ -590,24 +592,32 @@ async Task<int> CmdTune(string? axis, string? portOpt)
     }
 
     // ---- session setup ----
-    Send("telemetry fast");
+    // Opening the port resets the ESP32 (DTR/RTS auto-reset circuit) —
+    // swallow the boot spew, then retry the gain query until it answers.
+    Console.WriteLine("[TUNE] port open — board is rebooting, waiting for it to settle...");
+    Pump(3500, null);
     double kp = 0, ki = 0, kd = 0;
-    var pidLines = Pump(700, null);
-    Send("pid show");
-    foreach (var l in Pump(900, null))
+    for (int attempt = 1; attempt <= 6 && kp == 0 && !quit; attempt++)
     {
-        // [PID] Drive: Kp=12.00 Ki=6.00 Kd=0.50 | S2S: Kp=30.00 Ki=10.00 Kd=1.00
-        var m = System.Text.RegularExpressions.Regex.Match(l,
-            isS2s ? @"S2S: Kp=([\d.]+) Ki=([\d.]+) Kd=([\d.]+)"
-                  : @"Drive: Kp=([\d.]+) Ki=([\d.]+) Kd=([\d.]+)");
-        if (m.Success)
+        Send("pid show");
+        foreach (var l in Pump(1200, null))
         {
-            kp = double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
-            ki = double.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
-            kd = double.Parse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture);
+            // [PID] Drive: Kp=12.00 Ki=6.00 Kd=0.50 | S2S: Kp=30.00 Ki=10.00 Kd=1.00
+            var m = System.Text.RegularExpressions.Regex.Match(l,
+                isS2s ? @"S2S: Kp=([\d.]+) Ki=([\d.]+) Kd=([\d.]+)"
+                      : @"Drive: Kp=([\d.]+) Ki=([\d.]+) Kd=([\d.]+)");
+            if (m.Success)
+            {
+                kp = double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+                ki = double.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+                kd = double.Parse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture);
+            }
         }
+        if (kp == 0 && attempt < 6) Console.WriteLine($"[TUNE] no answer yet (boot in progress?) — retry {attempt}/5");
     }
     if (kp == 0) { Fail("Could not read current PID gains (is this the drive board? monitor closed?)"); return 1; }
+    Send("telemetry fast");
+    Pump(400, null);
     Console.WriteLine($"[36m[TUNE] starting gains: Kp={kp:F1} Ki={ki:F1} Kd={kd:F2}[0m");
 
     // Wait for en=1 & bal=1
@@ -1158,6 +1168,24 @@ class MonitorSession(List<Channel> channels, StreamWriter? log, bool raw, bool s
         {
             var h = GetStdHandle(-11); // STD_OUTPUT_HANDLE
             if (GetConsoleMode(h, out var m)) SetConsoleMode(h, m | 0x0004); // ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        }
+        catch { }
+    }
+}
+
+public static class VtConsole
+{
+    [DllImport("kernel32.dll")] static extern IntPtr GetStdHandle(int nStdHandle);
+    [DllImport("kernel32.dll")] static extern bool GetConsoleMode(IntPtr h, out uint mode);
+    [DllImport("kernel32.dll")] static extern bool SetConsoleMode(IntPtr h, uint mode);
+
+    public static void Enable()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+        try
+        {
+            var h = GetStdHandle(-11); // STD_OUTPUT_HANDLE
+            if (GetConsoleMode(h, out var m)) SetConsoleMode(h, m | 0x0004);
         }
         catch { }
     }
