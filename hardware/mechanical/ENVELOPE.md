@@ -66,10 +66,13 @@ The casing has no internal bosses. Since you own the Fusion model: add **four M3
 (draft: (−40, 36), (−40, −36), (60, 24), (60, −24) — outside every footprint above). The board
 then screws to the casing, components facing the cover; the 3 mm wall keeps the outline margin.
 
-## To confirm
-1. Axle bore / bearing boss diameter and protrusion on the **empty** side (sets the keep-out).
-2. Which STL is the yellow cover; does the empty side get the same cover? (Heat: the MAX9744 and
-   bucks want either vent slots in it or contact with it.)
-3. Harness: tail opening (+Y) is assumed for all cables; confirm nothing else passes through it
-   on the empty side.
-4. OK to add the four PCB bosses to the casing model?
+## Confirmed (2026-08-21)
+1. **Axle keep-out Ø 38 (r 19) — confirmed OK.**
+2. **The cover is `OutsideGearCasing.stl` itself** — the part sliced above; the empty side gets the same
+   cover, so the envelope is exact. Heat: add vent slots to the cover over the MAX9744 / bucks, or keep
+   the buck inductors and 1000 µF caps ≥ 1 mm off the cover.
+3. **Tail opening is free on both sides of the axle for the harness.** Depth could grow a little if
+   needed but **width (X) must not** — the tilting servo bars would hit the cover. Height budget stays
+   14 mm (teardrop) / 34 mm (lobe).
+4. **PCB bosses in the empty casing: approved.** KiCad fixes the four positions; the casing model gets
+   Ø 6 × 5 mm bosses with M3 heat-set inserts at those coordinates.
