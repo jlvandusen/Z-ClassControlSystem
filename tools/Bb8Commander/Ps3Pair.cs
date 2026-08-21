@@ -21,7 +21,10 @@ static class Ps3Pair
         [0x042F] = "PS Move Navigation",
     };
 
-    public record Pad(string Path, ushort Pid, string Name, ushort FeatureLen);
+    public record Pad(string Path, ushort Pid, string Name, ushort FeatureLen, LibUsb0.Dev? Usb = null)
+    {
+        public string Via => Usb is null ? "HID" : "libusb";
+    }
 
     public static List<Pad> FindPads()
     {
@@ -58,43 +61,89 @@ static class Ps3Pair
             }
         }
         finally { SetupDiDestroyDeviceInfoList(devs); }
+        // pads bound to the libusb-win32 driver (SixaxisPairTool) are invisible to HID
+        foreach (var d in LibUsb0.Find(SONY_VID, p => KNOWN_PIDS.ContainsKey(p)))
+            list.Add(new Pad($"usb:{d.Ptr}", d.Pid, KNOWN_PIDS[d.Pid], 0, d));
         return list;
+    }
+
+    static readonly bool Dbg = Environment.GetEnvironmentVariable("BB8_DEBUG") == "1";
+
+    // Try the caps-reported feature length first, then the raw lengths
+    // hidraw-style tools use (8 / 17 / 49 / 64) — Windows requires an
+    // exact match with what the report descriptor declares.
+    static byte[]? GetFeature(Pad pad, byte reportId, int minLen)
+    {
+        using var h = Open(pad.Path);
+        if (h.IsInvalid) { if (Dbg) Console.WriteLine($"    [dbg] open failed err={Marshal.GetLastWin32Error()}"); return null; }
+        var sizes = new List<int>();
+        if (pad.FeatureLen > 0) sizes.Add(pad.FeatureLen);
+        sizes.AddRange(new[] { 8, 9, 17, 18, 49, 64 }.Where(s => s >= minLen && !sizes.Contains(s)));
+        foreach (var len in sizes)
+        {
+            var buf = new byte[len];
+            buf[0] = reportId;
+            if (HidD_GetFeature(h, buf, buf.Length)) { if (Dbg) Console.WriteLine($"    [dbg] GetFeature 0x{reportId:X2} ok len={len}: {BitConverter.ToString(buf.Take(Math.Min(len, 12)).ToArray())}"); return buf; }
+            if (Dbg) Console.WriteLine($"    [dbg] GetFeature 0x{reportId:X2} len={len} err={Marshal.GetLastWin32Error()}");
+        }
+        return null;
     }
 
     public static byte[]? ReadMaster(Pad pad)
     {
-        using var h = Open(pad.Path);
-        if (h.IsInvalid) return null;
-        var len = Math.Max(pad.FeatureLen, (ushort)9);
-        var buf = new byte[len];
-        buf[0] = 0xF5;
-        if (!HidD_GetFeature(h, buf, buf.Length)) return null;
-        return buf.Skip(2).Take(6).ToArray();
+        if (pad.Usb is not null)
+        {
+            var b = LibUsb0.GetFeature(pad.Usb, 0xF5, 8, out var e);
+            if (Dbg) Console.WriteLine($"    [dbg] libusb GET F5 -> {(b is null ? "err " + e : BitConverter.ToString(b))}");
+            return b?.Skip(2).Take(6).ToArray();
+        }
+        var buf = GetFeature(pad, 0xF5, 8);
+        return buf?.Skip(2).Take(6).ToArray();
     }
 
     // The pad's OWN Bluetooth address: feature report 0xF2, BD_ADDR at
     // offsets 4..9 (same report hid-sony / Bluepad32 use to identify a pad).
     public static byte[]? ReadOwnMac(Pad pad)
     {
-        using var h = Open(pad.Path);
-        if (h.IsInvalid) return null;
-        var len = Math.Max(pad.FeatureLen, (ushort)18);
-        var buf = new byte[len];
-        buf[0] = 0xF2;
-        if (!HidD_GetFeature(h, buf, buf.Length)) return null;
+        if (pad.Usb is not null)
+        {
+            var b = LibUsb0.GetFeature(pad.Usb, 0xF2, 17, out var e);
+            if (Dbg) Console.WriteLine($"    [dbg] libusb GET F2 -> {(b is null ? "err " + e : BitConverter.ToString(b))}");
+            if (b is null) return null;
+            var m = b.Skip(4).Take(6).ToArray();
+            return m.All(x => x == 0) ? null : m;
+        }
+        var buf = GetFeature(pad, 0xF2, 17);
+        if (buf is null) return null;
         var mac = buf.Skip(4).Take(6).ToArray();
         return mac.All(b => b == 0) ? null : mac;
     }
 
     public static bool WriteMaster(Pad pad, byte[] mac)
     {
+        if (pad.Usb is not null)
+        {
+            // sixpair payload: [01][00][MAC x6], 8 bytes, wValue 0x03F5
+            var payload = new byte[8]; payload[0] = 0x01; payload[1] = 0x00;
+            Array.Copy(mac, 0, payload, 2, 6);
+            var ok = LibUsb0.SetFeature(pad.Usb, 0xF5, payload, out var e);
+            if (Dbg) Console.WriteLine($"    [dbg] libusb SET F5 -> {(ok ? "ok" : "err " + e)}");
+            return ok;
+        }
         using var h = Open(pad.Path);
         if (h.IsInvalid) return false;
-        var len = Math.Max(pad.FeatureLen, (ushort)9);
-        var buf = new byte[len];
-        buf[0] = 0xF5; buf[1] = 0x00;
-        Array.Copy(mac, 0, buf, 2, 6);
-        return HidD_SetFeature(h, buf, buf.Length);
+        var sizes = new List<int>();
+        if (pad.FeatureLen > 0) sizes.Add(pad.FeatureLen);
+        sizes.AddRange(new[] { 8, 9, 49, 64 }.Where(s => !sizes.Contains(s)));
+        foreach (var len in sizes)
+        {
+            var buf = new byte[len];
+            buf[0] = 0xF5; buf[1] = 0x00;
+            Array.Copy(mac, 0, buf, 2, 6);
+            if (HidD_SetFeature(h, buf, buf.Length)) { if (Dbg) Console.WriteLine($"    [dbg] SetFeature ok len={len}"); return true; }
+            if (Dbg) Console.WriteLine($"    [dbg] SetFeature len={len} err={Marshal.GetLastWin32Error()}");
+        }
+        return false;
     }
 
     public static string Fmt(byte[] m) => string.Join(":", m.Select(b => b.ToString("X2")));
@@ -136,8 +185,8 @@ static class Ps3Pair
 
     [DllImport("hid.dll")] static extern void HidD_GetHidGuid(out Guid guid);
     [DllImport("hid.dll")] static extern bool HidD_GetAttributes(SafeFileHandle h, ref HIDD_ATTRIBUTES a);
-    [DllImport("hid.dll")] static extern bool HidD_GetFeature(SafeFileHandle h, byte[] buf, int len);
-    [DllImport("hid.dll")] static extern bool HidD_SetFeature(SafeFileHandle h, byte[] buf, int len);
+    [DllImport("hid.dll", SetLastError = true)] static extern bool HidD_GetFeature(SafeFileHandle h, byte[] buf, int len);
+    [DllImport("hid.dll", SetLastError = true)] static extern bool HidD_SetFeature(SafeFileHandle h, byte[] buf, int len);
     [DllImport("hid.dll")] static extern bool HidD_GetPreparsedData(SafeFileHandle h, out IntPtr pp);
     [DllImport("hid.dll")] static extern bool HidD_FreePreparsedData(IntPtr pp);
     [DllImport("hid.dll")] static extern int HidP_GetCaps(IntPtr pp, out HIDP_CAPS caps);

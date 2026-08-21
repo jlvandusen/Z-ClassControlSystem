@@ -931,7 +931,7 @@ async Task<int> CmdPair(string? macOpt, string? portOpt, bool listOnly)
         foreach (var p in pads0)
         {
             var own = Ps3Pair.ReadOwnMac(p); var cur = Ps3Pair.ReadMaster(p);
-            Console.WriteLine($"  {p.Name,-22} pad MAC {(own is null ? "?" : Ps3Pair.Fmt(own)),-18} master {(cur is null ? "?" : Ps3Pair.Fmt(cur))}");
+            Console.WriteLine($"  {p.Name,-22} pad MAC {(own is null ? "?" : Ps3Pair.Fmt(own)),-18} master {(cur is null ? "?" : Ps3Pair.Fmt(cur))}  via {p.Via}");
         }
         return 0;
     }
