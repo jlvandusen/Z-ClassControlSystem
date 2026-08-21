@@ -11,7 +11,8 @@ enum SoundCommand : uint16_t {
   SOUND_STARTUP = 1,
 
   // Toggles
-  SOUND_TOGGLE_DRIVE = 60,
+  SOUND_TOGGLE_DRIVE = 60,        // RC4.1: plays on drive ENABLE
+  SOUND_DRIVE_DISABLED = 61,      // RC4.1: plays on drive DISABLE (state-aware)
   SOUND_TOGGLE_REVERSE = 61,
   SOUND_TOGGLE_DOME_SERVO_MODE = 62,
   SOUND_TOGGLE_BALANCE = 63,
@@ -52,14 +53,13 @@ static uint16_t resolveDriveControllerSound(const ControllerState &cur) {
   if (cur.dpadDown.pressed) return 4;
   if (cur.dpadLeft.pressed) return 5;
 
-  // RC4: Circle now toggles drive (was silent mode)
-  if (cur.circle.pressed) return SOUND_TOGGLE_DRIVE;
+  // RC4.1: circle/PS no longer mapped here — the drive enable/disable
+  // sound is STATE-AWARE and fires from toggleDriveEnabled() itself
+  // (60 = enabled, 61 = disabled), so it also covers force-disable and
+  // controller-loss, and you can HEAR which state you ended up in.
 
   // Cross toggles balance
   if (cur.cross.pressed) return SOUND_TOGGLE_BALANCE;
-
-  // PS toggles drive (backup)
-  if (cur.ps.pressed) return SOUND_TOGGLE_DRIVE;
 
   // L3 toggles reverse drive
   if (cur.L3.pressed) return SOUND_TOGGLE_REVERSE;

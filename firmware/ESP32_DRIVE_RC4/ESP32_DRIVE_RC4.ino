@@ -554,6 +554,7 @@ void onDisconnectedGamepad(GamepadPtr gp) {
       autoBalance = false;
       domeFunctionEnabled = false;
       Serial.println(F("[SAFETY] Drive controller lost — drive DISABLED"));
+      sendSoundCommand(Coms32u4, sendTo32u4, SOUND_DRIVE_DISABLED);
     }
   }
   if (wasDome) {
@@ -910,6 +911,11 @@ void toggleDriveEnabled() {
     drivePID.reset();
     s2sPID.reset();
   }
+  // RC4.1: STATE-AWARE feedback — you can hear which state you ended in.
+  // 60 = enabled, 61 = disabled. Fired from the state change itself so
+  // CIRCLE, PS, force-disable and controller-loss all sound consistent.
+  sendSoundCommand(Coms32u4, sendTo32u4,
+                   driveEnabled ? SOUND_TOGGLE_DRIVE : SOUND_DRIVE_DISABLED);
 }
 
 void handleControllerCombos() {
@@ -942,6 +948,7 @@ void handleControllerCombos() {
           autoBalance = false;
           domeFunctionEnabled = false;
           Serial.println(F("[TOGGLE] Drive FORCE-DISABLED (PS held 2s)"));
+          sendSoundCommand(Coms32u4, sendTo32u4, SOUND_DRIVE_DISABLED);
         }
       }
     } else {
