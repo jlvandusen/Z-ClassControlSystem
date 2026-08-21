@@ -51,7 +51,7 @@ flowchart LR
   subgraph MAIN["MAINBOARD v10  (shadow body)"]
     ESP["ESP-WROOM-32 DevKit (socketed)\nBluepad32 · balance PID\ndrive / S2S / flywheel\nIMU fusion"]
     RP["RP2350-Zero (socketed) body co-processor\nservos · dome spin + encoder (PIO)\nDFPlayer (HW UART1) · body LEDs (PIO)"]
-    PWR["Power: 12V→5V 5A buck · 6V 2.5A buck\n3.3V 1A (sensors + driver VCC) · fuse/RPP/TVS"]
+    PWR["Power: 12V→5V 5A buck · 7.5V 2.5A buck\n3.3V 1A (sensors + driver VCC) · fuse/RPP/TVS"]
     ESP -- "UART 921600\n(SerialTransfer)" --- RP
   end
   subgraph IMU["IMU v10"]
@@ -77,7 +77,7 @@ flowchart LR
 | Feather 32u4 (8 MHz AVR, 28 KB) | **Waveshare RP2350-Zero** (socketed; 150 MHz, 2 MB flash, 520 KB RAM, 2 HW UARTs, 3 PIO blocks, 24 PWM, native USB) | Ends the flash ceiling; PIO does quadrature decode and WS2812 with zero CPU/ISR load; DFPlayer on a real UART kills the SoftwareSerial corruption. 23.5 × 18 mm. Arduino core: `earlephilhower/arduino-pico`. |
 | Trinket M0 + MPU-6050 over UART | **BMI160 breakout** (upgrade: ICM-42688-P) over **SPI** | Raw 1 kHz data into the ESP32; fusion (Mahony/complementary) on the control loop's own clock → no 50/100 Hz serialisation, no second firmware, ~2 ms latency. |
 | Two Feather LDOs shorted via the driver ribbon | Each module regulates its own 3.3 V; **one board 3.3 V LDO** feeds sensors, shifters and **the DFR0601 VCC pins** | Ends the LDO fight; no module's 3V3 ever leaves the module |
-| Off-board Pololu modules | **Buck modules on-board footprints** (Pololu D24V50F5 / D24V22F6) + protection | Real copper to the loads, one harness less |
+| Off-board Pololu modules | **Buck modules on-board footprints** (Pololu D24V50F5 / D24V25F7) + protection | Real copper to the loads, one harness less |
 
 **Why not one MCU?** The DevKit has 26 usable GPIO; the body functions need ~14 more than the balance side uses, and the encoder/WS2812/servo timing on the same core as a 100 Hz control loop + BT stack is asking for the jitter we just removed. The RP2350-Zero is $5 and makes the split clean. **Why not ESP32-S3 for the body?** No need for radio there; RP2350 PIO is the better peripheral set.
 
@@ -98,7 +98,7 @@ flowchart LR
   R5L --> SR["SLIPRING connector\n5V_LED · GND · CHG+ · CHG−"]
   SR --> CHG["CHG+ → 5 A fuse + reverse diode → charger module\nCHG_SENSE divider → ESP32 GPIO39\n(motors locked while charging)"]
   R5 --> LDO["3.3 V 1 A LDO (AP7361C-33)"] --> R33["+3V3 (board rail)\nIMU · pot · hall · shifter LV side\nDFR0601 VCC pins (the ONLY 3.3 V that leaves the board)"]
-  B6 --> R6["+6V_SERVO\n2× 62 kg·cm servos, 2.5 mm traces + pour"]
+  B6 --> R6["+7V4_SERVO\n2× HV servos @ 7.4V, 2.5 mm traces + pour"]
   USBE["DevKit USB (laptop)"] -. "module's own diode-OR\n→ can't back-feed +5V_LOGIC" .- R5
   USBR["RP2350-Zero USB-C (laptop)"] -. "SS14 blocks back-feed" .- R5
 ```
@@ -331,7 +331,7 @@ See §4.3 (validated against the module edge pins).
 |---|---|---|
 | Input | XT60, **15 A blade fuse**, P-FET reverse polarity, **SMBJ15A** TVS, 220 µF | |
 | 5 V | **Pololu D24V50F5** (5 A) | +5V_LOGIC (modules, DFPlayer, shifters) and +5V_LED (shell lights via slip ring, own polyfuse + 1000 µF) |
-| 6 V | **Pololu D24V22F6** (2.5 A) — or D36V28F6 | servos only; 2.5 mm traces + pour |
+| 7.4 V | **Pololu D24V25F7** (7.5 V 2.5 A) | HV servos (6-8.4 V) — ~62 kg-cm at 7.4 V vs 45 at 6 V; 2.5 mm traces + pour |
 | 3.3 V | AP7361C-33 (1 A) | IMU, pot, hall, level-shifter LV side, **motor-driver VCC pins** (one rail, never a module's 3V3) |
 | Sense | 47k / 10k divider + 3.3 V clamp → GPIO35 | 12.6 V → 2.2 V |
 | Charge path | `SLIPRING` CHG± → 5 A fuse + SS54 → charger module; CHG_SENSE → GPIO39 | drive locked while charging |

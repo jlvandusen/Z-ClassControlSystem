@@ -518,14 +518,13 @@ def write_pcb(m, outbase, outline_dxf, origin=(150.0, 150.0)):
                 gy += pitch
             gx += pitch
         sys.stderr.write(f"[pcb] {n_vias} GND stitching vias\n")
-    # 4-layer stack: In1.Cu = solid GND plane, In2.Cu = solid +5V_LOGIC plane,
-    # F/B = signal with light GND fill. Planes make the autoroute converge and
-    # give a true reference plane for every signal (noise fix).
-    for layer, net in (("F.Cu", "GND"), ("B.Cu", "GND")):
-        L.append(f'  (zone (net {netnum[net]}) (net_name {q(net)}) (layer {q(layer)}) (uuid {q(U("zone", layer))}) (hatch edge 0.5)'
-                 f' (connect_pads (clearance 0.3)) (min_thickness 0.25) (filled_areas_thickness no)'
-                 f' (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5)) (polygon (pts {poly})))')
-    for layer, net, prio in (("In1.Cu", "GND", 0), ("In2.Cu", "+5V_LOGIC", 0)):
+    # 4-layer mixed stack: F.Cu (signal + GND pour) / In1 solid GND /
+    # In2 solid +5V_LOGIC / B.Cu (signal + GND pour). Outer GND pours catch
+    # every top/bottom GND pad directly (no per-pad via); they tie to the In1
+    # plane via stitching. Only the few +5V pads need a via to In2. Solid inner
+    # planes give every signal a clean reference (the noise fix).
+    for layer, net, prio in (("F.Cu", "GND", 0), ("B.Cu", "GND", 0),
+                             ("In1.Cu", "GND", 0), ("In2.Cu", "+5V_LOGIC", 0)):
         L.append(f'  (zone (net {netnum[net]}) (net_name {q(net)}) (layer {q(layer)}) (uuid {q(U("plane", layer))}) (hatch edge 0.5)'
                  f' (priority {prio}) (connect_pads (clearance 0.25)) (min_thickness 0.25) (filled_areas_thickness no)'
                  f' (fill yes (thermal_gap 0.4) (thermal_bridge_width 0.5)) (polygon (pts {poly})))')
@@ -536,7 +535,7 @@ def write_pcb(m, outbase, outline_dxf, origin=(150.0, 150.0)):
 
 def write_project(outbase, m=None):
     NETCLASSES = getattr(m, "NETCLASSES", [("Default", 0.2, 0.3, 0.8, 0.4, [])])
-    pro = {"board": {"design_settings": {"rules": {"min_clearance": 0.15, "min_track_width": 0.2, "min_via_diameter": 0.6, "min_via_drill": 0.3}},
+    pro = {"board": {"design_settings": {"rules": {"min_clearance": 0.15, "min_track_width": 0.2, "min_via_diameter": 0.6, "min_via_drill": 0.3, "min_copper_edge_clearance": 0.5}},
                      "layer_presets": [], "viewports": []},
            "boards": [], "cvpcb": {"equivalence_files": []}, "libraries": {"pinned_footprint_libs": [], "pinned_symbol_libs": []},
            "meta": {"filename": os.path.basename(outbase) + ".kicad_pro", "version": 1},

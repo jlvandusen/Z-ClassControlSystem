@@ -69,8 +69,8 @@ A(dict(ref="J_AMP", value="MAX9744 amp module hdr", kind="connector", fp="ZCLASS
 # ---- power modules
 A(dict(ref="PS1", value="Pololu D24V50F5 5V 5A", kind="module", fp="ZCLASS:Pololu_D24V50F5",
        at=(-30, 4), rot=0, side="F", pins=[(1,"VIN","VIN"),(2,"GND","GND"),(3,"VOUT","+5V_LOGIC"),(4,"EN","NC")]))
-A(dict(ref="PS2", value="Pololu D24V22F6 6V 2.5A", kind="module", fp="ZCLASS:Pololu_D24V22F6",
-       at=(-34, -20), rot=90, side="F", pins=[(1,"VIN","VIN"),(2,"GND","GND"),(3,"VOUT","+6V_SERVO"),(4,"EN","NC")]))
+A(dict(ref="PS2", value="Pololu D24V25F7 7.5V 2.5A", kind="module", fp="ZCLASS:Pololu_D24V22F6",
+       at=(-34, -20), rot=90, side="F", pins=[(1,"VIN","VIN"),(2,"GND","GND"),(3,"VOUT","+7V4_SERVO"),(4,"EN","NC")]))
 A(dict(ref="U5", value="AP7361C-33 3.3V LDO", kind="ic3", fp="Package_TO_SOT_SMD:SOT-223-3_TabPin2",
        at=(18, -28), rot=0, side="F", pins=[(1,"GND","GND"),(2,"VOUT","+3V3"),(3,"VIN","+5V_LOGIC")]))
 # ---- protection / input
@@ -88,7 +88,7 @@ A(two("R25", "10k", "res", "Resistor_SMD:R_0603_1608Metric", (44, 41), "VBAT_SEN
 A(two("C2", "470u/10V", "cap", "Capacitor_SMD:CP_Elec_8x10", (-26, -19), "+5V_LOGIC", "GND"))
 A(two("C3", "1000u/10V", "cap", "Capacitor_SMD:CP_Elec_10x10", (-22, -20), "+5V_LED", "GND"))
 A(two("F3", "3A polyfuse", "fuse", "Fuse:Fuse_1812_4532Metric", (-44, -18), "+5V_LOGIC", "+5V_LED"))
-A(two("C4", "470u/10V", "cap", "Capacitor_SMD:CP_Elec_8x10", (-20, -20), "+6V_SERVO", "GND"))
+A(two("C4", "470u/16V", "cap", "Capacitor_SMD:CP_Elec_8x10", (-20, -20), "+7V4_SERVO", "GND"))
 A(two("D2", "SS14", "diode", "Diode_SMD:D_SMA", (0, 48), "+5V_LOGIC", "RP_5V"))
 A(two("C5", "10u", "cap", "Capacitor_SMD:C_1206_3216Metric", (-1, -30.8), "+5V_LOGIC", "GND"))
 A(two("C6", "10u", "cap", "Capacitor_SMD:C_1206_3216Metric", (24, -31), "+3V3", "GND"))
@@ -115,9 +115,9 @@ for i, net in enumerate(["DRIVE_PWM","DRIVE_INA","DRIVE_INB","S2S_PWM","S2S_INA"
     A(two(f"R{12+i}", "10k", "res", "Resistor_SMD:R_0603_1608Metric", ((-17 + i*3) if i < 6 else (4 + (i-6)*3), -33.5), net, "GND"))
 # ---- servos
 A(dict(ref="J4", value="Servo L", kind="connector", fp="Connector_JST:JST_XH_B3B-XH-A_1x03_P2.50mm_Vertical",
-       at=(55, 21), rot=0, side="F", pins=[(1,"SIG","SERVO_L"),(2,"6V","+6V_SERVO"),(3,"GND","GND")]))
+       at=(55, 21), rot=0, side="F", pins=[(1,"SIG","SERVO_L"),(2,"6V","+7V4_SERVO"),(3,"GND","GND")]))
 A(dict(ref="J5", value="Servo R", kind="connector", fp="Connector_JST:JST_XH_B3B-XH-A_1x03_P2.50mm_Vertical",
-       at=(66, 19), rot=0, side="F", pins=[(1,"SIG","SERVO_R"),(2,"6V","+6V_SERVO"),(3,"GND","GND")]))
+       at=(66, 19), rot=0, side="F", pins=[(1,"SIG","SERVO_R"),(2,"6V","+7V4_SERVO"),(3,"GND","GND")]))
 # ---- IMU (SPI)
 A(dict(ref="J6", value="IMU BMI160 SPI", kind="connector", fp="Connector_JST:JST_SH_SM06B-SRSS-TB_1x06-1MP_P1.00mm_Horizontal",
        at=(57, -24), rot=0, side="F",
@@ -223,7 +223,7 @@ KEEPOUTS = [  # (x0, y0, x1, y1, name)  KiCad coords, +y up
 NETCLASSES = [
     # name, clearance, track, via dia, via drill, patterns
     ("Default",  0.20, 0.30, 0.8, 0.4, []),
-    ("Power",    0.25, 1.20, 1.0, 0.5, ["VIN", "BAT*", "+5V_LED", "+6V_SERVO", "AMP_12V*", "CHG*", "RP_5V"]),
+    ("Power",    0.25, 1.20, 1.0, 0.5, ["VIN", "BAT*", "+5V_LED", "+7V4_SERVO", "AMP_12V*", "CHG*", "RP_5V"]),
     ("Audio",    0.25, 1.00, 1.0, 0.5, ["SPK_*"]),
     ("Motor",    0.25, 0.50, 0.8, 0.4, ["*_PWM", "*_INA", "*_INB", "SERVO_*"]),
 ]

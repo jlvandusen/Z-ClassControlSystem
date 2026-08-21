@@ -367,7 +367,7 @@
       },
       {
         "netclass": "Power",
-        "pattern": "+6V_SERVO"
+        "pattern": "+7V4_SERVO"
       },
       {
         "netclass": "Power",
