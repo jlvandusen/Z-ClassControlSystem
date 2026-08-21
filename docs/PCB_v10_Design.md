@@ -293,3 +293,48 @@ Filter #2: the body side wants hardware UARTs + timing peripherals, not a faster
 **Recommended socketed set:** FireBeetle 2 ESP32-E (drive) + Pico 2 (body) + FireBeetle 2 ESP32-E (dome) + ICM-42688 breakout. It preserves "boards in sockets" maintainability, gains the pins and UARTs, and the §4 pin maps carry over unchanged except the RP2040 pins become Pico GP numbers.
 
 What *not* to chase: more ESP32 UARTs. The classic ESP32 has exactly 3 (UART0 console, UART1, UART2, all pin-remappable) — v10 only needs two (console + body link) once the IMU moves to SPI.
+
+---
+
+## 13. Chosen modules & 12 V power (decisions 2026-08-21)
+
+**Pack: 12 V / 12 A.** Socketed modules: **Waveshare RP2350-Zero** (body) and **ELEGOO ESP-WROOM-32 38-pin DevKit** (drive and dome). Board kept as small as possible; copper and ground done properly.
+
+### 13.1 RP2350-Zero body pin map (edge pins only — GP16–25 are back-side reflow pads)
+
+| GP | Function | Notes |
+|---|---|---|
+| 0 / 1 | UART0 TX/RX ↔ ESP32 | 921600 |
+| 4 / 5 | UART1 TX/RX → DFPlayer | hardware UART; 1 k series on TX |
+| 6, 7 | dome-tilt servos L / R | PWM |
+| 8, 9, 10 | dome spin PWM / INA / INB | to DFR0601 ch B |
+| 11, 12 | encoder A / B (PIO quadrature) | 5 V → 3.3 V via 74LVC245 (or BSS138 pair) |
+| 13 | hall | 10 k external pull-up |
+| 14 | body NeoPixel data (PIO) | → 74AHCT125 → 330 Ω |
+| 15 | DFPlayer BUSY | 3.3 V logic, direct |
+| 26 / 27 | I²C1 SDA / SCL (4.7 k) | expansion |
+| 28 | +5V_LOGIC sense (ADC) | |
+| 2, 3, 29 | spare | |
+| GP16 | on-board RGB LED | status (already wired on the module) |
+
+Rules: RP2350 **erratum E9** — internal pull-downs leak; every input has an external resistor. Not 5 V tolerant. Feed its 5V pin from +5V_LOGIC through an ideal diode / SS14 (the Zero has no USB back-feed protection). `arduino-pico` board `waveshare_rp2350_zero`; bb8 `targets.json`: `rp2040:rp2040:waveshare_rp2350_zero`, VID `2E8A`.
+
+### 13.2 ESP-WROOM-32 DevKit (38-pin) for drive and dome
+
+- All GPIO of the §4 / §6 pin maps are on the headers (incl. 34/35/36/39).
+- Standard esptool auto-reset polarity (EN ← RTS, IO0 ← DTR) — bb8's port-open reset behaves.
+- **VIN and USB are diode-OR'd on the module** → feed VIN with +5V_LOGIC; a laptop on the USB can't back-feed the rail. The module's AMS1117 powers only the module.
+- Footprint: 2 × 19-pin 0.1" rows, 25.4 mm apart, 52 × 28 mm. Socket with machined-pin female headers; keep the antenna end overhanging the board edge, no copper under it.
+
+### 13.3 Power at 12 V
+
+| Stage | Part | Notes |
+|---|---|---|
+| Input | XT60, **15 A blade fuse**, P-FET reverse polarity, **SMBJ15A** TVS, 220 µF | |
+| 5 V | **Pololu D24V50F5** (5 A) | +5V_LOGIC (modules, DFPlayer, shifters) and +5V_LED (shell lights via slip ring, own polyfuse + 1000 µF) |
+| 6 V | **Pololu D24V22F6** (2.5 A) — or D36V28F6 | servos only; 2.5 mm traces + pour |
+| 3.3 V | AP7361C-33 (1 A) | IMU, pot, hall, level-shifter LV side, **motor-driver VCC pins** (one rail, never a module's 3V3) |
+| Sense | 47k / 10k divider + 3.3 V clamp → GPIO35 | 12.6 V → 2.2 V |
+| Charge path | `SLIPRING` CHG± → 5 A fuse + SS54 → charger module; CHG_SENSE → GPIO39 | drive locked while charging |
+
+Size target: ~85 × 60 mm, 2-layer 2 oz. Biggest single space saver if needed later: bare WROOM-32E instead of the DevKit (−15 cm² each).
