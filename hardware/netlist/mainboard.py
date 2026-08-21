@@ -61,7 +61,7 @@ A = COMPONENTS.append
 A(dict(ref="U1", value="ESP-WROOM-32 DevKit 30p", kind="module", fp="ZCLASS:DevKit_2x15_25.4mm",
        at=(37, 0), rot=0, side="F", pins=pins_devkit()))
 A(dict(ref="U2", value="RP2350-Zero", kind="module", fp="ZCLASS:RP2350_Zero",
-       at=(13, 32), rot=0, side="F", pins=pins_zero()))
+       at=(-10, 33), rot=0, side="F", pins=pins_zero()))
 A(dict(ref="U3", value="DFPlayer Mini", kind="module", fp="ZCLASS:DFPlayer_2x8",
        at=(86, 0), rot=270, side="F", pins=DFPLAYER))
 A(dict(ref="J_AMP", value="MAX9744 amp module hdr", kind="connector", fp="ZCLASS:Hdr_2x6",
@@ -122,8 +122,8 @@ A(dict(ref="J5", value="Servo R", kind="connector", fp="Connector_JST:JST_XH_B3B
 A(dict(ref="J6", value="IMU BMI160 SPI", kind="connector", fp="Connector_JST:JST_SH_SM06B-SRSS-TB_1x06-1MP_P1.00mm_Horizontal",
        at=(57, -24), rot=0, side="F",
        pins=[(1,"3V3","+3V3"),(2,"GND","GND"),(3,"SCK","IMU_SCK_R"),(4,"MISO","IMU_MISO"),(5,"MOSI","IMU_MOSI_R"),(6,"CS","IMU_CS")]))
-A(two("R31", "33R", "res", "Resistor_SMD:R_0603_1608Metric", (50, -26), "IMU_SCK", "IMU_SCK_R"))
-A(two("R32", "33R", "res", "Resistor_SMD:R_0603_1608Metric", (50, -23), "IMU_MOSI", "IMU_MOSI_R"))
+A(two("R31", "33R", "res", "Resistor_SMD:R_0603_1608Metric", (48, -30), "IMU_SCK", "IMU_SCK_R"))
+A(two("R32", "33R", "res", "Resistor_SMD:R_0603_1608Metric", (48, -27), "IMU_MOSI", "IMU_MOSI_R"))
 # ---- S2S sensor (AS5600 or pot): 3V3 GND OUT SDA SCL
 A(dict(ref="J7", value="S2S AS5600/pot", kind="connector", fp="Connector_JST:JST_XH_B5B-XH-A_1x05_P2.50mm_Vertical",
        at=(70, -19), rot=0, side="F",
@@ -174,10 +174,10 @@ A(dict(ref="J16", value="I2C-A exp (ESP32)", kind="connector", fp="Connector_JST
        at=(66, -28), rot=0, side="F", pins=[(1,"GND","GND"),(2,"3V3","+3V3"),(3,"SDA","I2C_A_SDA"),(4,"SCL","I2C_A_SCL")]))
 A(dict(ref="J17", value="I2C-B exp (RP2350)", kind="connector", fp="Connector_JST:JST_SH_SM04B-SRSS-TB_1x04-1MP_P1.00mm_Horizontal",
        at=(87, 12), rot=0, side="F", pins=[(1,"GND","GND"),(2,"3V3","+3V3"),(3,"SDA","I2C_B_SDA"),(4,"SCL","I2C_B_SCL")]))
-A(two("R5", "4.7k", "res", "Resistor_SMD:R_0603_1608Metric", (92, -12), "+3V3", "I2C_A_SDA"))
-A(two("R6", "4.7k", "res", "Resistor_SMD:R_0603_1608Metric", (92, -15), "+3V3", "I2C_A_SCL"))
-A(two("R7", "4.7k", "res", "Resistor_SMD:R_0603_1608Metric", (92, 12), "+3V3", "I2C_B_SDA"))
-A(two("R8", "4.7k", "res", "Resistor_SMD:R_0603_1608Metric", (92, 15), "+3V3", "I2C_B_SCL"))
+A(two("R5", "4.7k", "res", "Resistor_SMD:R_0603_1608Metric", (58, -33), "+3V3", "I2C_A_SDA"))
+A(two("R6", "4.7k", "res", "Resistor_SMD:R_0603_1608Metric", (61, -33), "+3V3", "I2C_A_SCL"))
+A(two("R7", "4.7k", "res", "Resistor_SMD:R_0603_1608Metric", (40, 24), "+3V3", "I2C_B_SDA"))
+A(two("R8", "4.7k", "res", "Resistor_SMD:R_0603_1608Metric", (43, 24), "+3V3", "I2C_B_SCL"))
 # ---- DFPlayer RX series
 A(two("R1", "1k", "res", "Resistor_SMD:R_0603_1608Metric", (74, 12), "DF_TX_RP", "DF_RX_MOD"))
 # ---- decoupling near modules
@@ -197,8 +197,7 @@ DEEP_ZONE_R = 42.5
 BOARD_TITLE = "Z-DRIVE v10.0  MAINBOARD"
 BOARD_TEXT_FRONT = [
     # (x, y, size_mm, text)   KiCad coords (origin = axle centre, +y up)
-    (0, 48.0, 2.0, "Z-DRIVE v10.0"),
-    (0, 44.5, 1.2, "Z-Class Control System"),
+    (0, 49.0, 2.0, "Z-DRIVE v10.0"),
 ]
 BOARD_TEXT_BACK = [
     # below the axle hole: x -20..20 between the bore (y -19) and the motor headers (y -36) is pad-free
@@ -224,8 +223,8 @@ KEEPOUTS = [  # (x0, y0, x1, y1, name)  KiCad coords, +y up
 NETCLASSES = [
     # name, clearance, track, via dia, via drill, patterns
     ("Default",  0.20, 0.30, 0.8, 0.4, []),
-    ("Power",    0.30, 3.00, 1.6, 0.8, ["VIN", "BAT*", "+5V_LOGIC", "+5V_LED", "+6V_SERVO", "AMP_12V*", "CHG*", "RP_5V"]),
+    ("Power",    0.25, 1.20, 1.0, 0.5, ["VIN", "BAT*", "+5V_LED", "+6V_SERVO", "AMP_12V*", "CHG*", "RP_5V"]),
     ("Audio",    0.25, 1.00, 1.0, 0.5, ["SPK_*"]),
     ("Motor",    0.25, 0.50, 0.8, 0.4, ["*_PWM", "*_INA", "*_INB", "SERVO_*"]),
 ]
-GND_VIA_PITCH = 9.0   # mm stitching grid
+GND_VIA_PITCH = 0   # stitching vias added post-route (Freerouting adds fanout; a via grid is stamped after import)

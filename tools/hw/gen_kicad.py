@@ -324,7 +324,7 @@ def courtyard_size(fpid):
                             cen = next(k for k in n if isinstance(k, list) and k[0] == "center")
                             end = next(k for k in n if isinstance(k, list) and k[0] == "end")
                             r = math.hypot(float(end[1]) - float(cen[1]), float(end[2]) - float(cen[2]))
-                            xs += [float(cen[1]) - r, float(cen[1]) + r]; ys += [float(cen[2]) - r, float(cen[2]) + r]
+                            xs.extend([float(cen[1]) - r, float(cen[1]) + r]); ys.extend([float(cen[2]) - r, float(cen[2]) + r])
                         for k in n:
                             if isinstance(k, list) and k and k[0] in ("start", "end", "xy", "mid"):
                                 xs.append(float(k[1])); ys.append(float(k[2]))
@@ -369,7 +369,7 @@ def place_all(m, outline_pts):
     placed = []   # (x, y, w, h)
     for (tx, ty, sz, text) in getattr(m, "BOARD_TEXT_FRONT", []):   # silkscreen text reserves space
         placed.append((tx, ty, len(text) * sz * 0.8 + 1, sz * 1.4))
-    def overlaps(x, y, w, h, gap=0.6):
+    def overlaps(x, y, w, h, gap=1.0):
         for (px, py, pw, ph) in placed:
             if abs(x - px) < (w + pw) / 2 + gap and abs(y - py) < (h + ph) / 2 + gap: return True
         return False
@@ -385,7 +385,7 @@ def place_all(m, outline_pts):
             placed.append((x0, y0, w, h)); continue
         best = None
         # spiral search: radius 0..45 mm, 1 mm rings, 16..64 angles
-        for r in [0] + [i * 1.0 for i in range(1, 46)]:
+        for r in [0] + [i * 1.0 for i in range(1, 130)]:
             steps = 1 if r == 0 else max(16, int(2 * math.pi * r / 1.0))
             for k in range(steps):
                 a = 2 * math.pi * k / steps
@@ -422,7 +422,7 @@ def write_pcb(m, outbase, outline_dxf, origin=(150.0, 150.0)):
     def P2(x, y): return ox + x, oy - y           # KiCad Y is down
     L = [f'(kicad_pcb (version 20240108) (generator "zclass_gen") (generator_version "1.0")',
          '  (general (thickness 1.6) (legacy_teardrops no))', '  (paper "A3")',
-         '  (layers (0 "F.Cu" signal) (31 "B.Cu" signal) (32 "B.Adhes" user "B.Adhesive") (33 "F.Adhes" user "F.Adhesive")',
+         '  (layers (0 "F.Cu" signal) (1 "In1.Cu" power) (2 "In2.Cu" signal) (31 "B.Cu" signal) (32 "B.Adhes" user "B.Adhesive") (33 "F.Adhes" user "F.Adhesive")',
          '    (34 "B.Paste" user) (35 "F.Paste" user) (36 "B.SilkS" user "B.Silkscreen") (37 "F.SilkS" user "F.Silkscreen")',
          '    (38 "B.Mask" user) (39 "F.Mask" user) (40 "Dwgs.User" user "User.Drawings") (41 "Cmts.User" user "User.Comments")',
          '    (42 "Eco1.User" user "User.Eco1") (43 "Eco2.User" user "User.Eco2") (44 "Edge.Cuts" user) (45 "Margin" user)',
@@ -480,9 +480,23 @@ def write_pcb(m, outbase, outline_dxf, origin=(150.0, 150.0)):
         for c in comps:
             w, h = courtyard_size(c["fp"])
             if c.get("rot", 0) in (90, 270): w, h = h, w
-            occupied.append((c["at"][0], c["at"][1], w + 2.0, h + 2.0))
+            occupied.append((c["at"][0], c["at"][1], w + 4.0, h + 4.0))
         for (x0, y0, x1, y1, name) in getattr(m, "KEEPOUTS", []):
             occupied.append(((x0 + x1) / 2, (y0 + y1) / 2, abs(x1 - x0), abs(y1 - y0)))
+        TH_PADS = []
+        for c in comps:
+            fp = c["fp"]
+            th = ("JST" in fp or "Hdr" in fp or "XT" in fp or "Blade" in fp or "DevKit" in fp or "RP2350" in fp
+                  or "DFPlayer" in fp or "Pololu" in fp or "MountingHole" in fp)
+            if not th: continue
+            cx0, cy0 = c["at"]; rot = math.radians(c.get("rot", 0))
+            # approximate: use the courtyard footprint corners + centre as pad proxies (coarse but safe)
+            w0, h0 = courtyard_size(fp)
+            for dx in [i for i in range(int(-w0/2), int(w0/2)+1, 2)]:
+                for dy in [i for i in range(int(-h0/2), int(h0/2)+1, 2)]:
+                    rx = cx0 + dx*math.cos(rot) - dy*math.sin(rot)
+                    ry = cy0 + dx*math.sin(rot) + dy*math.cos(rot)
+                    TH_PADS.append((rx, ry))
         n_vias = 0
         gx = -60.0
         while gx < 110.0:
@@ -490,6 +504,13 @@ def write_pcb(m, outbase, outline_dxf, origin=(150.0, 150.0)):
             while gy < 60.0:
                 ok = inside_poly(gx, gy) and math.hypot(gx, gy) > m.AXLE_KEEPOUT_R + 3.0
                 ok = ok and all(inside_poly(gx + dx, gy + dy) for dx, dy in ((2.5, 0), (-2.5, 0), (0, 2.5), (0, -2.5)))
+                # keep clear of through-hole pads specifically (drill-to-drill + annular)
+                if ok:
+                    for c in comps:
+                        cx0, cy0 = c["at"]
+                        for (pn, pnm, pnet) in c["pins"]:
+                            pass
+                    ok = not any(math.hypot(gx - hx, gy - hy) < 4.5 for (hx, hy) in TH_PADS)
                 if ok and not any(abs(gx - ox_) < w / 2 and abs(gy - oy_) < h / 2 for ox_, oy_, w, h in occupied):
                     vx, vy = P2(gx, gy)
                     L.append(f'  (via (at {vx:.3f} {vy:.3f}) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net {netnum["GND"]}) (uuid {q(U("gv", gx, gy))}))')
@@ -497,11 +518,17 @@ def write_pcb(m, outbase, outline_dxf, origin=(150.0, 150.0)):
                 gy += pitch
             gx += pitch
         sys.stderr.write(f"[pcb] {n_vias} GND stitching vias\n")
-    # GND pours both sides
-    for layer in ("F.Cu", "B.Cu"):
-        L.append(f'  (zone (net {netnum["GND"]}) (net_name "GND") (layer {q(layer)}) (uuid {q(U("zone", layer))}) (hatch edge 0.5)'
+    # 4-layer stack: In1.Cu = solid GND plane, In2.Cu = solid +5V_LOGIC plane,
+    # F/B = signal with light GND fill. Planes make the autoroute converge and
+    # give a true reference plane for every signal (noise fix).
+    for layer, net in (("F.Cu", "GND"), ("B.Cu", "GND")):
+        L.append(f'  (zone (net {netnum[net]}) (net_name {q(net)}) (layer {q(layer)}) (uuid {q(U("zone", layer))}) (hatch edge 0.5)'
                  f' (connect_pads (clearance 0.3)) (min_thickness 0.25) (filled_areas_thickness no)'
                  f' (fill yes (thermal_gap 0.5) (thermal_bridge_width 0.5)) (polygon (pts {poly})))')
+    for layer, net, prio in (("In1.Cu", "GND", 0), ("In2.Cu", "+5V_LOGIC", 0)):
+        L.append(f'  (zone (net {netnum[net]}) (net_name {q(net)}) (layer {q(layer)}) (uuid {q(U("plane", layer))}) (hatch edge 0.5)'
+                 f' (priority {prio}) (connect_pads (clearance 0.25)) (min_thickness 0.25) (filled_areas_thickness no)'
+                 f' (fill yes (thermal_gap 0.4) (thermal_bridge_width 0.5)) (polygon (pts {poly})))')
     L.append(')')
     with open(outbase + ".kicad_pcb", "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
