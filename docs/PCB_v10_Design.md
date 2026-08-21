@@ -36,9 +36,9 @@ Anything in this list that a bodge wire can fix on the *current* boards is in §
 
 1. **PS3 Navigation controllers → Bluetooth Classic → ESP32 (classic)**. ESP32-S3/C3 have no BT Classic. Bluepad32 stays. This single fact fixes the main MCU.
 2. **Three physical boards stay** — the mechanics dictate it: the dome is magnetically mounted and unwired (battery + ESP-NOW), and the IMU sits on top of the frame at the pitch/roll axes, not wherever the mainboard fits.
-3. **Motor drivers stay off-board** (DFR0601 12 A, 24 V battery). The mainboard is logic-only; motor current never touches it. Keep the 2×5 ribbon interface (now keyed).
+3. **Motor drivers stay off-board** (DFR0601 12 A, 12 V pack). The mainboard is logic-only; motor current never touches it. Keep the 2×5 ribbon interface (now keyed).
 4. **bb8 workflow unchanged**: USB flash + serial console per board, build stamps, banner on attach, `bb8 tune/pair` — v10 must keep a console UART and an auto-reset-on-open that *doesn't* wander into download mode.
-5. **24 V (or 12 V) pack in**, 5 V / 6 V / 3.3 V made on-board with real copper.
+5. **12 V 3S4P pack in** (§14), 5 V / 6 V / 3.3 V made on-board with real copper; 3.3 V never shared between modules.
 
 ---
 
@@ -49,23 +49,23 @@ flowchart LR
   subgraph PADS["2× PS3 Nav (BT Classic)"]
   end
   subgraph MAIN["MAINBOARD v10  (shadow body)"]
-    ESP["ESP32-WROOM-32E\nBluepad32 · balance PID\ndrive / S2S / flywheel\nIMU fusion"]
-    RP["RP2040 body co-processor\nservos · dome spin + encoder (PIO)\nDFPlayer (HW UART) · body LEDs (PIO)"]
-    PWR["Power: 24V→5V 5A buck · 6V 3A buck\n3.3V 1A · fuse/RPP/TVS · ideal-diode USB OR"]
+    ESP["ESP-WROOM-32 DevKit (socketed)\nBluepad32 · balance PID\ndrive / S2S / flywheel\nIMU fusion"]
+    RP["RP2350-Zero (socketed) body co-processor\nservos · dome spin + encoder (PIO)\nDFPlayer (HW UART1) · body LEDs (PIO)"]
+    PWR["Power: 12V→5V 5A buck · 6V 2.5A buck\n3.3V 1A (sensors + driver VCC) · fuse/RPP/TVS"]
     ESP -- "UART 921600\n(SerialTransfer)" --- RP
   end
   subgraph IMU["IMU v10"]
     ICM["ICM-42688-P\n(SPI, 1 kHz)"]
   end
   subgraph DOME["DOME v10"]
-    DESP["ESP32-WROOM-32E\nESP-NOW · 5× NeoPixel from VBAT\nreed/motion wake · fuel gauge · sensors"]
+    DESP["ESP-WROOM-32 DevKit (socketed)\nESP-NOW · 5× NeoPixel from VBAT\nreed/motion wake · fuel gauge · sensors"]
   end
   PADS -. BT .-> ESP
   ICM -- "SPI, shielded 4-wire" --> ESP
   ESP -. "ESP-NOW ch 11" .-> DESP
   MAIN -- "slip ring: 5V out to shell lights,\ncharge line back in" --> SHELL["Shell: body NeoPixels\n+ charge port at an axis"]
   LIPO["1S LiPo + USB-C charger\n(dome is NOT wired — magnets)"] --> DESP
-  ESP -- "3× keyed ribbon" --> DRV["2× DFR0601 12A\n(off-board, 24V)"]
+  ESP -- "3× keyed ribbon" --> DRV["2× DFR0601 12A\n(off-board, 12V pack)"]
   RP -- "keyed ribbon" --> DRV
 ```
 
@@ -73,13 +73,13 @@ flowchart LR
 
 | v9.15 | v10 | Reason |
 |---|---|---|
-| HUZZAH32 Feather (socketed) | **ESP32-WROOM-32E soldered** + CP2102N USB-UART | Feather exposes only 21 GPIO; WROOM frees 0/2/35 etc. and lets us place the auto-reset circuit correctly. Module is $3. |
-| Feather 32u4 (8 MHz AVR, 28 KB) | **RP2040** (133 MHz, 2 MB flash, 264 KB RAM, 2 HW UARTs, 8 PIO SMs, 16 PWM) | Ends the flash ceiling; PIO does quadrature decode and WS2812 with zero CPU/ISR load; DFPlayer on a real UART kills the SoftwareSerial corruption; native USB for bb8. Arduino core: `earlephilhower/arduino-pico`. |
+| HUZZAH32 Feather (socketed) | **ELEGOO ESP-WROOM-32 DevKit** (socketed, CP2102, standard auto-reset) | All 26 usable GPIO on the headers incl. 34/35/36/39 (Feather exposes 21); VIN/USB diode-OR'd on the module; same Bluepad32 core. |
+| Feather 32u4 (8 MHz AVR, 28 KB) | **Waveshare RP2350-Zero** (socketed; 150 MHz, 2 MB flash, 520 KB RAM, 2 HW UARTs, 3 PIO blocks, 24 PWM, native USB) | Ends the flash ceiling; PIO does quadrature decode and WS2812 with zero CPU/ISR load; DFPlayer on a real UART kills the SoftwareSerial corruption. 23.5 × 18 mm. Arduino core: `earlephilhower/arduino-pico`. |
 | Trinket M0 + MPU-6050 over UART | **ICM-42688-P** on a 20 × 20 mm daughterboard over **SPI** | Raw 1 kHz data into the ESP32; fusion (Mahony/complementary) on the control loop's own clock → no 50/100 Hz serialisation, no second firmware, ~2 ms latency. |
-| Two Feather LDOs | **One 3.3 V rail** (1 A LDO from 5 V) shared by ESP32 + RP2040 + logic | Ends the LDO fight; the DFR0601 VCC pins see one rail |
-| Off-board Pololu modules | **Buck modules on-board footprints** (Pololu D36V50F5 / D36V28F6 pin-compatible) + protection | Real copper to the loads, one harness less |
+| Two Feather LDOs shorted via the driver ribbon | Each module regulates its own 3.3 V; **one board 3.3 V LDO** feeds sensors, shifters and **the DFR0601 VCC pins** | Ends the LDO fight; no module's 3V3 ever leaves the module |
+| Off-board Pololu modules | **Buck modules on-board footprints** (Pololu D24V50F5 / D24V22F6) + protection | Real copper to the loads, one harness less |
 
-**Why not one MCU?** A bare WROOM-32E has 24 usable GPIO; the body functions need ~14 more than the balance side uses, and the encoder/WS2812/servo timing on the same core as a 100 Hz control loop + BT stack is asking for the jitter we just removed. The RP2040 is $1 and makes the split clean. **Why not ESP32-S3 for the body?** No need for radio there; RP2040 PIO is the better peripheral set.
+**Why not one MCU?** The DevKit has 26 usable GPIO; the body functions need ~14 more than the balance side uses, and the encoder/WS2812/servo timing on the same core as a 100 Hz control loop + BT stack is asking for the jitter we just removed. The RP2350-Zero is $5 and makes the split clean. **Why not ESP32-S3 for the body?** No need for radio there; RP2350 PIO is the better peripheral set.
 
 ---
 
@@ -89,63 +89,77 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  BAT["XT60 in: 12–30 V\n(24 V pack)"] --> F["10 A blade fuse"] --> RPP["Reverse-polarity P-FET\n+ SMBJ33A TVS"] --> VIN
-  VIN --> B5["5 V / 5 A buck\n(Pololu D36V50F5 footprint\nor TPS5450 on-board)"]
-  VIN --> B6["6 V / 3 A buck\n(Pololu D36V28F6 footprint)"]
-  VIN --> BS["Battery sense\n100k/10k + 3.3 V clamp → ADC"]
-  B5 --> R5["+5V_LOGIC\nDFPlayer · encoder · level shifters"]
+  BAT["XT60 in: 12 V 3S4P pack\n(9–12.6 V, 20 A BMS)"] --> F["15 A blade fuse"] --> RPP["Reverse-polarity P-FET\n+ SMBJ15A TVS · 220 µF"] --> VIN
+  VIN --> B5["5 V / 5 A buck\n(Pololu D24V50F5 footprint)"]
+  VIN --> B6["6 V / 2.5 A buck\n(Pololu D24V22F6 footprint)"]
+  VIN --> BS["Battery sense\n47k/10k + 3.3 V clamp → GPIO35"]
+  B5 --> R5["+5V_LOGIC\nDevKit VIN (module diode-OR'd) · RP2350-Zero 5V via SS14\nDFPlayer · encoder · level shifters"]
   B5 --> R5L["+5V_LED  (separate pour, own 1000 µF, 3 A polyfuse)\nshell NeoPixels via slip ring"]
   R5L --> SR["SLIPRING connector\n5V_LED · GND · CHG+ · CHG−"]
   SR --> CHG["CHG+ → 5 A fuse + reverse diode → charger module\nCHG_SENSE divider → ESP32 GPIO39\n(motors locked while charging)"]
-  R5 --> LDO["3.3 V 1 A LDO (AP7361C-33)"] --> R33["+3V3\nESP32 · RP2040 · IMU · pot · hall"]
+  R5 --> LDO["3.3 V 1 A LDO (AP7361C-33)"] --> R33["+3V3 (board rail)\nIMU · pot · hall · shifter LV side\nDFR0601 VCC pins (the ONLY 3.3 V that leaves the board)"]
   B6 --> R6["+6V_SERVO\n2× 62 kg·cm servos, 2.5 mm traces + pour"]
-  USB1["USB-C (ESP32)"] --> OR1["ideal diode LM66100"] --> R5
-  USB2["USB-C (RP2040)"] --> OR2["ideal diode LM66100"] --> R5
+  USBE["DevKit USB (laptop)"] -. "module's own diode-OR\n→ can't back-feed +5V_LOGIC" .- R5
+  USBR["RP2350-Zero USB-C (laptop)"] -. "SS14 blocks back-feed" .- R5
 ```
+
+Both modules make their own 3.3 V on-board (AMS1117 on the DevKit, ME6217 on the Zero) and those outputs are **left unconnected** — the v9.15 LDO-fight bug cannot recur.
 
 - **Copper:** 2 oz outer layers; ground pour both sides with stitching vias every 10 mm; +5V_LOGIC / +5V_LED / +6V_SERVO as pours or ≥ 2.5 mm traces; 2-layer is fine at this density (4-layer optional for a cleaner ground).
 - **Decoupling:** 100 nF at every IC/module pin pair + 10 µF per rail per region; 1000 µF on +5V_LED, 470 µF on +5V_LOGIC, 470 µF on +6V_SERVO, 100 µF on VIN after the TVS.
 - **USB:** each USB-C can power its MCU for bench work; the ideal diodes mean a laptop never back-feeds the buck and the buck never back-feeds the laptop.
 - **Enable / E-stop:** a 2-pin `ESTOP` JST (normally closed loop) read by the ESP32 and ANDed into a hardware `MOTOR_EN` line that holds all DFR0601 PWM inputs low through 10 k pull-downs when open or during reset.
 
-### 4.2 ESP32-WROOM-32E pin map
+### 4.2 ESP-WROOM-32 DevKit pin map — validated against the module's header
 
-Strapping rules respected: GPIO0 = boot button only; GPIO2 free (onboard status LED, output only); **GPIO12 unused**; GPIO15 only as I²C SCL (pulled high = correct strap state); GPIO5 as SPI CS (idle high = correct). 34/35/36/39 are input-only (no internal pull-ups).
+The ELEGOO board is the classic "ESP32 DevKit V1" layout (CP2102, EN + BOOT buttons, blue LED on GPIO2, AMS1117). It ships as **30-pin (2 × 15) or 38-pin (2 × 19)**; both expose every GPIO used below — the 38-pin adds only GPIO0 and extra GNDs. **Confirm the pin count on arrival; the socket footprint differs (30-pin rows are 25.4 mm apart, 38-pin 27.9 mm).** GPIO 6–11 (flash) are not on either header — correct, we don't use them.
 
-| GPIO | Function | Notes |
-|---|---|---|
-| 1 / 3 | UART0 TX/RX → CP2102N | console + flashing; DTR→EN, RTS→IO0 via the standard dual-transistor auto-reset (esptool polarity) |
-| 0 | BOOT button | 10 k pull-up |
-| 2 | status LED | |
-| 4, 16, 17 | DRIVE: PWM, INA, INB | 20 kHz LEDC; 10 k pull-downs at the header |
-| 25, 26, 27 | S2S: PWM, INA, INB | |
-| 32, 33, 14 | FLYWHEEL: PWM, INA, INB | |
-| 18, 19, 23, 5 | IMU SPI: SCK, MISO, MOSI, CS | VSPI; to the IMU JST-SH 6-pin |
-| 21 / 22 | UART2 TX/RX ↔ RP2040 UART0 | 921600 baud, 3.3 V, short on-board trace |
-| 13 / 15 | I²C SDA / SCL (4.7 k pull-ups) | expansion JST + optional AS5600 S2S encoder |
-| 34 | S2S pot wiper | 10 k pot, 1 k series + 100 nF to GND |
-| 35 | battery sense | 100k/10k divider, 3.3 V Zener/BAT54 clamp |
-| 36 | ESTOP loop sense | external 10 k pull-up |
-| 39 | CHG_SENSE (charger present) | divider from CHG+; firmware: charging → drive force-disabled |
+Header order, 30-pin (USB at the bottom): left `EN VP(36) VN(39) 34 35 32 33 25 26 27 14 12 13 GND VIN` · right `3V3 GND 15 2 4 RX2(16) TX2(17) 5 18 19 21 RX0(3) TX0(1) 22 23`.
 
-### 4.3 RP2040 pin map
+Strapping rules respected: BOOT button handles GPIO0 (not on the 30-pin header — fine); GPIO2 carries the module's blue LED (status, output only); **GPIO12 unused**; GPIO15 only as I²C SCL (pulled high = correct strap state); GPIO5 as SPI CS (idle high = correct). 34/35/36/39 are input-only (no internal pull-ups → external resistors).
 
-| GPIO | Function | Notes |
-|---|---|---|
-| 0 / 1 | UART0 TX/RX ↔ ESP32 UART2 | |
-| 4 / 5 | UART1 TX/RX → **DFPlayer** | hardware UART; 1 k series on TX |
-| 6, 7 | dome-tilt servos L / R | PWM slices, 50 Hz, µs resolution |
-| 8, 9, 10 | DOME SPIN: PWM, INA, INB | to DFR0601 ch B |
-| 11, 12 | dome encoder A / B | **PIO quadrature decoder** (no ISR, no torn reads); 5 V encoder → 74LVC245 or BSS138 pair (slow lines, fine) |
-| 13 | hall sensor | 10 k pull-up on board |
-| 14 | body NeoPixel data | **PIO WS2812** → 74AHCT125 (5 V) → 330 Ω → JST |
-| 15 | DFPlayer BUSY | direct, 3.3 V logic — no divider |
-| 16 | status LED | |
-| 20 / 21 | I²C (4.7 k) expansion | |
-| 26 | +5V_LOGIC sense (ADC) | brown-out diagnostics |
-| 27 | audio line-level sense (optional) | |
-| USB | native USB-C | UF2 / serial bootloader; bb8 `upload body` |
-| SWD | 3-pad | debug |
+| GPIO | Header label | Function | Notes |
+|---|---|---|---|
+| 1 / 3 | TX0 / RX0 | UART0 → CP2102 on the module | console + flashing; module's own DTR/RTS auto-reset, standard esptool polarity ✓ |
+| 2 | D2 | status LED (module's blue LED) | |
+| 4, 16, 17 | D4, RX2, TX2 | DRIVE: PWM, INA, INB | 20 kHz LEDC; 10 k pull-downs at the header. (UART2's default pins are repurposed as GPIO — UART2 is re-mapped to 21/22 via the GPIO matrix.) |
+| 25, 26, 27 | D25, D26, D27 | S2S: PWM, INA, INB | |
+| 32, 33, 14 | D32, D33, D14 | FLYWHEEL: PWM, INA, INB | |
+| 18, 19, 23, 5 | D18, D19, D23, D5 | IMU SPI: SCK, MISO, MOSI, CS | VSPI defaults; to the IMU JST-SH 6-pin |
+| 21 / 22 | D21 / D22 | UART2 TX/RX ↔ RP2350-Zero GP1/GP0 | 921600 baud, 3.3 V, short on-board trace; `Serial2.begin(921600, SERIAL_8N1, 22, 21)` |
+| 13 / 15 | D13 / D15 | I²C SDA / SCL (4.7 k pull-ups) | expansion JST + optional AS5600 S2S encoder; SCL pull-up keeps GPIO15 high at boot ✓ |
+| 34 | D34 | S2S pot wiper | 10 k pot, 1 k series + 100 nF to GND |
+| 35 | D35 | battery sense | 47k/10k divider (12.6 V → 2.21 V), BAT54 clamp to 3V3 |
+| 36 | VP | ESTOP loop sense | external 10 k pull-up |
+| 39 | VN | CHG_SENSE (charger present) | divider from CHG+; firmware: charging → drive force-disabled |
+| VIN | VIN | +5V_LOGIC in | module diode-OR's VIN with its USB ✓ |
+| 3V3 | 3V3 | **not connected** | module's AMS1117 powers the module only |
+
+Count: 21 GPIO used of 26 available. Spare on the header: none worth planning on (0 is BOOT, 12 is a strap) — expansion goes through I²C.
+
+### 4.3 RP2350-Zero pin map — validated against the module's edge pins
+
+The Waveshare RP2350-Zero exposes **20 GPIO on its edge**: GP0–GP15 down the two long sides and GP26–GP29 + 5V / GND / 3V3 on the short end (23 pads). **GP16–GP25 exist only as back-side reflow pads** — not used. GP16 also drives the module's on-board WS2812 status LED. Reset and BOOT buttons on the module.
+
+| GP | Function | Peripheral check | Notes |
+|---|---|---|---|
+| 0 / 1 | UART0 TX / RX ↔ DevKit GPIO22 / 21 | UART0 default pins ✓ | 921600; `Serial1` in arduino-pico |
+| 4 / 5 | UART1 TX / RX → DFPlayer RX / TX | UART1 default pins ✓ | hardware UART (`Serial2`); 1 k series on TX |
+| 6, 7 | dome-tilt servos L / R | PWM slice 3A/3B ✓ | 50 Hz, µs resolution |
+| 8, 9, 10 | dome spin PWM / INA / INB | PWM slice 4A + GPIO | to DFR0601 ch B via the keyed ribbon |
+| 11, 12 | dome encoder A / B | **PIO quadrature** (any GPIO) ✓ | 5 V encoder → 74LVC245 (or BSS138 pair) |
+| 13 | hall | GPIO in | 10 k external pull-up (E9: never rely on internal pulls) |
+| 14 | body NeoPixel data | **PIO WS2812** ✓ | → 74AHCT125 → 330 Ω |
+| 15 | DFPlayer BUSY | GPIO in | 3.3 V logic, direct |
+| 26 / 27 | I²C1 SDA / SCL (4.7 k) | I²C1 default pins ✓ | expansion JST |
+| 28 | +5V_LOGIC sense | ADC2 ✓ | 10k/10k divider |
+| 2, 3, 29 | spare | 29 = ADC3 | |
+| GP16 (internal) | on-board RGB status LED | PIO WS2812 | already wired on the module |
+| 5V | +5V_LOGIC in via SS14 | | the Zero has no USB back-feed diode — the SS14 is it |
+| 3V3 | **not connected** | | module's ME6217 powers the module only |
+| USB-C | bb8 `upload body` | | UF2 / picotool via arduino-cli, VID `2E8A` |
+
+Count: 17 GPIO used of 20 on the edge, 3 spare. Not 5 V tolerant — every 5 V signal (encoder, shell-side anything) is shifted. **RP2350 erratum E9:** internal pull-downs leak; every input has an external resistor (hall, encoder, BUSY are all actively driven or externally pulled).
 
 ### 4.4 Connectors (all keyed; JST-XH unless noted)
 
@@ -188,7 +202,7 @@ Firmware: `TrinketM0_MPU_RC4` retires; the ESP32 gets a `Imu` module (ICM-42688 
 
 ## 6. Dome board v10.0
 
-- **ESP32-WROOM-32E** (keeps the ESP-NOW firmware; an ESP32-C3 would work but changes the code) + CP2102N + USB-C.
+- **ELEGOO ESP-WROOM-32 DevKit, socketed** (same module as the drive — one BOM line, one footprint; keeps the ESP-NOW firmware). Its own CP2102 + USB for bb8.
 - **Power — the dome is not wired to anything** (it rides the shell on magnets), so it is a battery product:
   - **1S LiPo 2500–3000 mAh** on a JST-PH; **USB-C charging at 1 A** (BQ24075 or MCP73831 at 500 mA) with charge/done LEDs; **MAX17048 fuel gauge** on I²C so the drive can show dome battery % in telemetry (today's `A13` divider read becomes a real gauge).
   - **NeoPixels run straight from VBAT** (3.7–4.2 V): 3.3 V data ≥ 0.7 × VBAT, so no level shifter and no boost are needed — v8.2's "5V = VBAT" jumpers were accidentally right. 330 Ω series per data line, 1000 µF on the LED rail, 3.3 V LDO (AP2112K, low IQ) for the ESP32. Budget: ESP32 + 5 pixels ≈ 150–250 mA → 10+ h; deep sleep < 1 mA.
@@ -205,10 +219,10 @@ Firmware: `TrinketM0_MPU_RC4` retires; the ESP32 gets a `Imu` module (ICM-42688 
 | Board | Change |
 |---|---|
 | drive (ESP32) | pin table; IMU module (SPI + fusion) replaces `receiveFromTrinket`; link to body → UART2 at 921600; `MOTOR_EN` + ESTOP handling; battery telemetry from GPIO35 |
-| body (RP2040, new sketch `RP2040_BODY_RC5`) | port of `32U4_DRIVE_RC4`: Servo → `Servo`/PWM; encoder → PIO quadrature; NeoPixel → PIO; DFPlayer → `Serial1`; EEPROM → LittleFS/`EEPROM` emulation; same serial command set + banner so bb8 and the runbook stay valid |
+| body (RP2350-Zero, new sketch `RP2350_BODY_RC5`) | port of `32U4_DRIVE_RC4`: Servo → `Servo`/PWM; encoder → PIO quadrature; NeoPixel → PIO; DFPlayer → `Serial1`; EEPROM → LittleFS/`EEPROM` emulation; same serial command set + banner so bb8 and the runbook stay valid |
 | imu | retired |
 | dome | pin table (HP → 14), wake GPIO, sensor hooks |
-| bb8 | `targets.json`: body → `rp2040:rp2040:rpipico` (or the custom board), VID `2E8A`; upload via picotool/UF2 handled by arduino-cli |
+| bb8 | `targets.json`: body → `rp2040:rp2040:waveshare_rp2350_zero`, VID `2E8A`; drive/dome → `esp32-bluepad32:esp32:esp32` (DevKit), VID `10C4`; upload via arduino-cli (picotool/UF2 for the Zero) |
 
 The protocol between drive and body stays SerialTransfer with the same structs, so the transition can happen one board at a time.
 
@@ -218,9 +232,9 @@ The protocol between drive and body stays SerialTransfer with the same structs, 
 
 | Item | Part | ≈ $ |
 |---|---|---|
-| Main MCU | ESP32-WROOM-32E (8 MB) | 3 |
-| Body MCU | RP2040 + W25Q16 + 12 MHz crystal | 2 |
-| USB-UART | CP2102N ×2 (main, dome) | 4 |
+| Main MCU | ELEGOO ESP-WROOM-32 DevKit ×2 (drive + dome, socketed) | 16 |
+| Body MCU | Waveshare RP2350-Zero (socketed) | 5 |
+| USB-UART | on the DevKits | — |
 | IMU | ICM-42688-P | 4 |
 | Bucks | Pololu D36V50F5 (5 V 5 A), D36V28F6 (6 V 2.7 A) | 20 + 12 |
 | LDOs | AP7361C-33 ×2 | 1 |
@@ -268,7 +282,7 @@ None of these change firmware.
 | 0 | §9 bodges on the current boards (unblocks field testing now) |
 | 1 | KiCad schematics for all three boards from this spec; design review against the v9.15 netlist |
 | 2 | Layout (2 oz), DRC, 5-piece prototype order |
-| 3 | `RP2040_BODY_RC5` firmware port + ESP32 IMU module, bench-tested on dev boards before PCBs arrive |
+| 3 | `RP2350_BODY_RC5` firmware port + ESP32 IMU module, bench-tested on dev boards before PCBs arrive |
 | 4 | Bring-up with bb8 (stamps, banners, tune, pair unchanged), then one-board-at-a-time swap into the droid |
 
 ---
@@ -300,26 +314,11 @@ What *not* to chase: more ESP32 UARTs. The classic ESP32 has exactly 3 (UART0 co
 
 **Pack: 12 V / 12 A.** Socketed modules: **Waveshare RP2350-Zero** (body) and **ELEGOO ESP-WROOM-32 38-pin DevKit** (drive and dome). Board kept as small as possible; copper and ground done properly.
 
-### 13.1 RP2350-Zero body pin map (edge pins only — GP16–25 are back-side reflow pads)
+### 13.1 RP2350-Zero body pin map
 
-| GP | Function | Notes |
-|---|---|---|
-| 0 / 1 | UART0 TX/RX ↔ ESP32 | 921600 |
-| 4 / 5 | UART1 TX/RX → DFPlayer | hardware UART; 1 k series on TX |
-| 6, 7 | dome-tilt servos L / R | PWM |
-| 8, 9, 10 | dome spin PWM / INA / INB | to DFR0601 ch B |
-| 11, 12 | encoder A / B (PIO quadrature) | 5 V → 3.3 V via 74LVC245 (or BSS138 pair) |
-| 13 | hall | 10 k external pull-up |
-| 14 | body NeoPixel data (PIO) | → 74AHCT125 → 330 Ω |
-| 15 | DFPlayer BUSY | 3.3 V logic, direct |
-| 26 / 27 | I²C1 SDA / SCL (4.7 k) | expansion |
-| 28 | +5V_LOGIC sense (ADC) | |
-| 2, 3, 29 | spare | |
-| GP16 | on-board RGB LED | status (already wired on the module) |
+See §4.3 (validated against the module edge pins).
 
-Rules: RP2350 **erratum E9** — internal pull-downs leak; every input has an external resistor. Not 5 V tolerant. Feed its 5V pin from +5V_LOGIC through an ideal diode / SS14 (the Zero has no USB back-feed protection). `arduino-pico` board `waveshare_rp2350_zero`; bb8 `targets.json`: `rp2040:rp2040:waveshare_rp2350_zero`, VID `2E8A`.
-
-### 13.2 ESP-WROOM-32 DevKit (38-pin) for drive and dome
+### 13.2 ESP-WROOM-32 DevKit for drive and dome (pin map in §4.2)
 
 - All GPIO of the §4 / §6 pin maps are on the headers (incl. 34/35/36/39).
 - Standard esptool auto-reset polarity (EN ← RTS, IO0 ← DTR) — bb8's port-open reset behaves.
