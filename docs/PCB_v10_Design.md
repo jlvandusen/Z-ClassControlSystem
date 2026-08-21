@@ -153,7 +153,8 @@ The Waveshare RP2350-Zero exposes **20 GPIO on its edge**: GP0–GP15 down the t
 | 15 | DFPlayer BUSY | GPIO in | 3.3 V logic, direct |
 | 26 / 27 | I²C1 SDA / SCL (4.7 k) | I²C1 default pins ✓ | expansion JST |
 | 28 | +5V_LOGIC sense | ADC2 ✓ | 10k/10k divider |
-| 2, 3, 29 | spare | 29 = ADC3 | |
+| 2 | MAX9744 SHDN (amp mute) | GPIO out | low at boot = silent, no pop |
+| 3, 29 | spare | 29 = ADC3 | |
 | GP16 (internal) | on-board RGB status LED | PIO WS2812 | already wired on the module |
 | 5V | +5V_LOGIC in via SS14 | | the Zero has no USB back-feed diode — the SS14 is it |
 | 3V3 | **not connected** | | module's ME6217 powers the module only |
@@ -175,8 +176,7 @@ Count: 17 GPIO used of 20 on the edge, 3 spare. Not 5 V tolerant — every 5 V s
 | `NEOPIX` | 3-pin | 5V_LED / GND / DATA |
 | `SLIPRING` | 4-pin JST-VH (3.96 mm) | 5V_LED / GND / CHG+ / CHG− — 5 V out to the shell lights; charge input from the shell-mounted port back to the charger |
 | `CHARGER` | 2-pin XT30 | CHG+ / CHG− pass-through (fused, reverse-blocked) to the pack charger module |
-| `AUDIO_OUT` | 2-pin screw | SPK+ / SPK− (DFPlayer bridged) |
-| `AUDIO_AUX` | 3-pin | L / GND / R (DAC line out to the external amp) |
+| `SPK_L`, `SPK_R` | 2-pin JST-VH each | MAX9744 bridge-tied outputs (never grounded) — see §17 |
 | `ESTOP` | 2-pin | normally-closed loop |
 | `I2C_EXP` ×2 | 4-pin (Qwiic-compatible JST-SH optional) | 3V3 / GND / SDA / SCL |
 | `USB_ESP`, `USB_RP` | USB-C | |
@@ -240,7 +240,7 @@ The protocol between drive and body stays SerialTransfer with the same structs, 
 | LDOs | AP7361C-33 ×2 | 1 |
 | Level shift | 74AHCT125 ×2, 74LVC245 | 2 |
 | Protection | fuse holder, SI2309 P-FET, SMBJ33A, LM66100 ×3 | 5 |
-| Audio | DFPlayer Mini | 3 |
+| Audio | DFPlayer Mini + MAX9744 amp + passives | 8 |
 | Connectors | XT60, shrouded 2×5 ×2, JST-XH kit, JST-SH ×3, USB-C ×3 | 10 |
 | Passives / caps | | 8 |
 | PCBs (3 boards, 2 oz, 5 pcs) | JLC/PCBWay | 25 |
@@ -270,7 +270,7 @@ None of these change firmware.
 2. ~~IMU mounting spot~~ **Answered:** the IMU sits on **top of the frame at the front or back**, aligned to the pitch/roll axes; the frame itself is tilted by swinging the lower flywheel mass for S2S. Consequences: cable run from the mainboard ≈ 15–30 cm → **SPI at 1 MHz with 33 Ω series terminations over a shielded 6-wire cable is fine** (1 kHz × 14 bytes is trivial bandwidth); BNO085-RVC stays the DNP fallback only if the run exceeds ~40 cm. Because the sensor is **off the pitch axis**, frame rotation adds centripetal/tangential acceleration to the accel channels — fusion must be **gyro-dominant** (Mahony/complementary with a low accel weight, τ ≈ 1–2 s), and the mounting position must be entered as a lever-arm so the firmware can subtract it. Mount as close to the pitch axis as the frame allows; a 20 × 20 mm board with 4× M2.5 makes that easy.
 3. **Pack voltage** — commit to 24 V (bucks are sized for it) or keep a 12 V option?
 4. ~~S2S position sensing~~ **Proposed: AS5600 on the tilt pivot** (§16) with the pot kept as a wiring-compatible fallback. Confirm the pivot end has clearance for a 6 mm magnet cap + the breakout.
-5. **Audio** — keep DFPlayer + external amp, or integrate a MAX98357A I²S amp on the board and drop the amp?
+5. ~~Audio~~ **Decided: on-board MAX9744 I²C class-D amp fed by the DFPlayer** (§17); external amp, isolator and 9 V feed deleted.
 6. Board outline / mounting pattern — same 116 × 63 mm with the 4 holes at the current coordinates, or free to change?
 
 ---
@@ -413,3 +413,33 @@ The flywheel area is the pendulum mass the S2S swings left/right to steer.
 - `DIR` pin strapped so counts increase toward right tilt (else `REVERSE_S2S`). 3.3 V supply. Connector: JST-XH 5-pin (3V3 · GND · OUT · SDA · SCL) replacing `S2S_POT`; the pot stays usable on the same OUT pin as a fallback.
 
 **Firmware:** no change in the control loop; `cfg calibrate s2s` still finds centre; `pref innerkp` rescales for the 4× counts (≈ 0.9 → 0.25 PWM/count) — or the firmware normalises counts to degrees and the gain stays in PWM/deg.
+
+---
+
+## 17. On-board audio — DFPlayer source + MAX9744 I²C class-D amp
+
+Decision: bring the amplifier onto the mainboard; drop the external amp, its 12 V feed, the 3.5 mm cable and the ground-loop isolator from the BOM.
+
+```
+DFPlayer Mini (SD card, MP3)  ──DAC_L/R──►  MAX9744  ──BTL──►  SPK_L / SPK_R (transducers, 4–8 Ω)
+   UART1 from RP2350-Zero                   ▲  I²C1 (0x4B) volume 0–63, SHDN on GP2
+                                            └── 12 V from VIN (own 3 A fuse, ferrite, 1000 µF)
+```
+
+| Item | Choice | Why |
+|---|---|---|
+| Amp | **MAX9744** (QFN-44 7 × 7 mm) | 2 × 20 W into 4–8 Ω from 4.5–14 V → runs on the 12 V pack directly, **volume over I²C** (63 steps), filterless class-D, shutdown pin. ≈ $3 + a dozen passives. |
+| Source | DFPlayer Mini, unchanged | SD-card MP3s, `audio scan` diagnostics, seq-numbered sound protocol — nothing to rewrite |
+| Why not I²S + MAX98357A | 3 W mono; decoding MP3 on the RP2350 is a firmware project | Not worth it for a droid that wants to be heard |
+| Why not PAM8403 | 3 W, no volume control | Too small for transducers |
+
+**Wiring**
+- DFPlayer `DAC_L` / `DAC_R` → 1 µF → MAX9744 `INL+` / `INR+`; `INL−` / `INR−` → DFPlayer GND at a single star point (this is what the isolator was papering over).
+- Outputs are **bridge-tied**: `SPK_L±`, `SPK_R±` on two 2-pin JST-VH, never grounded. Keep the BTL traces ≥ 1 mm, short, away from the IMU cable and the pot/AS5600 input.
+- `SHDN` ← RP2350 **GP2**: held low at boot (no pop), released 200 ms after the DFPlayer initialises; firmware mutes on `silent` mode and on fault.
+- `VDD` from **VIN** (not the 5 V rail — keep amp current off the logic buck): 3 A fuse, ferrite bead, 1000 µF + 10 µF + 100 nF at the pins. Ground pour under the QFN thermal pad with a via array (the 2 oz pour is the heatsink).
+- I²C1 shared with the expansion header (GP26/27); address 0x4B fixed.
+
+**Firmware** (`RP2350_BODY_RC5`): keep the DFPlayer at a fixed high level (≈ 25/30) for best SNR and map `vol <0-30>` / the pad's volume buttons onto the MAX9744 (0–63) over I²C; `audio status` reports amp present/ muted. `silentMode` → SHDN.
+
+**Connector changes (§4.4):** `AUDIO_OUT` and `AUDIO_AUX` are replaced by `SPK_L` and `SPK_R` (2-pin JST-VH each). A line-level test point pair stays for scoping.
