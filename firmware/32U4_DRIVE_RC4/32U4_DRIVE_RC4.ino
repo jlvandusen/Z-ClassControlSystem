@@ -288,10 +288,22 @@ void loop() {
   handleSerialCommands();
   printDebugInfo();
 
-  // Drain DFPlayer responses to prevent buffer overflow
+  // Drain DFPlayer responses — RC4.1: surface errors instead of eating
+  // them (a missing track number used to fail in total silence)
   while (mp3.available()) {
-      mp3.readType();
-      mp3.read();
+      uint8_t type = mp3.readType();
+      int value = mp3.read();
+      if (type == DFPlayerError) {
+          Serial.print(F("[AUDIO] DFPlayer ERROR "));
+          switch (value) {
+              case Busy:             Serial.println(F("(busy / no SD card)")); break;
+              case FileIndexOut:
+              case FileMismatch:     Serial.println(F("(TRACK FILE NOT FOUND on SD)")); break;
+              case SerialWrongStack:
+              case CheckSumNotMatch: Serial.println(F("(serial noise)")); break;
+              default: Serial.println(value); break;
+          }
+      }
   }
 
   // RC4: reply at 20 Hz, not every loop iteration

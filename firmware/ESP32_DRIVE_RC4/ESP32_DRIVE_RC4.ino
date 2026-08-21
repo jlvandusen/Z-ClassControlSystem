@@ -143,6 +143,11 @@ const uint32_t IMU_STALE_MS = 500;              // autoBalance cutoff on IMU los
 float s2sInnerKp = 0.9f;                        // PWM per pot count
 float maxJoyDrivePwm = 255.0f;                  // joystick drive authority
 
+// RC4.1: state-feedback tracks, runtime-configurable ('pref sndon/sndoff')
+// in case a track file is missing from the SD card
+int soundDriveOn = 60;
+int soundDriveOff = 61;
+
 // ------------------- PWM CONFIG -------------------
 const int PWM_FREQ = 20000;
 const int PWM_RES = 8;
@@ -554,7 +559,7 @@ void onDisconnectedGamepad(GamepadPtr gp) {
       autoBalance = false;
       domeFunctionEnabled = false;
       Serial.println(F("[SAFETY] Drive controller lost — drive DISABLED"));
-      sendSoundCommand(Coms32u4, sendTo32u4, SOUND_DRIVE_DISABLED);
+      sendSoundCommand(Coms32u4, sendTo32u4, soundDriveOff);
     }
   }
   if (wasDome) {
@@ -915,7 +920,7 @@ void toggleDriveEnabled() {
   // 60 = enabled, 61 = disabled. Fired from the state change itself so
   // CIRCLE, PS, force-disable and controller-loss all sound consistent.
   sendSoundCommand(Coms32u4, sendTo32u4,
-                   driveEnabled ? SOUND_TOGGLE_DRIVE : SOUND_DRIVE_DISABLED);
+                   driveEnabled ? soundDriveOn : soundDriveOff);
 }
 
 void handleControllerCombos() {
@@ -948,7 +953,7 @@ void handleControllerCombos() {
           autoBalance = false;
           domeFunctionEnabled = false;
           Serial.println(F("[TOGGLE] Drive FORCE-DISABLED (PS held 2s)"));
-          sendSoundCommand(Coms32u4, sendTo32u4, SOUND_DRIVE_DISABLED);
+          sendSoundCommand(Coms32u4, sendTo32u4, soundDriveOff);
         }
       }
     } else {
