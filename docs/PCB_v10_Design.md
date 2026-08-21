@@ -341,24 +341,35 @@ Size target: ~85 × 60 mm, 2-layer 2 oz. Biggest single space saver if needed la
 
 ---
 
-## 14. Battery (12 V pack in the flywheel area) — pending listing specs
+## 14. Battery — DCZ12-12A, 12 V 12 Ah Li-ion 3S4P (eBay 800431024412)
 
-Candidate: eBay item 800431024412 (12 V). Fill in once the item-specifics are known: chemistry · Ah · BMS continuous / peak discharge · charge current · dimensions / weight · connector.
+| Spec (listing) | Value | Design consequence |
+|---|---|---|
+| Chemistry / config | Li-ion **3S4P**, 9–12.6 V, 144 Wh, > 1000 cycles | Charger = 12.6 V CC/CV 3S. Sense divider 47k/10k → 2.21 V at 12.6 V. |
+| **BMS** | **20 A max** (label: 15 A output) | **The constraint** — see 14.2. |
+| Charger | 12.6 V **1 A** (9 h) | Slip-ring charge path ≤ 1 A is trivial; a 12.6 V 2–3 A charger halves the time on the same BMS. |
+| Size / weight | 80 × 66 × 60 mm, 540 g | Fits the flywheel carriage flat and centred. |
+| Output | bare wires | Crimp **XT60**; **20 A ATO fuse holder** on the + lead at the pack (board fuse 15 A stays below it). |
+| Runtime (est.) | 6–8 h idle balancing · **2–3 h active driving** (4–6 A avg) | |
 
-### 14.1 What the chemistry decides
+**Firmware:** warn at 10.2 V (3.4 V/cell), **force-disable drive at 9.6 V** (3.2 V/cell) — before the BMS cuts power abruptly mid-balance. `pref lowbat 9.6`.
+
+### 14.1 If the pack ever changes — what the chemistry decides
 
 | If it is… | Full / empty | Consequence for v10 |
 |---|---|---|
-| **LiFePO4 4S** (12.8 V nom.) | 14.6 / 10.0 V | Safest, flat curve, 2000+ cycles. Charger = 14.6 V CC/CV LiFePO4 type. Sense divider 47k/10k → 2.56 V at 14.6 V. Low-battery cutoff ≈ 11.0 V. |
-| **Li-ion 3S** (11.1 V nom.) | 12.6 / 9.0 V | Lightest. Charger = 12.6 V 3S. Sags near empty — firmware low-battery cutoff ≈ 9.6 V (drive force-disabled, sound + dome warning). |
-| **SLA / AGM** | 13.8 / 10.5 V | Heavy (lower CG, not all bad), no BMS; 13.8 V float charger. |
+| **Li-ion 3S** (this pack) | 12.6 / 9.0 V | Charger 12.6 V 3S; cutoff 9.6 V. |
+| **LiFePO4 4S** (12.8 V nom.) | 14.6 / 10.0 V | Charger 14.6 V LiFePO4 type; sense 2.56 V at full; cutoff ≈ 11.0 V. |
+| **SLA / AGM** | 13.8 / 10.5 V | 13.8 V float charger; no BMS. |
 
-### 14.2 The numbers that must check out
+### 14.2 The 20 A BMS is the one number to respect
 
-1. **BMS continuous discharge ≥ 20 A, peak ≥ 40 A (1–2 s).** Flywheel spin-up + a drive reversal on two DFR0601 channels exceeds 12 A; a 15 A BMS trips mid-move (droid goes limp → falls).
-2. **Charge current** sizes the slip-ring charge path (§13.3 assumes ≤ 5 A; > 2.5 A → parallel two rings for CHG+).
-3. **Connector** — spec uses XT60; match whatever the pack ships with or re-terminate.
-4. **Firmware:** battery voltage already rides telemetry (`bat`); add `pref lowbat <V>` → drive force-disable + warning sound below it, and a charging lock from `CHG_SENSE`.
+At 12 V the motors stall at ≈ 9 A (drive, flywheel — ServoCity 5202/5203 class), ≈ 11.5 A (NeveRest dome), ≈ 3–5 A (S2S worm), plus ≈ 3 A of servo + logic draw reflected to 12 V. A **flywheel spin-up during a drive reversal can exceed 20 A → the BMS opens instantly → the balance loop loses power → the droid falls.** That is the failure mode of this pack in this robot, so it gets designed out twice:
+
+1. **Firmware power governor** (valid for the current droid too — same motors): estimated draw = Σ (PWM fraction × stall current) per channel; above ≈ 14 A scale the **flywheel first, then dome spin**, never the balance channels; flywheel spin-up gets its own slew limit. Telemetry field `amps` (estimated) and a `[POWER] governed` event.
+2. **Second identical pack in parallel** when space allows: 40 A of BMS headroom, 24 Ah, 1.08 kg on the pendulum (more steering authority too). Join only at equal voltage (both full).
+
+Other checks: charge current 1–3 A → a single slip-ring circuit is fine; CHG+ → 3 A fuse → **directly to pack +** (common-port BMS — no series diode, or the 12.6 V CV phase ends 0.4 V short); reverse protection by the keyed barrel/XT30 at the shell, or an LM74610 ideal-diode controller (≈ 0 V drop).
 
 ### 14.3 Placement in the flywheel carriage — it changes the physics, mostly for the better
 
