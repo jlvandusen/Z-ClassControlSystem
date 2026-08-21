@@ -8,7 +8,7 @@ Net naming: power rails start with '+', 'GND' is ground, 'NC' = no-connect.
 
 # ---------------------------------------------------------------- modules
 DEVKIT_LEFT  = ["EN","VP","VN","D34","D35","D32","D33","D25","D26","D27","D14","D12","D13","GND","VIN"]
-DEVKIT_RIGHT = ["3V3","GND","D15","D2","D4","RX2","TX2","D5","D18","D19","D21","RX0","TX0","D22","D23"]
+DEVKIT_RIGHT = ["D23","D22","TX0","RX0","D21","D19","D18","D5","TX2","RX2","D4","D2","D15","GND","3V3"]  # top=antenna end, bottom=USB end
 DEVKIT_NETS = {
     "EN":"NC", "VP":"ESTOP_SENSE", "VN":"CHG_SENSE", "D34":"S2S_POS", "D35":"VBAT_SENSE",
     "D32":"FLY_PWM", "D33":"FLY_INA", "D25":"S2S_PWM", "D26":"S2S_INA", "D27":"S2S_INB",
@@ -76,7 +76,7 @@ A(dict(ref="U5", value="AP7361C-33 3.3V LDO", kind="ic3", fp="Package_TO_SOT_SMD
 # ---- protection / input
 A(dict(ref="J1", value="XT60PW", kind="connector", fp="ZCLASS:XT60PW",
        at=(-27, -31), rot=0, side="F", pins=[(1,"+","BAT+"),(2,"-","GND")]))
-A(dict(ref="F1", value="15A blade fuse", kind="fuse", fp="ZCLASS:Fuse_Mini_Blade",
+A(dict(ref="F1", value="10A blade fuse", kind="fuse", fp="ZCLASS:Fuse_Mini_Blade",
        at=(-13, -26.5), rot=0, side="F", pins=[(1,"1","BAT+"),(2,"2","BAT_F")]))
 A(dict(ref="Q1", value="SQJ431EP P-FET RPP", kind="ic3", fp="Package_SO:PowerPAK_SO-8_Single",
        at=(-1, -26), rot=0, side="F", pins=[(1,"S","BAT_F"),(2,"D","VIN"),(3,"G","GND")]))
@@ -214,3 +214,18 @@ SCH_COMPANY = "Z-Class Control System - James VanDusen"
 SCH_COMMENTS = ["Special thanks to Mimir Reynisson, Greg Bellows and Joe Latiola",
                 "Generated from hardware/netlist/mainboard.py - edit the netlist, not this file",
                 "Modules: ESP-WROOM-32 DevKit, RP2350-Zero, DFPlayer Mini, Pololu D24V50F5 / D24V22F6, MAX9744 amp module"]
+
+# ---------------------------------------------------------------- rule areas / netclasses
+# DevKit antenna end = top of the module (EN / D23 end): no copper on either layer under it.
+KEEPOUTS = [  # (x0, y0, x1, y1, name)  KiCad coords, +y up
+    (22.5, 19.0, 51.5, 36.0, "ESP32 antenna keep-out - no copper, no pour"),
+]
+# Trace widths for 2 oz outer copper (IPC-2221, ~10 C rise): 3.0 mm ~ 6 A, 2.0 mm ~ 4.5 A, 1.0 mm ~ 2.6 A
+NETCLASSES = [
+    # name, clearance, track, via dia, via drill, patterns
+    ("Default",  0.20, 0.30, 0.8, 0.4, []),
+    ("Power",    0.30, 3.00, 1.6, 0.8, ["VIN", "BAT*", "+5V_LOGIC", "+5V_LED", "+6V_SERVO", "AMP_12V*", "CHG*", "RP_5V"]),
+    ("Audio",    0.25, 1.00, 1.0, 0.5, ["SPK_*"]),
+    ("Motor",    0.25, 0.50, 0.8, 0.4, ["*_PWM", "*_INA", "*_INB", "SERVO_*"]),
+]
+GND_VIA_PITCH = 9.0   # mm stitching grid

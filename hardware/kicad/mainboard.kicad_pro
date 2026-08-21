@@ -28,24 +28,74 @@
       {
         "name": "Default",
         "clearance": 0.2,
-        "track_width": 0.25,
+        "track_width": 0.3,
         "via_diameter": 0.8,
-        "via_drill": 0.4
+        "via_drill": 0.4,
+        "bus_width": 12,
+        "diff_pair_gap": 0.25,
+        "diff_pair_via_gap": 0.25,
+        "diff_pair_width": 0.2,
+        "line_style": 0,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)",
+        "wire_width": 6
       },
       {
         "name": "Power",
         "clearance": 0.3,
-        "track_width": 1.5,
-        "via_diameter": 1.2,
-        "via_drill": 0.6
+        "track_width": 3.0,
+        "via_diameter": 1.6,
+        "via_drill": 0.8,
+        "bus_width": 12,
+        "diff_pair_gap": 0.25,
+        "diff_pair_via_gap": 0.25,
+        "diff_pair_width": 0.2,
+        "line_style": 0,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)",
+        "wire_width": 6
+      },
+      {
+        "name": "Audio",
+        "clearance": 0.25,
+        "track_width": 1.0,
+        "via_diameter": 1.0,
+        "via_drill": 0.5,
+        "bus_width": 12,
+        "diff_pair_gap": 0.25,
+        "diff_pair_via_gap": 0.25,
+        "diff_pair_width": 0.2,
+        "line_style": 0,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)",
+        "wire_width": 6
+      },
+      {
+        "name": "Motor",
+        "clearance": 0.25,
+        "track_width": 0.5,
+        "via_diameter": 0.8,
+        "via_drill": 0.4,
+        "bus_width": 12,
+        "diff_pair_gap": 0.25,
+        "diff_pair_via_gap": 0.25,
+        "diff_pair_width": 0.2,
+        "line_style": 0,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)",
+        "wire_width": 6
       }
     ],
     "netclass_assignments": {},
     "netclass_patterns": [
-      {
-        "netclass": "Power",
-        "pattern": "+*"
-      },
       {
         "netclass": "Power",
         "pattern": "VIN"
@@ -56,15 +106,47 @@
       },
       {
         "netclass": "Power",
+        "pattern": "+5V_LOGIC"
+      },
+      {
+        "netclass": "Power",
+        "pattern": "+5V_LED"
+      },
+      {
+        "netclass": "Power",
+        "pattern": "+6V_SERVO"
+      },
+      {
+        "netclass": "Power",
         "pattern": "AMP_12V*"
       },
       {
         "netclass": "Power",
-        "pattern": "SPK_*"
+        "pattern": "CHG*"
       },
       {
         "netclass": "Power",
-        "pattern": "CHG*"
+        "pattern": "RP_5V"
+      },
+      {
+        "netclass": "Audio",
+        "pattern": "SPK_*"
+      },
+      {
+        "netclass": "Motor",
+        "pattern": "*_PWM"
+      },
+      {
+        "netclass": "Motor",
+        "pattern": "*_INA"
+      },
+      {
+        "netclass": "Motor",
+        "pattern": "*_INB"
+      },
+      {
+        "netclass": "Motor",
+        "pattern": "SERVO_*"
       }
     ]
   },

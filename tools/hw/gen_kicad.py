@@ -461,6 +461,42 @@ def write_pcb(m, outbase, outline_dxf, origin=(150.0, 150.0)):
     for (tx, ty, sz, text) in getattr(m, "BOARD_TEXT_BACK", []):
         px, py = P2(tx, ty); text = text.replace("${GIT}", git).replace("${DATE}", today)
         L.append(f'  (gr_text {q(text)} (at {px:.3f} {py:.3f} 0) (layer "B.SilkS") (uuid {q(U("btxt", text))}) (effects (font (size {sz} {sz}) (thickness {sz*0.15:.2f})) (justify mirror)))')
+    # copper keep-out rule areas (antenna etc.)
+    for (x0, y0, x1, y1, name) in getattr(m, "KEEPOUTS", []):
+        a, b = P2(x0, y0), P2(x1, y1)
+        L.append(f'  (zone (net 0) (net_name "") (layers "F&B.Cu") (uuid {q(U("keepout", name))}) (name {q(name)}) (hatch edge 0.5)'
+                 f' (keepout (tracks not_allowed) (vias not_allowed) (pads allowed) (copperpour not_allowed) (footprints allowed))'
+                 f' (polygon (pts (xy {a[0]:.3f} {a[1]:.3f}) (xy {b[0]:.3f} {a[1]:.3f}) (xy {b[0]:.3f} {b[1]:.3f}) (xy {a[0]:.3f} {b[1]:.3f}))))')
+    # GND stitching vias on a grid, inside the outline, clear of footprints / axle / keep-outs
+    pitch = getattr(m, "GND_VIA_PITCH", 0)
+    if pitch:
+        def inside_poly(x, y):
+            c = False; n = len(pts)
+            for i in range(n):
+                x0, y0 = pts[i]; x1, y1 = pts[(i + 1) % n]
+                if (y0 > y) != (y1 > y) and x < (x1 - x0) * (y - y0) / (y1 - y0) + x0: c = not c
+            return c
+        occupied = []
+        for c in comps:
+            w, h = courtyard_size(c["fp"])
+            if c.get("rot", 0) in (90, 270): w, h = h, w
+            occupied.append((c["at"][0], c["at"][1], w + 2.0, h + 2.0))
+        for (x0, y0, x1, y1, name) in getattr(m, "KEEPOUTS", []):
+            occupied.append(((x0 + x1) / 2, (y0 + y1) / 2, abs(x1 - x0), abs(y1 - y0)))
+        n_vias = 0
+        gx = -60.0
+        while gx < 110.0:
+            gy = -60.0
+            while gy < 60.0:
+                ok = inside_poly(gx, gy) and math.hypot(gx, gy) > m.AXLE_KEEPOUT_R + 3.0
+                ok = ok and all(inside_poly(gx + dx, gy + dy) for dx, dy in ((2.5, 0), (-2.5, 0), (0, 2.5), (0, -2.5)))
+                if ok and not any(abs(gx - ox_) < w / 2 and abs(gy - oy_) < h / 2 for ox_, oy_, w, h in occupied):
+                    vx, vy = P2(gx, gy)
+                    L.append(f'  (via (at {vx:.3f} {vy:.3f}) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net {netnum["GND"]}) (uuid {q(U("gv", gx, gy))}))')
+                    n_vias += 1
+                gy += pitch
+            gx += pitch
+        sys.stderr.write(f"[pcb] {n_vias} GND stitching vias\n")
     # GND pours both sides
     for layer in ("F.Cu", "B.Cu"):
         L.append(f'  (zone (net {netnum["GND"]}) (net_name "GND") (layer {q(layer)}) (uuid {q(U("zone", layer))}) (hatch edge 0.5)'
@@ -471,16 +507,19 @@ def write_pcb(m, outbase, outline_dxf, origin=(150.0, 150.0)):
         f.write("\n".join(L) + "\n")
     return netnum
 
-def write_project(outbase):
+def write_project(outbase, m=None):
+    NETCLASSES = getattr(m, "NETCLASSES", [("Default", 0.2, 0.3, 0.8, 0.4, [])])
     pro = {"board": {"design_settings": {"rules": {"min_clearance": 0.15, "min_track_width": 0.2, "min_via_diameter": 0.6, "min_via_drill": 0.3}},
                      "layer_presets": [], "viewports": []},
            "boards": [], "cvpcb": {"equivalence_files": []}, "libraries": {"pinned_footprint_libs": [], "pinned_symbol_libs": []},
            "meta": {"filename": os.path.basename(outbase) + ".kicad_pro", "version": 1},
-           "net_settings": {"classes": [{"name": "Default", "clearance": 0.2, "track_width": 0.25, "via_diameter": 0.8, "via_drill": 0.4},
-                                        {"name": "Power", "clearance": 0.3, "track_width": 1.5, "via_diameter": 1.2, "via_drill": 0.6}],
-                            "netclass_assignments": {}, "netclass_patterns": [
-                                {"netclass": "Power", "pattern": "+*"}, {"netclass": "Power", "pattern": "VIN"}, {"netclass": "Power", "pattern": "BAT*"},
-                                {"netclass": "Power", "pattern": "AMP_12V*"}, {"netclass": "Power", "pattern": "SPK_*"}, {"netclass": "Power", "pattern": "CHG*"}]},
+           "net_settings": {"classes": [{"name": n, "clearance": cl, "track_width": tw, "via_diameter": vd, "via_drill": vdr,
+                                         "bus_width": 12, "diff_pair_gap": 0.25, "diff_pair_via_gap": 0.25, "diff_pair_width": 0.2,
+                                         "line_style": 0, "microvia_diameter": 0.3, "microvia_drill": 0.1, "pcb_color": "rgba(0, 0, 0, 0.000)",
+                                         "schematic_color": "rgba(0, 0, 0, 0.000)", "wire_width": 6}
+                                        for (n, cl, tw, vd, vdr, pats) in NETCLASSES],
+                            "netclass_assignments": {},
+                            "netclass_patterns": [{"netclass": n, "pattern": pat} for (n, cl, tw, vd, vdr, pats) in NETCLASSES for pat in pats]},
            "pcbnew": {"page_layout_descr_file": ""}, "schematic": {"legacy_lib_dir": "", "legacy_lib_list": []},
            "sheets": [], "text_variables": {}}
     with open(outbase + ".kicad_pro", "w", encoding="utf-8") as f:
@@ -495,7 +534,7 @@ def main():
     outline = os.path.join(os.path.dirname(outbase), "board_outline_draft.dxf")
     write_schematic(m, outbase, project)
     netnum = write_pcb(m, outbase, outline)
-    write_project(outbase)
+    write_project(outbase, m)
     libs = sum(1 for c in m.COMPONENTS if find_lib_footprint(c["fp"]))
     print(f"wrote {outbase}.kicad_sch / .kicad_pcb / .kicad_pro — {len(m.COMPONENTS)} parts, {len(netnum)} nets, "
           f"{libs} library footprints embedded, {len(m.COMPONENTS) - libs} generated")
