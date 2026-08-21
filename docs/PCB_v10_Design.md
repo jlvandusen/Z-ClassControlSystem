@@ -58,7 +58,7 @@ flowchart LR
     ICM["ICM-42688-P\n(SPI, 1 kHz)"]
   end
   subgraph DOME["DOME v10"]
-    DESP["ESP32-WROOM-32E\nESP-NOW · 5× NeoPixel via 74AHCT125\nsensors header"]
+    DESP["ESP32-WROOM-32E\nESP-NOW · 5× NeoPixel from VBAT\nreed/motion wake · fuel gauge · sensors"]
   end
   PADS -. BT .-> ESP
   ICM -- "SPI, shielded 4-wire" --> ESP
