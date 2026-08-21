@@ -1,2 +1,2 @@
 @echo off
-"%~dp0binb8.exe" %*
+"%~dp0bin\bb8.exe" %*
