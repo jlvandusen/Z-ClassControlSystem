@@ -76,3 +76,18 @@ then screws to the casing, components facing the cover; the 3 mm wall keeps the 
    14 mm (teardrop) / 34 mm (lobe).
 4. **PCB bosses in the empty casing: approved.** KiCad fixes the four positions; the casing model gets
    Ø 6 × 5 mm bosses with M3 heat-set inserts at those coordinates.
+
+## PCB boss positions for the empty-casing model (from the KiCad placement, 2026-08-21)
+
+Bosses: Ø 6 mm, 5 mm tall, M3 heat-set insert, on the casing's inner face at X ≈ −62 (the frame-plate
+side), i.e. the board sits at the bottom of the 18 mm teardrop zone with components facing the cover.
+
+| Boss | KiCad (x,y) mm, origin = axle | Casing STL frame Y, Z (mm) | Note |
+|---|---|---|---|
+| H1 | (−42, 24) | Y −36.44, Z 184.90 | lobe, upper left |
+| H2 | (−42, −24) | Y −36.44, Z 136.90 | lobe, lower left |
+| H3 | (27, 37) | Y 32.56, Z 197.90 | lobe, upper right |
+| H4 | (27, −37) | Y 32.56, Z 123.90 | lobe, lower right |
+| H5 | (95, 0) | Y 100.56, Z 160.90 | tail tip (supports the long tail) |
+
+Mirror Y → −Y if the empty casing is the mirror image of `OutsideGearCasing.stl` about the axle.

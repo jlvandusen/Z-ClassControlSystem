@@ -52,8 +52,8 @@ def lib_symbol(c):
     s = [f'    (symbol {q(name)} (pin_names (offset 1.016)) (exclude_from_sim no) (in_bom yes) (on_board yes)',
          f'      (property "Reference" {q(c["ref"])} (at 0 {h/2 + 1.27:.2f} 0) (effects (font (size 1.27 1.27))))',
          f'      (property "Value" {q(c["value"])} (at 0 {-(h/2 + 1.27):.2f} 0) (effects (font (size 1.27 1.27))))',
-         f'      (property "Footprint" {q(c["fp"])} (at 0 0 0) (effects (font (size 1.27 1.27)) hide yes))',
-         f'      (property "Datasheet" "" (at 0 0 0) (effects (font (size 1.27 1.27)) hide yes))',
+         f'      (property "Footprint" {q(c["fp"])} (at 0 0 0) (effects (font (size 1.27 1.27)) (hide yes)))',
+         f'      (property "Datasheet" "" (at 0 0 0) (effects (font (size 1.27 1.27)) (hide yes)))',
          f'      (symbol {q(c["ref"] + "_0_1")}',
          f'        (rectangle (start {-w/2:.2f} {h/2:.2f}) (end {w/2:.2f} {-h/2:.2f}) (stroke (width 0.254) (type default)) (fill (type background)))',
          f'      )',
@@ -74,8 +74,8 @@ def sch_instance(c, x, y, root_uuid, project):
     out = [f'  (symbol (lib_id {q("ZCLASS:" + c["ref"])}) (at {x:.2f} {y:.2f} 0) (unit 1) (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no) (uuid {q(iu)})',
            f'    (property "Reference" {q(c["ref"])} (at {x:.2f} {y - h/2 - 1.27:.2f} 0) (effects (font (size 1.27 1.27))))',
            f'    (property "Value" {q(c["value"])} (at {x:.2f} {y + h/2 + 1.27:.2f} 0) (effects (font (size 1.27 1.27))))',
-           f'    (property "Footprint" {q(c["fp"])} (at {x:.2f} {y:.2f} 0) (effects (font (size 1.27 1.27)) hide yes))',
-           f'    (property "Datasheet" "" (at {x:.2f} {y:.2f} 0) (effects (font (size 1.27 1.27)) hide yes))']
+           f'    (property "Footprint" {q(c["fp"])} (at {x:.2f} {y:.2f} 0) (effects (font (size 1.27 1.27)) (hide yes)))',
+           f'    (property "Datasheet" "" (at {x:.2f} {y:.2f} 0) (effects (font (size 1.27 1.27)) (hide yes)))']
     for num, nm, net in c["pins"]:
         out.append(f'    (pin {q(num)} (uuid {q(U("pin", c["ref"], num))}))')
     out.append(f'    (instances (project {q(project)} (path {q("/" + root_uuid)} (reference {q(c["ref"])}) (unit 1))))')
@@ -95,7 +95,7 @@ def label_or_nc(net, px, py, ang, ref, num):
     just = "right" if ang == 180 else "left"
     return (f'  (global_label {q(net)} (shape bidirectional) (at {px:.2f} {py:.2f} {ang}) (fields_autoplaced yes)'
             f' (effects (font (size 1.27 1.27)) (justify {just})) (uuid {q(U("lbl", ref, num))})'
-            f' (property "Intersheetrefs" "${{INTERSHEET_REFS}}" (at {px:.2f} {py:.2f} 0) (effects (font (size 1.27 1.27)) hide yes)))')
+            f' (property "Intersheetrefs" "${{INTERSHEET_REFS}}" (at {px:.2f} {py:.2f} 0) (effects (font (size 1.27 1.27)) (hide yes))))')
 
 def write_schematic(m, outbase, project):
     comps = m.COMPONENTS
@@ -127,7 +127,8 @@ def write_schematic(m, outbase, project):
         f.write("\n".join(lines) + "\n")
 
 # ------------------------------------------------------------------ footprints
-KICAD_FP_DIRS = [p for p in glob.glob(r"C:\Program Files\KiCad\*\share\kicad\footprints")]
+KICAD_FP_DIRS = (glob.glob(r"C:\Program Files\KiCad\*\share\kicad\footprints") +
+                 glob.glob(os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "KiCad", "*", "share", "kicad", "footprints")))
 
 class SExpr:
     """Minimal S-expression parser returning nested lists of str."""
@@ -298,6 +299,104 @@ def generic_footprint(c, netnum, x, y, rot, side):
     head = f'  (footprint {q(fp)} (layer {q(layer)}) (uuid {q(U("fp", c["ref"]))}) (at {x:.3f} {y:.3f} {rot:g})'
     return "\n".join([head] + lines + P + ["  )"])
 
+
+# ------------------------------------------------------------------ collision-aware placement
+GEN_SIZES = {  # footprint -> (w, h) in mm at rot 0 (courtyard incl.)
+    "ZCLASS:DevKit_2x15_25.4mm": (28.5, 52.0), "ZCLASS:RP2350_Zero": (18.5, 24.0), "ZCLASS:DFPlayer_2x8": (21.5, 21.5),
+    "ZCLASS:Pololu_D24V50F5": (25.9, 28.4), "ZCLASS:Pololu_D24V22F6": (15.7, 18.3),
+    "ZCLASS:Hdr_2x6": (16.0, 6.0), "ZCLASS:Hdr_2x5_shrouded": (19.2, 9.6),
+    "ZCLASS:XT60PW": (16.5, 11.5), "ZCLASS:XT30PW": (10.5, 8.0), "ZCLASS:Fuse_Mini_Blade": (16.5, 8.5),
+}
+def courtyard_size(fpid):
+    if fpid in GEN_SIZES: return GEN_SIZES[fpid]
+    path = find_lib_footprint(fpid)
+    if path:
+        try:
+            with open(path, encoding="utf-8") as f: tree = SExpr(f.read()).parse()
+            xs, ys = [], []
+            def walk(n, on_crtyd):
+                if not isinstance(n, list): return
+                if n and n[0] in ("fp_line", "fp_rect", "fp_poly", "fp_circle", "fp_arc"):
+                    layer = next((k[1].strip('"') for k in n if isinstance(k, list) and k and k[0] == "layer"), "")
+                    if layer.endswith("CrtYd"):
+                        if n[0] == "fp_circle":
+                            cen = next(k for k in n if isinstance(k, list) and k[0] == "center")
+                            end = next(k for k in n if isinstance(k, list) and k[0] == "end")
+                            r = math.hypot(float(end[1]) - float(cen[1]), float(end[2]) - float(cen[2]))
+                            xs += [float(cen[1]) - r, float(cen[1]) + r]; ys += [float(cen[2]) - r, float(cen[2]) + r]
+                        for k in n:
+                            if isinstance(k, list) and k and k[0] in ("start", "end", "xy", "mid"):
+                                xs.append(float(k[1])); ys.append(float(k[2]))
+                            if isinstance(k, list) and k and k[0] == "pts":
+                                for p in k[1:]:
+                                    if isinstance(p, list) and p[0] == "xy": xs.append(float(p[1])); ys.append(float(p[2]))
+                for k in n: walk(k, on_crtyd)
+            walk(tree, False)
+            if xs and ys: return (max(xs) - min(xs), max(ys) - min(ys))
+        except Exception: pass
+    # fallbacks
+    f = fpid
+    if "0603" in f: return (2.6, 1.5)
+    if "1206" in f: return (4.4, 2.4)
+    if "1812" in f: return (5.6, 4.0)
+    if "CP_Elec_10" in f: return (11.0, 11.0)
+    if "CP_Elec" in f: return (9.0, 9.0)
+    if "D_SMB" in f: return (7.6, 4.4)
+    if "D_SMA" in f: return (6.5, 3.4)
+    if "SOT-223" in f: return (8.2, 7.8)
+    if "PowerPAK" in f: return (7.2, 6.4)
+    if "TSSOP-20" in f: return (7.8, 7.2)
+    if "TSSOP" in f: return (7.8, 5.8)
+    if "MountingHole" in f: return (7.0, 7.0)
+    return (6.0, 6.0)
+
+def place_all(m, outline_pts):
+    """Modules keep their coordinates; everything else spirals to the nearest free spot."""
+    def inside(x, y):
+        c = False; n = len(outline_pts)
+        for i in range(n):
+            x0, y0 = outline_pts[i]; x1, y1 = outline_pts[(i + 1) % n]
+            if (y0 > y) != (y1 > y) and x < (x1 - x0) * (y - y0) / (y1 - y0) + x0: c = not c
+        return c
+    EDGE = 1.0     # extra margin from the board edge
+    def fits(x, y, w, h):
+        hw, hh = w / 2 + EDGE, h / 2 + EDGE
+        for cx, cy in ((x - hw, y - hh), (x + hw, y - hh), (x + hw, y + hh), (x - hw, y + hh), (x, y - hh), (x, y + hh), (x - hw, y), (x + hw, y)):
+            if not inside(cx, cy): return False
+            if math.hypot(cx, cy) < m.AXLE_KEEPOUT_R + 1.0: return False
+        return True
+    placed = []   # (x, y, w, h)
+    def overlaps(x, y, w, h, gap=0.6):
+        for (px, py, pw, ph) in placed:
+            if abs(x - px) < (w + pw) / 2 + gap and abs(y - py) < (h + ph) / 2 + gap: return True
+        return False
+    order = {"module": 0, "hole": 0, "connector": 1, "ic_generic": 2, "ic3": 2, "fuse": 3, "diode": 3, "cap": 4, "res": 5}
+    moved = []
+    def area(c):
+        w, h = courtyard_size(c["fp"]); return -(w * h)
+    for c in sorted(m.COMPONENTS, key=lambda c: (0 if c["kind"] == "hole" else 1, area(c))):
+        w, h = courtyard_size(c["fp"])
+        if c.get("rot", 0) in (90, 270): w, h = h, w
+        x0, y0 = c["at"]
+        if c["kind"] == "hole":
+            placed.append((x0, y0, w, h)); continue
+        best = None
+        # spiral search: radius 0..45 mm, 1 mm rings, 16..64 angles
+        for r in [0] + [i * 1.0 for i in range(1, 46)]:
+            steps = 1 if r == 0 else max(16, int(2 * math.pi * r / 1.0))
+            for k in range(steps):
+                a = 2 * math.pi * k / steps
+                x, y = x0 + r * math.cos(a), y0 + r * math.sin(a)
+                if fits(x, y, w, h) and not overlaps(x, y, w, h):
+                    best = (x, y); break
+            if best: break
+        if best is None:
+            sys.stderr.write(f"[warn] no free spot for {c['ref']} — left at preferred position\n"); best = (x0, y0)
+        if best != (x0, y0): moved.append((c["ref"], x0, y0, round(best[0], 1), round(best[1], 1)))
+        c["at"] = (round(best[0], 2), round(best[1], 2))
+        placed.append((c["at"][0], c["at"][1], w, h))
+    return moved
+
 # ------------------------------------------------------------------ PCB
 def read_dxf_polyline(path):
     pts = []; toks = open(path).read().split("\n")
@@ -310,6 +409,11 @@ def read_dxf_polyline(path):
 
 def write_pcb(m, outbase, outline_dxf, origin=(150.0, 150.0)):
     comps = m.COMPONENTS
+    outline_pts = read_dxf_polyline(outline_dxf)
+    moved = place_all(m, outline_pts)
+    if moved:
+        sys.stderr.write(f"[place] {len(moved)} parts moved to free spots (largest shift "
+                         f"{max(math.hypot(a-x, b-y) for _, x, y, a, b in moved):.1f} mm)\n")
     netnum, nets = net_table(comps)
     ox, oy = origin
     def P2(x, y): return ox + x, oy - y           # KiCad Y is down
