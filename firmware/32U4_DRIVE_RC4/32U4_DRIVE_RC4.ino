@@ -504,10 +504,14 @@ void stopDomeMotor() {
 int8_t pendingSound = 0;
 
 void handleAudio() {
-    // Latch first, so a following state packet can't clobber a command
-    if (incoming.soundcmd != 0) {
+    // RC4.1: sound commands arrive REPEATED in 5 consecutive state packets
+    // with a sequence number in functionnumber (DFPlayer SoftwareSerial
+    // activity corrupts occasional link packets — any 1-of-5 arriving is
+    // enough). Latch on sequence CHANGE only, so repeats are ignored.
+    static uint8_t lastSoundSeq = 0;
+    if (incoming.soundcmd != 0 && incoming.functionnumber != lastSoundSeq) {
+        lastSoundSeq = incoming.functionnumber;
         pendingSound = incoming.soundcmd;
-        incoming.soundcmd = 0;
     }
 
     if (!dfPlayerReady) {

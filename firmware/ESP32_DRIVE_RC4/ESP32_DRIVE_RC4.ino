@@ -250,6 +250,17 @@ static inline float expoCurve(float x, float e) {
 }
 
 // ------------------- Sound Sender -------------------
+// RC4.1: sounds no longer ride a ONE-SHOT packet. The DFPlayer's
+// SoftwareSerial on the 32u4 blocks interrupts ~1 ms per byte, which
+// corrupts whatever link packet is arriving right then (CRC/PAYLOAD
+// errors correlate exactly with audio activity) — a lost one-shot
+// packet = sound silently dropped. Now the command rides the 50 Hz
+// state stream with a sequence number (functionnumber), repeated in
+// 5 consecutive packets; the 32u4 plays on sequence CHANGE, so any
+// 1-of-5 arriving is enough and duplicates are ignored.
+uint8_t gSoundSeq = 0;
+int8_t gSoundRepeat = 0;
+
 inline void sendSoundCommand(SerialTransfer& coms, send32u4& payload, uint16_t cmd) {
   if (cmd == SOUND_NONE) return;
 
@@ -259,16 +270,13 @@ inline void sendSoundCommand(SerialTransfer& coms, send32u4& payload, uint16_t c
   lastSoundTriggerMs = now;
   lastSoundCmd = cmd;
 
-  payload.soundcmd = cmd;
-  payload.checksum = calculateChecksumSend(payload);
-
-  uint16_t bytes = coms.txObj(payload, 0);
-  coms.sendData(bytes);
-
-  payload.soundcmd = SOUND_NONE;
+  if (++gSoundSeq == 0) gSoundSeq = 1;
+  payload.soundcmd = (int8_t)cmd;
+  payload.functionnumber = gSoundSeq;
+  gSoundRepeat = 5;
 
   if (debugSound) {
-    Serial.printf("[SoundSender] Sent SoundCMD=%u\n", cmd);
+    Serial.printf("[SoundSender] queued SoundCMD=%u seq=%u (5x repeat)\n", cmd, gSoundSeq);
   }
 }
 
@@ -1145,7 +1153,10 @@ void sendTo32u4Data() {
                   sendTo32u4.pitch, sendTo32u4.roll, sendTo32u4.soundcmd);
   }
 
-  sendTo32u4.soundcmd = SOUND_NONE;
+  // RC4.1: keep the pending sound in the stream for 5 packets, then clear
+  if (gSoundRepeat > 0 && --gSoundRepeat == 0) {
+    sendTo32u4.soundcmd = SOUND_NONE;
+  }
 }
 
 // RC4: drain the link — always consume every parsed packet
