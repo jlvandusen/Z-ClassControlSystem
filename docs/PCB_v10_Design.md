@@ -269,7 +269,7 @@ None of these change firmware.
 1. ~~Slip ring wiring~~ **Answered:** the slip ring carries **5 V for the shell (ball) lights**, and will carry the **charge line from a charging port at one of the shell's axis points**. Spec: 4-circuit `SLIPRING` (5V_LED, GND, CHG+, CHG−), polyfused LED out, fused + reverse-blocked charge pass-through to the pack charger, `CHG_SENSE` so firmware **locks the drive while the charger is plugged in**. The dome is magnetically mounted and **unwired → battery + USB-C charging** (§6). Still to confirm: slip-ring current rating vs charger current (a 2 A charger needs ≥ 2 A rings; paralleling two rings for CHG+ is the usual fix).
 2. ~~IMU mounting spot~~ **Answered:** the IMU sits on **top of the frame at the front or back**, aligned to the pitch/roll axes; the frame itself is tilted by swinging the lower flywheel mass for S2S. Consequences: cable run from the mainboard ≈ 15–30 cm → **SPI at 1 MHz with 33 Ω series terminations over a shielded 6-wire cable is fine** (1 kHz × 14 bytes is trivial bandwidth); BNO085-RVC stays the DNP fallback only if the run exceeds ~40 cm. Because the sensor is **off the pitch axis**, frame rotation adds centripetal/tangential acceleration to the accel channels — fusion must be **gyro-dominant** (Mahony/complementary with a low accel weight, τ ≈ 1–2 s), and the mounting position must be entered as a lever-arm so the firmware can subtract it. Mount as close to the pitch axis as the frame allows; a 20 × 20 mm board with 4× M2.5 makes that easy.
 3. **Pack voltage** — commit to 24 V (bucks are sized for it) or keep a 12 V option?
-4. **S2S position sensing** — keep the pot (with RC filter) or move to an AS5600 magnet on the gear shaft? (Footprint for both is in the spec.)
+4. ~~S2S position sensing~~ **Proposed: AS5600 on the tilt pivot** (§16) with the pot kept as a wiring-compatible fallback. Confirm the pivot end has clearance for a 6 mm magnet cap + the breakout.
 5. **Audio** — keep DFPlayer + external amp, or integrate a MAX98357A I²S amp on the board and drop the amp?
 6. Board outline / mounting pattern — same 116 × 63 mm with the 4 holes at the current coordinates, or free to change?
 
@@ -383,3 +383,33 @@ The flywheel area is the pendulum mass the S2S swings left/right to steer.
 ## 15. Repository branches
 
 `main` = v9.15 / v8.2 hardware (RC4.x firmware, kept supported). **`v10`** = this design: new firmware ports (`RP2350_BODY_RC5`, drive IMU module, pin tables), `targets.json` for the DevKit / RP2350-Zero, KiCad sources under `hardware/`. bb8 and the docs are shared — fix on `main`, merge into `v10`.
+
+---
+
+## 16. S2S position sensor — AS5600 on the tilt pivot (replaces the pot)
+
+**Where:** on the **S2S tilt pivot** — the axle about which the frame tips left/right relative to the drive carriage — i.e. the pot's current location. That is the only place the angle is measured 1:1, absolute, with no gearing or backlash between sensor and frame. Either end of the pivot; pick the one with clearance nearest the mainboard.
+
+```
+        frame (tilts L/R)                     carriage (fixed)
+    ════════════╗                         ╔══════════════
+                ║   pivot bolt / axle     ║
+                ║ ───────────────────────►║   ┌──────────────┐
+                ║                  [N|S]  ║   │ AS5600 board │  bracket to the
+                ║          magnet in a    ║   │   chip  ●    │  carriage, coaxial
+                ║          plastic cap on ║   └──────────────┘
+                ║          the axle end   ║     ◄─ 1–2 mm ─►  air gap
+    ════════════╝                         ╚══════════════
+```
+
+**Mechanical rules**
+- Diametrically magnetised **6 × 2.5 mm** magnet, **centred on the rotation axis ±0.25 mm**, air gap **0.5–3 mm**, chip centred over it.
+- Magnet carried in a **3D-printed or brass cap** pressed onto the axle end so steel bolt heads / bearings stay ≥ 3–5 mm away (steel *behind* the magnet is tolerated; steel *beside* it is not).
+- Sensor board on the **non-rotating** side, 2 × M2 on a printed bracket — the cable never flexes with the tilt.
+
+**Electrical — drop-in for the pot**
+- Wire **both** outputs. `OUT` (ratiometric analog 0–VDD) → the existing pot input **GPIO34** through the same 1 k / 100 nF filter: the 100 Hz loop keeps reading an "ADC pot", no I²C in the control path. Programmed once (via I²C, `ZPOS`/`MPOS`) so the 92° swing spans 0–3.3 V → ≈ **4000 counts over the swing** (pot today ≈ 1000), zero wear, zero wiper noise.
+- **I²C** (GPIO13/15, address 0x36) only for that programming and for health: magnet `DETECTED / TOO WEAK / TOO STRONG` status → `[S2S] sensor OK` in `cfg show`, and a safety cutoff if the magnet is lost (a pot cannot report that).
+- `DIR` pin strapped so counts increase toward right tilt (else `REVERSE_S2S`). 3.3 V supply. Connector: JST-XH 5-pin (3V3 · GND · OUT · SDA · SCL) replacing `S2S_POT`; the pot stays usable on the same OUT pin as a fallback.
+
+**Firmware:** no change in the control loop; `cfg calibrate s2s` still finds centre; `pref innerkp` rescales for the 4× counts (≈ 0.9 → 0.25 PWM/count) — or the firmware normalises counts to degrees and the gain stays in PWM/deg.
