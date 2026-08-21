@@ -204,6 +204,68 @@ static inline float stickToTilt(int8_t v, int deadband) {
   return (v > 0) ? -t : t;
 }
 
+// ---- RC4.2: audio diagnostics ----
+// Drain and classify one DFPlayer response within 'ms'. Returns:
+// 0 = nothing, 1 = error frame (file missing / busy), 2 = other frame.
+uint8_t dfWaitReply(unsigned long ms) {
+  unsigned long t0 = millis();
+  uint8_t r = 0;
+  while (millis() - t0 < ms) {
+    if (mp3.available()) {
+      uint8_t type = mp3.readType();
+      mp3.read();
+      if (type == DFPlayerError) return 1;
+      r = 2;
+    }
+  }
+  return r;
+}
+
+void audioStatus() {
+  Serial.print(F("[AUDIO] ready=")); Serial.print(dfPlayerReady);
+  Serial.print(F(" busyPin=")); Serial.print(digitalRead(DFPLAYER_BUSY_PIN) == LOW ? F("PLAYING") : F("idle"));
+  Serial.print(F(" vol=")); Serial.print(currentVolume);
+  Serial.print(F(" silent=")); Serial.println(silentMode);
+  if (!dfPlayerReady) { Serial.println(F("[AUDIO] DFPlayer not initialised (no SD / no reply at boot)")); return; }
+  int files = mp3.readFileCounts();
+  int folders = mp3.readFolderCounts();
+  Serial.print(F("[AUDIO] SD total files=")); Serial.print(files);
+  Serial.print(F(" folders=")); Serial.println(folders);
+  if (files <= 0) Serial.println(F("[AUDIO] WARNING: card reports no files — check SD card / format (FAT32)"));
+}
+
+// Muted scan of MP3/0001.mp3 .. MP3/00NN.mp3: the module answers a
+// missing track with an error frame, a present one starts playing (BUSY).
+void audioScan(int maxTrack) {
+  if (!dfPlayerReady) { Serial.println(F("[AUDIO] DFPlayer not ready")); return; }
+  Serial.print(F("[AUDIO] scanning MP3 folder 1..")); Serial.print(maxTrack);
+  Serial.println(F(" (muted, ~0.2 s per track)"));
+  mp3.volume(0);
+  delay(50);
+  dfWaitReply(50);
+  int runStart = -1, present = 0;
+  Serial.print(F("[AUDIO] present: "));
+  for (int n = 1; n <= maxTrack; n++) {
+    mp3.playMp3Folder(n);
+    uint8_t r = dfWaitReply(140);
+    bool ok = (r != 1) && (digitalRead(DFPLAYER_BUSY_PIN) == LOW || r == 2);
+    if (!ok) { delay(40); ok = (digitalRead(DFPLAYER_BUSY_PIN) == LOW) && dfWaitReply(10) != 1; }
+    if (ok) {
+      present++;
+      if (runStart < 0) runStart = n;
+    } else if (runStart >= 0) {
+      Serial.print(runStart); if (n - 1 > runStart) { Serial.print('-'); Serial.print(n - 1); } Serial.print(' ');
+      runStart = -1;
+    }
+    mp3.stop();
+    dfWaitReply(30);
+  }
+  if (runStart >= 0) { Serial.print(runStart); if (maxTrack > runStart) { Serial.print('-'); Serial.print(maxTrack); } }
+  Serial.println();
+  Serial.print(F("[AUDIO] ")); Serial.print(present); Serial.print(F(" of ")); Serial.print(maxTrack); Serial.println(F(" tracks found"));
+  mp3.volume(silentMode ? 0 : currentVolume);
+}
+
 // RC4.2: tilt param helpers (defined after the struct typedefs so the
 // Arduino prototype generator does not hoist them above SendToESP32)
 void tiltDefaults() {
@@ -683,6 +745,9 @@ void handleSerialCommands() {
         Serial.println(F("  tilt slew <deg/s>     slew limit (default 220)"));
         Serial.println(F("  tilt invert x|y       flip an axis"));
         Serial.println(F("  tilt save | tilt reset"));
+        Serial.println(F("  audio status          DFPlayer/SD state, file counts, volume"));
+        Serial.println(F("  audio scan [max]      muted scan: which MP3/00NN.mp3 exist (default 1-100)"));
+        Serial.println(F("  audio stop | vol <0-30>"));
     }
     // ---- RC4.2: tilt compensation tuning ----
     else if (cmd == "telemetry on")  { bodyTelemetry = true;  Serial.println(F("[TLM] body telemetry ON (50 Hz)")); }
@@ -704,6 +769,18 @@ void handleSerialCommands() {
     else if (cmd == "tilt invert y") { tilt.invertY = !tilt.invertY; tiltShow(); }
     else if (cmd == "tilt save")     { tiltSave(); Serial.println(F("[TILT] saved to EEPROM")); tiltShow(); }
     else if (cmd == "tilt reset")    { tiltDefaults(); tiltSave(); Serial.println(F("[TILT] reset to defaults (saved)")); tiltShow(); }
+    // ---- RC4.2: audio diagnostics ----
+    else if (cmd == "audio status")  { audioStatus(); }
+    else if (cmd.startsWith("audio scan")) {
+        int mx = cmd.substring(10).toInt();
+        audioScan(mx > 0 ? constrain(mx, 1, 255) : 100);
+    }
+    else if (cmd == "audio stop")    { if (dfPlayerReady) { mp3.stop(); Serial.println(F("[AUDIO] stopped")); } }
+    else if (cmd.startsWith("vol ")) {
+        int v = cmd.substring(4).toInt();
+        if (dfPlayerReady && v >= 0 && v <= 30) { currentVolume = v; mp3.volume(v); Serial.print(F("[AUDIO] volume ")); Serial.println(v); }
+        else Serial.println(F("[AUDIO] vol 0-30"));
+    }
     else if (cmd.length() > 0) {
         // RC4.1: never answer with silence — old firmware did, making it
         // impossible to tell 'unknown command' from 'not listening'
