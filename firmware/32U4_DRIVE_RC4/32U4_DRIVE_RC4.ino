@@ -596,6 +596,14 @@ void handleSerialCommands() {
         angleOffset = (readEncoderAtomic() / COUNTS_PER_DEGREE) - FORWARD_ANGLE;
         Serial.println(F("[ENCODER] Forward position set at 180 deg."));
     }
+    else if (cmd == "help") {
+        Serial.println(F("Commands: help, version, debug, debug encoder, center, set zero, play <n>"));
+    }
+    else if (cmd.length() > 0) {
+        // RC4.1: never answer with silence — old firmware did, making it
+        // impossible to tell 'unknown command' from 'not listening'
+        Serial.println(F("[?] Unknown command. Type 'help'."));
+    }
   }  // while Serial.available
 }
 

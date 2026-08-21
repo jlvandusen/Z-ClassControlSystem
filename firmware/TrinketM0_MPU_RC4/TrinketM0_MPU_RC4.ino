@@ -97,6 +97,8 @@ void handleUsbCommands() {
       digitalWrite(LED_BUILTIN, debugMode);
     } else if (cmdBuf == "help") {
       Serial.println(F("Commands: version, debug, help"));
+    } else if (cmdBuf.length() > 0) {
+      Serial.println(F("[?] Unknown command. Commands: version, debug, help"));
     }
     cmdBuf = "";
   }
