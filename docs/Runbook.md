@@ -278,3 +278,24 @@ By eye, before/after: the dome should **lean opposite the body (stay level)**. I
 - DFPlayer on SoftwareSerial is the structural source of link corruption — v10 moves audio to a hardware UART.
 - Drive Ki must be finished on the floor; the rig can't express it.
 - Dome RC4 firmware is written and compiles but hasn't been flashed/field-tested yet.
+
+---
+
+## 14. Pairing PS3 / Navigation controllers — `bb8 pair`
+
+PS3-era pads (Sixaxis, DualShock 3, **PS Move Navigation**) only connect to the one Bluetooth
+master address stored inside them. That's what SixaxisPairTool does; bb8 does it natively:
+
+```powershell
+bb8 pair --list                  # show pads on USB and the master MAC each one currently holds
+bb8 pair                         # read the drive's BT MAC over serial, write it into every pad, verify
+bb8 pair --mac C4:5B:BE:90:6A:6A # same, MAC given by hand (from the drive's '[BT] Host MAC' banner / 'bt mac')
+```
+
+Procedure: drive on USB (close monitors) → pad(s) on USB with a **data** cable → `bb8 pair` →
+unplug the pads → power the drive → press **PS** on each pad. First connected pad takes the DRIVE
+slot unless its MAC matches `DEFAULT_PREF_DRIVE_MAC` in the drive sketch.
+
+If Windows refuses the write (`write FAILED`), the fallback is the original SixaxisPairTool
+(libusb) — write the MAC shown by `bt mac`. The report used is the standard feature report `0xF5`,
+layout `[F5][00][MAC×6]`, identical to Bluepad32's `tools/sixaxispairer`.

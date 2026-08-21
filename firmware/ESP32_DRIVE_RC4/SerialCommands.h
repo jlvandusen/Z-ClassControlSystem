@@ -65,6 +65,7 @@ inline void printHelpMenu() {
   Serial.println(F("autotune s2s [amp]    - relay autotune roll loop (default 150 counts)"));
   Serial.println(F("autotune apply        - apply suggested gains (then 'pid save')"));
   Serial.println(F("autotune abort        - stop any running experiment"));
+  Serial.println(F("bt mac                - Show host BT MAC (PS3/Nav pads pair to this; see 'bb8 pair')"));
   Serial.println(F("bt forget             - Forget Bluetooth keys (re-pair controllers)"));
   Serial.println(F("debug                 - Toggle ALL debug"));
   Serial.println(F("debug mpu             - Toggle MPU debug"));
@@ -159,7 +160,13 @@ inline void handleSerialCommand(const String &cmd) {
     abortExperiment("user request");
   }
 
-  else if (cmd == "bt forget") {
+  else if (cmd == "bt mac") {
+    // RC4.2: the address PS3/Nav pads must have written as their master
+    // ('bb8 pair' reads this line)
+    uint8_t m[6];
+    esp_read_mac(m, ESP_MAC_BT);
+    Serial.printf("[BT] Host MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", m[0], m[1], m[2], m[3], m[4], m[5]);
+  } else if (cmd == "bt forget") {
     BP32.forgetBluetoothKeys();
     Serial.println(F("[BT] Bluetooth keys forgotten — re-pair controllers"));
   } else if (cmd == "debug sound") {
