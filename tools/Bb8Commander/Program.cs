@@ -232,10 +232,36 @@ async Task<int> CmdUpload(string? name, string? port)
 
     var sketch = Path.Combine(config.SketchRoot, t.Sketch);
     var buildPath = Path.Combine(config.BuildRoot, t.Sketch);
-    Console.WriteLine($"\u001b[36m[UPLOAD] {t.Name} -> {port}\u001b[0m");
-    var (urc, _, _) = Run(config.ArduinoCli,
-        $"upload -p {port} --fqbn {t.Fqbn} --input-dir \"{buildPath}\" \"{sketch}\"", capture: false);
-    if (urc != 0) { Fail($"Upload failed for {t.Name}. (If a monitor holds this port, close it first.)"); return urc; }
+
+    // Caterina/SAMD boards race their ~8 s bootloader window (the bootloader
+    // can even enumerate on a different COM number) - attempt twice.
+    bool nativeUsbBoot = t.Fqbn.Contains(":avr:") || t.Fqbn.Contains(":samd:");
+    int attempts = nativeUsbBoot ? 2 : 1;
+    int urc = 1;
+    for (int a = 1; a <= attempts; a++)
+    {
+        Console.WriteLine($"\u001b[36m[UPLOAD] {t.Name} -> {port}{(a > 1 ? " (retry)" : "")}\u001b[0m");
+        (urc, _, _) = Run(config.ArduinoCli,
+            $"upload -p {port} --fqbn {t.Fqbn} --input-dir \"{buildPath}\" \"{sketch}\"", capture: false);
+        if (urc == 0) break;
+        if (a < attempts)
+        {
+            Console.WriteLine("\u001b[33m[UPLOAD] Bootloader race - waiting 3 s and retrying...\u001b[0m");
+            await Task.Delay(3000);
+        }
+    }
+    if (urc != 0)
+    {
+        Fail($"Upload failed for {t.Name}. (If a monitor holds this port, close it first.)");
+        if (nativeUsbBoot)
+        {
+            Console.WriteLine("[HINT] Manual bootloader entry for 32u4/Trinket:");
+            Console.WriteLine("  1. Double-tap the board reset button (LED pulses = bootloader, ~8 s window)");
+            Console.WriteLine("  2. bb8 list - the bootloader may appear on a DIFFERENT COM number");
+            Console.WriteLine("  3. bb8 upload <target> --port COMx with that number, quickly");
+        }
+        return urc;
+    }
     Console.WriteLine($"\u001b[32m[UPLOAD] {t.Name} flashed on {port}\u001b[0m");
     return 0;
 }
@@ -513,6 +539,8 @@ class Channel(string label, string portName, int baud, string color)
     public StringBuilder LineBuf { get; } = new();
     public DateTime LastRetry { get; set; } = DateTime.MinValue;
     public bool WasConnected { get; set; }
+    public DateTime OpenedAt { get; set; }
+    public bool VersionSent { get; set; }
 
     public bool TryOpen()
     {
@@ -527,6 +555,8 @@ class Channel(string label, string portName, int baud, string color)
             };
             Port.Open();
             WasConnected = true;
+            OpenedAt = DateTime.Now;
+            VersionSent = false;
             return true;
         }
         catch (Exception)
@@ -617,6 +647,13 @@ class MonitorSession(List<Channel> channels, StreamWriter? log, bool raw, bool s
                         Emit($"{GREEN}[{ch.Label}] reconnected on {ch.PortName}{RESET}");
                 }
                 continue;
+            }
+            // Ask the board to identify itself shortly after connecting —
+            // UART-bridged ESP32s can't detect a monitor attaching on their own
+            if (!ch.VersionSent && (DateTime.Now - ch.OpenedAt).TotalMilliseconds > 700)
+            {
+                ch.VersionSent = true;
+                try { ch.Port.WriteLine("version"); } catch (IOException) { }
             }
             string chunk;
             try { chunk = ch.Port.ReadExisting(); }

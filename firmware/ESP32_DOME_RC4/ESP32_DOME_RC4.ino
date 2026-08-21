@@ -219,6 +219,9 @@ void checkSerialCommand() {
     if (c == '\n') {
       cmdBuffer.trim();
       cmdBuffer.toLowerCase();
+      if (cmdBuffer == "version") {
+        showBuildInfoSerial("VERSION");
+      }
       if (cmdBuffer == "debug") {
         debugLocal = !debugLocal;
         Serial.println(debugLocal ? F("Dome local debug ENABLED") : F("Dome local debug DISABLED"));
@@ -234,7 +237,7 @@ void checkSerialCommand() {
       }
     }
     if (cmdBuffer == "help") {
-      Serial.println("You can use help, debug or setmac XX.XX.XX.XX.XX");
+      Serial.println("You can use help, version, debug or setmac XX:XX:XX:XX:XX:XX");
     }
       cmdBuffer = "";
     } else {

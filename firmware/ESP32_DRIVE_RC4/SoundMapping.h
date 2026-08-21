@@ -43,6 +43,7 @@ static uint16_t resolveDriveControllerSound(const ControllerState &cur) {
     if (cur.dpadRight.pressed) return 11;
     if (cur.dpadDown.pressed) return 12;
     if (cur.dpadLeft.pressed) return 13;
+    if (cur.circle.pressed) return 100;  // RC4: silent mode moved to L1+CIRCLE
   }
 
   // Single D-pad
@@ -51,13 +52,13 @@ static uint16_t resolveDriveControllerSound(const ControllerState &cur) {
   if (cur.dpadDown.pressed) return 4;
   if (cur.dpadLeft.pressed) return 5;
 
-  // Circle
-  if (cur.circle.pressed) return 100;
+  // RC4: Circle now toggles drive (was silent mode)
+  if (cur.circle.pressed) return SOUND_TOGGLE_DRIVE;
 
   // Cross toggles balance
   if (cur.cross.pressed) return SOUND_TOGGLE_BALANCE;
 
-  // PS toggles drive
+  // PS toggles drive (backup)
   if (cur.ps.pressed) return SOUND_TOGGLE_DRIVE;
 
   // L3 toggles reverse drive

@@ -245,6 +245,15 @@ void loop() {
     showBuildInfoSerial("AFTER WAIT");
   }
 
+  // RC4: print the banner whenever a serial monitor (re)attaches —
+  // 32u4 USB-CDC exposes the host connection as (bool)Serial
+  {
+    static bool usbWasConnected = true;
+    bool usbNow = (bool)Serial;
+    if (usbNow && !usbWasConnected) showBuildInfoSerial("CONNECT");
+    usbWasConnected = usbNow;
+  }
+
   // RC4: drain ALL pending packets, keep the newest state
   bool gotPacket = false;
   while (ComsESP32.available()) {
@@ -548,7 +557,10 @@ void handleSerialCommands() {
     cmd.trim();
     cmd.toLowerCase();
 
-    if (cmd == "debug") {
+    if (cmd == "version") {
+      showBuildInfoSerial("VERSION");
+    }
+    else if (cmd == "debug") {
       debugMode = !debugMode;
       Serial.println(debugMode ? F("DEBUG ON") : F("DEBUG OFF"));
     }

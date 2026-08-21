@@ -61,6 +61,42 @@ bool debugMode = false;
 const long BAUD_ESP32 = 115200;
 const unsigned long SAMPLE_INTERVAL_MS = 10;   // RC4: 100 Hz
 
+static const char* DEFAULT_REVISION = "Joe Drive Rev 1.0 RC4 IMU";
+static const char* DEFAULT_REVISION_DATE = "2026-08-20";
+
+void showBuildInfoSerial(const char* prefix) {
+  Serial.print(prefix);
+  Serial.print(F(" | "));
+  Serial.print(DEFAULT_REVISION);
+  Serial.print(F(" | "));
+  Serial.println(DEFAULT_REVISION_DATE);
+}
+
+// RC4: USB serial commands (the Trinket had none — debug was only
+// reachable via a functionnumber the ESP32 never sent)
+void handleUsbCommands() {
+  static String cmdBuf;
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c != '\n') {
+      if (c != '\r' && cmdBuf.length() < 32) cmdBuf += c;
+      continue;
+    }
+    cmdBuf.trim();
+    cmdBuf.toLowerCase();
+    if (cmdBuf == "version") {
+      showBuildInfoSerial("VERSION");
+    } else if (cmdBuf == "debug") {
+      debugMode = !debugMode;
+      Serial.println(debugMode ? F("DEBUG ON") : F("DEBUG OFF"));
+      digitalWrite(LED_BUILTIN, debugMode);
+    } else if (cmdBuf == "help") {
+      Serial.println(F("Commands: version, debug, help"));
+    }
+    cmdBuf = "";
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   Serial1.begin(BAUD_ESP32);
@@ -69,6 +105,7 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
 
   Serial.println(F("\n=== Trinket M0 IMU Node RC4 ==="));
+  showBuildInfoSerial("BOOT");
 
   if (!mpu.begin()) {
     Serial.println(F("[FATAL] MPU6050 not found!"));
@@ -96,6 +133,13 @@ void setup() {
 }
 
 void loop() {
+  // RC4: banner on monitor attach + USB commands
+  static bool usbWasConnected = true;
+  bool usbNow = (bool)Serial;
+  if (usbNow && !usbWasConnected) showBuildInfoSerial("CONNECT");
+  usbWasConnected = usbNow;
+  handleUsbCommands();
+
   static unsigned long lastUpdate = 0;
   if (millis() - lastUpdate < SAMPLE_INTERVAL_MS) return;
   lastUpdate = millis();

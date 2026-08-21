@@ -881,22 +881,36 @@ void setup() {
 }
 
 // ------------------- Combos -------------------
+void toggleDriveEnabled() {
+  driveEnabled = !driveEnabled;
+  Serial.printf("[TOGGLE] Drive %s\n", driveEnabled ? "ENABLED" : "DISABLED");
+  if (!driveEnabled) {
+    autoBalance = false;
+    domeFunctionEnabled = false;
+    Serial.println(F("[RESET] AutoBalance and DomeFunction disabled due to Drive OFF"));
+  } else {
+    drivePID.reset();
+    s2sPID.reset();
+  }
+}
+
 void handleControllerCombos() {
   static bool psDriveLock = false;
   static bool psDomeLock = false;
   static bool crossDriveLock = false;
+  static bool circleDriveLock = false;
+
+  // RC4: CIRCLE on the drive controller is the primary Drive Enable toggle
+  // (PS kept as a backup — some controllers don't report the system button
+  //  reliably through Bluepad32). Silent-mode sound moved to L1+CIRCLE.
+  if (driveController.circle.pressed && !circleDriveLock && !driveController.L1.held) {
+    toggleDriveEnabled();
+    circleDriveLock = true;
+  }
+  if (!driveController.circle.held) circleDriveLock = false;
 
   if (driveController.ps.pressed && !psDriveLock) {
-    driveEnabled = !driveEnabled;
-    Serial.printf("[TOGGLE] Drive %s\n", driveEnabled ? "ENABLED" : "DISABLED");
-    if (!driveEnabled) {
-      autoBalance = false;
-      domeFunctionEnabled = false;
-      Serial.println(F("[RESET] AutoBalance and DomeFunction disabled due to Drive OFF"));
-    } else {
-      drivePID.reset();
-      s2sPID.reset();
-    }
+    toggleDriveEnabled();
     psDriveLock = true;
   }
   if (!driveController.ps.held) psDriveLock = false;

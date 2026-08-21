@@ -11,6 +11,7 @@
 //                        pitch/roll offsets with the current pose)
 
 // External helpers from main code
+extern void showBuildInfoSerial(const char* prefix);
 extern bool saveConfig();
 extern bool loadConfig();
 extern void resetConfigToDefaults();
@@ -52,6 +53,7 @@ extern const float RC4_S2S_KP, RC4_S2S_KI, RC4_S2S_KD;
 inline void printHelpMenu() {
   Serial.println(F("\n=== Available Commands (RC4) ==="));
   Serial.println(F("help or commands      - Show this help menu"));
+  Serial.println(F("version               - Show firmware revision/date"));
   Serial.println(F("telemetry on|off      - 20Hz telemetry stream (Serial-Plotter friendly)"));
   Serial.println(F("telemetry fast        - 100Hz stream for rig captures / system ID"));
   Serial.println(F("step drive <pwm> <ms> - constant drive PWM step (rig only)"));
@@ -97,6 +99,8 @@ inline void printHelpMenu() {
 inline void handleSerialCommand(const String &cmd) {
   if (cmd == "help" || cmd == "commands") {
     printHelpMenu();
+  } else if (cmd == "version") {
+    showBuildInfoSerial("VERSION");
   } else if (cmd == "show controllers") {
     printControllersSummary();
   } else if (cmd == "telemetry on") {
@@ -122,7 +126,7 @@ inline void handleSerialCommand(const String &cmd) {
     float amp = rest.toFloat();
     long dur = (sp > 0) ? rest.substring(sp + 1).toInt() : 2000;
     if (!driveEnabled) {
-      Serial.println(F("[EXP] Enable drive first (PS button) — rig experiments need it."));
+      Serial.println(F("[EXP] Enable drive first (CIRCLE on drive controller) — rig experiments need it."));
     } else if (amp == 0 || fabsf(amp) > (driveAxis ? 255 : 600) || dur < 100 || dur > 10000) {
       Serial.println(driveAxis ? F("[EXP] Usage: step drive <pwm -255..255> <ms 100..10000>")
                                : F("[EXP] Usage: step s2s <counts -600..600> <ms 100..10000>"));
@@ -135,7 +139,7 @@ inline void handleSerialCommand(const String &cmd) {
     rest.trim();
     float amp = rest.length() ? rest.toFloat() : (driveAxis ? 60.0f : 150.0f);
     if (!driveEnabled) {
-      Serial.println(F("[EXP] Enable drive first (PS button) — rig experiments need it."));
+      Serial.println(F("[EXP] Enable drive first (CIRCLE on drive controller) — rig experiments need it."));
     } else if (amp == 0 || fabsf(amp) > (driveAxis ? 150 : 500)) {
       Serial.println(driveAxis ? F("[EXP] Usage: autotune drive [amp -150..150 PWM]")
                                : F("[EXP] Usage: autotune s2s [amp -500..500 counts]"));
