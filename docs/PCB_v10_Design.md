@@ -75,7 +75,7 @@ flowchart LR
 |---|---|---|
 | HUZZAH32 Feather (socketed) | **ELEGOO ESP-WROOM-32 DevKit** (socketed, CP2102, standard auto-reset) | All 26 usable GPIO on the headers incl. 34/35/36/39 (Feather exposes 21); VIN/USB diode-OR'd on the module; same Bluepad32 core. |
 | Feather 32u4 (8 MHz AVR, 28 KB) | **Waveshare RP2350-Zero** (socketed; 150 MHz, 2 MB flash, 520 KB RAM, 2 HW UARTs, 3 PIO blocks, 24 PWM, native USB) | Ends the flash ceiling; PIO does quadrature decode and WS2812 with zero CPU/ISR load; DFPlayer on a real UART kills the SoftwareSerial corruption. 23.5 × 18 mm. Arduino core: `earlephilhower/arduino-pico`. |
-| Trinket M0 + MPU-6050 over UART | **ICM-42688-P** on a 20 × 20 mm daughterboard over **SPI** | Raw 1 kHz data into the ESP32; fusion (Mahony/complementary) on the control loop's own clock → no 50/100 Hz serialisation, no second firmware, ~2 ms latency. |
+| Trinket M0 + MPU-6050 over UART | **BMI160 breakout** (upgrade: ICM-42688-P) over **SPI** | Raw 1 kHz data into the ESP32; fusion (Mahony/complementary) on the control loop's own clock → no 50/100 Hz serialisation, no second firmware, ~2 ms latency. |
 | Two Feather LDOs shorted via the driver ribbon | Each module regulates its own 3.3 V; **one board 3.3 V LDO** feeds sensors, shifters and **the DFR0601 VCC pins** | Ends the LDO fight; no module's 3V3 ever leaves the module |
 | Off-board Pololu modules | **Buck modules on-board footprints** (Pololu D24V50F5 / D24V22F6) + protection | Real copper to the loads, one harness less |
 
