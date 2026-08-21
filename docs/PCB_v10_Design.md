@@ -338,3 +338,38 @@ Rules: RP2350 **erratum E9** — internal pull-downs leak; every input has an ex
 | Charge path | `SLIPRING` CHG± → 5 A fuse + SS54 → charger module; CHG_SENSE → GPIO39 | drive locked while charging |
 
 Size target: ~85 × 60 mm, 2-layer 2 oz. Biggest single space saver if needed later: bare WROOM-32E instead of the DevKit (−15 cm² each).
+
+---
+
+## 14. Battery (12 V pack in the flywheel area) — pending listing specs
+
+Candidate: eBay item 800431024412 (12 V). Fill in once the item-specifics are known: chemistry · Ah · BMS continuous / peak discharge · charge current · dimensions / weight · connector.
+
+### 14.1 What the chemistry decides
+
+| If it is… | Full / empty | Consequence for v10 |
+|---|---|---|
+| **LiFePO4 4S** (12.8 V nom.) | 14.6 / 10.0 V | Safest, flat curve, 2000+ cycles. Charger = 14.6 V CC/CV LiFePO4 type. Sense divider 47k/10k → 2.56 V at 14.6 V. Low-battery cutoff ≈ 11.0 V. |
+| **Li-ion 3S** (11.1 V nom.) | 12.6 / 9.0 V | Lightest. Charger = 12.6 V 3S. Sags near empty — firmware low-battery cutoff ≈ 9.6 V (drive force-disabled, sound + dome warning). |
+| **SLA / AGM** | 13.8 / 10.5 V | Heavy (lower CG, not all bad), no BMS; 13.8 V float charger. |
+
+### 14.2 The numbers that must check out
+
+1. **BMS continuous discharge ≥ 20 A, peak ≥ 40 A (1–2 s).** Flywheel spin-up + a drive reversal on two DFR0601 channels exceeds 12 A; a 15 A BMS trips mid-move (droid goes limp → falls).
+2. **Charge current** sizes the slip-ring charge path (§13.3 assumes ≤ 5 A; > 2.5 A → parallel two rings for CHG+).
+3. **Connector** — spec uses XT60; match whatever the pack ships with or re-terminate.
+4. **Firmware:** battery voltage already rides telemetry (`bat`); add `pref lowbat <V>` → drive force-disable + warning sound below it, and a charging lock from `CHG_SENSE`.
+
+### 14.3 Placement in the flywheel carriage — it changes the physics, mostly for the better
+
+The flywheel area is the pendulum mass the S2S swings left/right to steer.
+- **Lower CG, more mass displaced per degree** → more steering authority and inherently steadier pitch. Good.
+- **More inertia on the S2S axis** → the worm-gear actuator's bandwidth drops further. The 2026-08-20 capture already showed the S2S lagging its target by 180 ms at Kp = 30; expect final outer gains around Kp 6–10 with `pref swing` ≤ 40. Re-run `bb8 tune s2s` after the install — the tuner will find it.
+- **Centre it left-right** on the carriage; an off-centre pack bakes a roll bias into the zero that calibration then hides (and costs S2S authority on one side).
+- Secure against the swing (it's accelerated every steering move): strap + blocks, cable with strain relief, fuse **at the pack** (ATO holder on the + lead) in addition to the board fuse.
+
+---
+
+## 15. Repository branches
+
+`main` = v9.15 / v8.2 hardware (RC4.x firmware, kept supported). **`v10`** = this design: new firmware ports (`RP2350_BODY_RC5`, drive IMU module, pin tables), `targets.json` for the DevKit / RP2350-Zero, KiCad sources under `hardware/`. bb8 and the docs are shared — fix on `main`, merge into `v10`.
