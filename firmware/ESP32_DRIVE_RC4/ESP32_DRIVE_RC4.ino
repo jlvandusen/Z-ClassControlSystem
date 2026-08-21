@@ -75,6 +75,9 @@
 #define REVERSE_S2S false        // reverse S2S inner-loop direction
 #define S2S_BALANCE_INVERT false // flip roll-PID contribution to S2S target
 #define S2S_STICK_INVERT false   // flip joystick contribution to S2S target
+#define DRIVE_BALANCE_INVERT false // flip pitch-PID contribution to drive
+                                   // (use when joystick direction is right but
+                                   //  balance pushes INTO the lean)
 
 // ------------------- CONFIGURABLE DEFAULTS -------------------
 static const char* DEFAULT_REVISION = "Joe Drive Rev 1.0 RC4";
@@ -683,6 +686,7 @@ void runControl(float dt) {
   if (autoBalance && imuFresh) {
     // RC4 fix #7: stabilization stays active; joystick blends on top
     float pidOut = drivePID.compute(0.0f, pitch, dt);
+    if (DRIVE_BALANCE_INVERT) pidOut = -pidOut;
     drivePWM = (int)constrain(drivePwmState + pidOut, -255.0f, 255.0f);
   } else {
     drivePWM = (int)drivePwmState;
