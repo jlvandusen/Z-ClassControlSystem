@@ -35,7 +35,7 @@ Anything in this list that a bodge wire can fix on the *current* boards is in §
 ## 2. Hard requirements that shape v10
 
 1. **PS3 Navigation controllers → Bluetooth Classic → ESP32 (classic)**. ESP32-S3/C3 have no BT Classic. Bluepad32 stays. This single fact fixes the main MCU.
-2. **Three physical boards stay** — the mechanics dictate it: the dome is across a slip ring, and the IMU wants to sit at the frame pivot, not wherever the mainboard fits.
+2. **Three physical boards stay** — the mechanics dictate it: the dome is magnetically mounted and unwired (battery + ESP-NOW), and the IMU sits on top of the frame at the pitch/roll axes, not wherever the mainboard fits.
 3. **Motor drivers stay off-board** (DFR0601 12 A, 24 V battery). The mainboard is logic-only; motor current never touches it. Keep the 2×5 ribbon interface (now keyed).
 4. **bb8 workflow unchanged**: USB flash + serial console per board, build stamps, banner on attach, `bb8 tune/pair` — v10 must keep a console UART and an auto-reset-on-open that *doesn't* wander into download mode.
 5. **24 V (or 12 V) pack in**, 5 V / 6 V / 3.3 V made on-board with real copper.
@@ -63,7 +63,8 @@ flowchart LR
   PADS -. BT .-> ESP
   ICM -- "SPI, shielded 4-wire" --> ESP
   ESP -. "ESP-NOW ch 11" .-> DESP
-  MAIN -- "5V via slip ring" --> DOME
+  MAIN -- "slip ring: 5V out to shell lights,\ncharge line back in" --> SHELL["Shell: body NeoPixels\n+ charge port at an axis"]
+  LIPO["1S LiPo + USB-C charger\n(dome is NOT wired — magnets)"] --> DESP
   ESP -- "3× keyed ribbon" --> DRV["2× DFR0601 12A\n(off-board, 24V)"]
   RP -- "keyed ribbon" --> DRV
 ```
@@ -93,7 +94,9 @@ flowchart LR
   VIN --> B6["6 V / 3 A buck\n(Pololu D36V28F6 footprint)"]
   VIN --> BS["Battery sense\n100k/10k + 3.3 V clamp → ADC"]
   B5 --> R5["+5V_LOGIC\nDFPlayer · encoder · level shifters"]
-  B5 --> R5L["+5V_LED  (separate pour, own 1000 µF)\nbody NeoPixels · dome via slip ring"]
+  B5 --> R5L["+5V_LED  (separate pour, own 1000 µF, 3 A polyfuse)\nshell NeoPixels via slip ring"]
+  R5L --> SR["SLIPRING connector\n5V_LED · GND · CHG+ · CHG−"]
+  SR --> CHG["CHG+ → 5 A fuse + reverse diode → charger module\nCHG_SENSE divider → ESP32 GPIO39\n(motors locked while charging)"]
   R5 --> LDO["3.3 V 1 A LDO (AP7361C-33)"] --> R33["+3V3\nESP32 · RP2040 · IMU · pot · hall"]
   B6 --> R6["+6V_SERVO\n2× 62 kg·cm servos, 2.5 mm traces + pour"]
   USB1["USB-C (ESP32)"] --> OR1["ideal diode LM66100"] --> R5
@@ -123,7 +126,7 @@ Strapping rules respected: GPIO0 = boot button only; GPIO2 free (onboard status 
 | 34 | S2S pot wiper | 10 k pot, 1 k series + 100 nF to GND |
 | 35 | battery sense | 100k/10k divider, 3.3 V Zener/BAT54 clamp |
 | 36 | ESTOP loop sense | external 10 k pull-up |
-| 39 | MOTOR_EN readback / spare input | |
+| 39 | CHG_SENSE (charger present) | divider from CHG+; firmware: charging → drive force-disabled |
 
 ### 4.3 RP2040 pin map
 
@@ -156,7 +159,8 @@ Strapping rules respected: GPIO0 = boot button only; GPIO2 free (onboard status 
 | `DOME_ENC` | 4-pin | 5V / GND / A / B |
 | `HALL` | 3-pin | 3V3 / GND / SIG |
 | `NEOPIX` | 3-pin | 5V_LED / GND / DATA |
-| `DOME_PWR` | 2-pin JST-VH or XT30 | 5V_LED / GND → slip ring |
+| `SLIPRING` | 4-pin JST-VH (3.96 mm) | 5V_LED / GND / CHG+ / CHG− — 5 V out to the shell lights; charge input from the shell-mounted port back to the charger |
+| `CHARGER` | 2-pin XT30 | CHG+ / CHG− pass-through (fused, reverse-blocked) to the pack charger module |
 | `AUDIO_OUT` | 2-pin screw | SPK+ / SPK− (DFPlayer bridged) |
 | `AUDIO_AUX` | 3-pin | L / GND / R (DAC line out to the external amp) |
 | `ESTOP` | 2-pin | normally-closed loop |
@@ -185,7 +189,10 @@ Firmware: `TrinketM0_MPU_RC4` retires; the ESP32 gets a `Imu` module (ICM-42688 
 ## 6. Dome board v10.0
 
 - **ESP32-WROOM-32E** (keeps the ESP-NOW firmware; an ESP32-C3 would work but changes the code) + CP2102N + USB-C.
-- **Power:** `DOME_PWR` 5 V in from the slip ring → 1000 µF → 3.3 V LDO; ideal-diode OR with USB-C; optional LiPo + MCP73831 charger footprint (DNP) for ball-only running; battery/rail sense divider to ADC GPIO35 (the current `A13` read).
+- **Power — the dome is not wired to anything** (it rides the shell on magnets), so it is a battery product:
+  - **1S LiPo 2500–3000 mAh** on a JST-PH; **USB-C charging at 1 A** (BQ24075 or MCP73831 at 500 mA) with charge/done LEDs; **MAX17048 fuel gauge** on I²C so the drive can show dome battery % in telemetry (today's `A13` divider read becomes a real gauge).
+  - **NeoPixels run straight from VBAT** (3.7–4.2 V): 3.3 V data ≥ 0.7 × VBAT, so no level shifter and no boost are needed — v8.2's "5V = VBAT" jumpers were accidentally right. 330 Ω series per data line, 1000 µF on the LED rail, 3.3 V LDO (AP2112K, low IQ) for the ESP32. Budget: ESP32 + 5 pixels ≈ 150–250 mA → 10+ h; deep sleep < 1 mA.
+  - **Wake/sleep without a button:** a reed switch (GPIO39, ext0) closed by a magnet on the shell's dome-contact ring wakes it when placed; or a LIS3DH motion interrupt. Power switch optional.
 - **LEDs:** 5 channels (PSI, sLogic, lLogic, HP, eye) through a **74AHCT125** (5 V data), 330 Ω series each, keyed 3-pin JSTs (5V / GND / DATA). HP moves off strapping GPIO15 → GPIO14; firmware pin table updated.
 - **I²C** with 4.7 k pull-ups on GPIO21/22 to a Qwiic-style connector (ToF / PIR / gesture sensors the README promised); one spare GPIO (26) broken out for a PIR.
 - **Wake button** on GPIO39 with external pull-up (ext0 wake, RTC-capable), replacing the current always-high GPIO35 wake.
@@ -245,8 +252,8 @@ None of these change firmware.
 
 ## 10. Open questions before schematic capture
 
-1. **Slip ring wiring** — how many circuits, and is dome 5 V already carried today? (Determines `DOME_PWR` and whether the dome LiPo footprint is needed.)
-2. **IMU mounting spot** — confirm the pivot location and cable length; decides SPI vs BNO085-RVC.
+1. ~~Slip ring wiring~~ **Answered:** the slip ring carries **5 V for the shell (ball) lights**, and will carry the **charge line from a charging port at one of the shell's axis points**. Spec: 4-circuit `SLIPRING` (5V_LED, GND, CHG+, CHG−), polyfused LED out, fused + reverse-blocked charge pass-through to the pack charger, `CHG_SENSE` so firmware **locks the drive while the charger is plugged in**. The dome is magnetically mounted and **unwired → battery + USB-C charging** (§6). Still to confirm: slip-ring current rating vs charger current (a 2 A charger needs ≥ 2 A rings; paralleling two rings for CHG+ is the usual fix).
+2. ~~IMU mounting spot~~ **Answered:** the IMU sits on **top of the frame at the front or back**, aligned to the pitch/roll axes; the frame itself is tilted by swinging the lower flywheel mass for S2S. Consequences: cable run from the mainboard ≈ 15–30 cm → **SPI at 1 MHz with 33 Ω series terminations over a shielded 6-wire cable is fine** (1 kHz × 14 bytes is trivial bandwidth); BNO085-RVC stays the DNP fallback only if the run exceeds ~40 cm. Because the sensor is **off the pitch axis**, frame rotation adds centripetal/tangential acceleration to the accel channels — fusion must be **gyro-dominant** (Mahony/complementary with a low accel weight, τ ≈ 1–2 s), and the mounting position must be entered as a lever-arm so the firmware can subtract it. Mount as close to the pitch axis as the frame allows; a 20 × 20 mm board with 4× M2.5 makes that easy.
 3. **Pack voltage** — commit to 24 V (bucks are sized for it) or keep a 12 V option?
 4. **S2S position sensing** — keep the pot (with RC filter) or move to an AS5600 magnet on the gear shaft? (Footprint for both is in the spec.)
 5. **Audio** — keep DFPlayer + external amp, or integrate a MAX98357A I²S amp on the board and drop the amp?
