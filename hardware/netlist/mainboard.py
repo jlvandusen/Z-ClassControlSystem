@@ -62,8 +62,10 @@ A(dict(ref="U1", value="ESP-WROOM-32 DevKit 30p", kind="module", fp="ZCLASS:DevK
        at=(37, 0), rot=0, side="F", pins=pins_devkit()))
 A(dict(ref="U2", value="RP2350-Zero", kind="module", fp="ZCLASS:RP2350_Zero",
        at=(-10, 33), rot=0, side="F", pins=pins_zero()))
+# DFPlayer at the tail with rot=0 so the SD slot (footprint local +X) faces the
+# board's right/outward edge — card is inserted/removed from the tail opening.
 A(dict(ref="U3", value="DFPlayer Mini", kind="module", fp="ZCLASS:DFPlayer_2x8",
-       at=(86, 0), rot=270, side="F", pins=DFPLAYER))
+       at=(78, -18), rot=0, side="F", pins=DFPLAYER))
 A(dict(ref="J_AMP", value="MAX9744 amp module hdr", kind="connector", fp="ZCLASS:Hdr_2x6",
        at=(-28, 30), rot=0, side="F", pins=AMP_HDR))
 # ---- power modules

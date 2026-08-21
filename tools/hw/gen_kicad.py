@@ -227,6 +227,11 @@ def generic_footprint(c, netnum, x, y, rot, side):
             yy = (i - 3.5) * 2.54
             P.append(pad(str(i + 1), -7.62, yy, 1.7, 1.7, pinnets.get(str(i + 1)), netnum, "circle", 1.0))
             P.append(pad(str(16 - i), 7.62, yy, 1.7, 1.7, pinnets.get(str(16 - i)), netnum, "circle", 1.0))
+        # microSD slot on the local +X short edge; the card slides OUT toward +X.
+        # Reserve ~24 mm of card-removal clearance beyond the module edge.
+        lines.append(f'    (fp_rect (start 6.0 -7.5) (end 10.5 7.5) (stroke (width 0.15) (type default)) (fill none) (layer "F.SilkS") (uuid {q(U("sd", c["ref"]))}))')
+        lines.append(f'    (fp_text user "SD >>" (at 8.2 0 0) (layer "F.SilkS") (uuid {q(U("sdt", c["ref"]))}) (effects (font (size 1.2 1.2) (thickness 0.2))))')
+        lines.append(f'    (fp_rect (start 10.5 -7.5) (end 34.5 7.5) (stroke (width 0.1) (type dash)) (fill none) (layer "Cmts.User") (uuid {q(U("sdko", c["ref"]))}))')
     elif fp.startswith("ZCLASS:Pololu"):
         w, h = (25.4, 27.9) if "D24V50" in fp else (15.2, 17.8)
         rect(w, h); courtyard(w, h)
@@ -369,7 +374,7 @@ def place_all(m, outline_pts):
     placed = []   # (x, y, w, h)
     for (tx, ty, sz, text) in getattr(m, "BOARD_TEXT_FRONT", []):   # silkscreen text reserves space
         placed.append((tx, ty, len(text) * sz * 0.8 + 1, sz * 1.4))
-    def overlaps(x, y, w, h, gap=1.0):
+    def overlaps(x, y, w, h, gap=2.5):
         for (px, py, pw, ph) in placed:
             if abs(x - px) < (w + pw) / 2 + gap and abs(y - py) < (h + ph) / 2 + gap: return True
         return False
@@ -535,7 +540,7 @@ def write_pcb(m, outbase, outline_dxf, origin=(150.0, 150.0)):
 
 def write_project(outbase, m=None):
     NETCLASSES = getattr(m, "NETCLASSES", [("Default", 0.2, 0.3, 0.8, 0.4, [])])
-    pro = {"board": {"design_settings": {"rules": {"min_clearance": 0.15, "min_track_width": 0.2, "min_via_diameter": 0.6, "min_via_drill": 0.3, "min_copper_edge_clearance": 0.5}},
+    pro = {"board": {"design_settings": {"rules": {"min_clearance": 0.15, "min_track_width": 0.2, "min_via_diameter": 0.6, "min_via_drill": 0.3, "min_copper_edge_clearance": 0.3}},
                      "layer_presets": [], "viewports": []},
            "boards": [], "cvpcb": {"equivalence_files": []}, "libraries": {"pinned_footprint_libs": [], "pinned_symbol_libs": []},
            "meta": {"filename": os.path.basename(outbase) + ".kicad_pro", "version": 1},
