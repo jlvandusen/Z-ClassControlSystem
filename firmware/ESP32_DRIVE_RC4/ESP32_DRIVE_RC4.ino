@@ -146,7 +146,7 @@ float maxJoyDrivePwm = 255.0f;                  // joystick drive authority
 // RC4.1: state-feedback tracks, runtime-configurable ('pref sndon/sndoff')
 // in case a track file is missing from the SD card
 int soundDriveOn = 60;
-int soundDriveOff = 61;
+int soundDriveOff = 60;   // user pref: same track both ways ("pref sndoff 61" when 0061.mp3 exists)
 
 // ------------------- PWM CONFIG -------------------
 const int PWM_FREQ = 20000;
