@@ -620,13 +620,46 @@ async Task<int> CmdTune(string? axis, string? portOpt)
     Pump(400, null);
     Console.WriteLine($"[36m[TUNE] starting gains: Kp={kp:F1} Ki={ki:F1} Kd={kd:F2}[0m");
 
+    // PD-only while tuning: on the rollers the integral winds against any
+    // zero-offset (the drive axis especially — the shell spins freely, so
+    // pitch barely responds to wheel PWM and Ki ramps forever = "keeps
+    // rolling"). Ki comes back at the end (s2s) or on the floor (drive).
+    if (ki > 0)
+    {
+        Console.WriteLine("[36m[TUNE] disabling integral during tuning (prevents roll-away on the rig)[0m");
+        ki = 0;
+        SetGainsEarly();
+    }
+    void SetGainsEarly()
+    {
+        Send($"pid set {axis} ki 0");
+        Pump(250, null);
+    }
+
     // Wait for en=1 & bal=1
     bool ready = false; var readyDeadline = DateTime.Now.AddSeconds(60);
     Console.WriteLine("[TUNE] waiting for drive ENABLED + autoBalance ON (CIRCLE then CROSS)...");
     while (!ready && DateTime.Now < readyDeadline && !quit)
         Pump(400, d => { if (d.GetValueOrDefault("en") == 1 && d.GetValueOrDefault("bal") == 1) ready = true; });
     if (!ready) { Fail("Timed out waiting for drive+balance to be enabled."); return 1; }
-    Console.WriteLine("[32m[TUNE] balance active — beginning cycles[0m");
+    Console.WriteLine("[32m[TUNE] balance active — checking for zero-offset drift...[0m");
+
+    // Windup / zero-offset sanity check: motor working hard while the
+    // angle reads near zero = the calibration is lying to the PID.
+    {
+        double sumPwm = 0, sumAng = 0; int n = 0;
+        string pk = isS2s ? "s2s" : "drv";
+        Pump(2000, d => { sumPwm += Math.Abs(d.GetValueOrDefault(pk)); sumAng += d[chan]; n++; });
+        if (n > 20)
+        {
+            double meanPwm = sumPwm / n, meanAng = sumAng / n;
+            if (Math.Abs(meanAng) > 2.5)
+                Console.WriteLine($"[33m[TUNE] WARNING: {chan} reads {meanAng:F1} deg at rest — the level zero is off. Recommend: disable, sit level, 'cfg calibrate s2scenter', then rerun.[0m");
+            else if (meanPwm > 40)
+                Console.WriteLine($"[33m[TUNE] WARNING: motor averaging {meanPwm:F0} PWM at rest — residual windup or zero drift. If it keeps creeping, recalibrate level.[0m");
+        }
+    }
+    Console.WriteLine("[32m[TUNE] beginning cycles[0m");
 
     void SetGains()
     {
@@ -697,8 +730,11 @@ async Task<int> CmdTune(string? axis, string? portOpt)
         else if (overshoots <= 1 && settleT < 2.0)
         {
             goodStreak++;
-            if (goodStreak == 1 && ki < 2) { verdict = "GOOD — adding centering Ki"; ki = 3; }
-            else if (goodStreak >= 2) { verdict = "GOOD — confirmed"; Console.WriteLine($"[32m[TUNE] {verdict}[0m"); break; }
+            // s2s gets centering Ki back (its mass genuinely responds on the
+            // rig); drive stays PD on the rollers — add Ki on the floor.
+            if (goodStreak == 1 && isS2s && ki < 2) { verdict = "GOOD — adding centering Ki"; ki = 3; }
+            else if (goodStreak >= 2 || (!isS2s && goodStreak >= 1 && cycle > 1))
+            { verdict = "GOOD — confirmed"; Console.WriteLine($"[32m[TUNE] {verdict}[0m"); break; }
             else verdict = "GOOD — confirming";
         }
         else if (overshoots == 0 && settleT > 3.0)
@@ -722,6 +758,8 @@ async Task<int> CmdTune(string? axis, string? portOpt)
         Send("pid save");
         Pump(600, null);
         Console.WriteLine($"[32m[TUNE] DONE — saved {axis}: Kp={kp:F1} Ki={ki:F1} Kd={kd:F2}[0m");
+        if (!isS2s)
+            Console.WriteLine("[36m[TUNE] drive Ki left at 0 for the rig. On the floor, if it won't hold a slope or drifts: 'pid set drive ki 2' then 'pid save'.[0m");
     }
     else Console.WriteLine("[TUNE] aborted — gains left as last set, NOT saved.");
     Send("telemetry off");
