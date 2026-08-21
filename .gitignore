@@ -18,3 +18,4 @@ hardware/kicad/*-backups/
 hardware/kicad/*.kicad_prl
 hardware/kicad/out/
 hardware/kicad/fp-info-cache
+hardware/fab/
