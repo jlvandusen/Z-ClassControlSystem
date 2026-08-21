@@ -10,6 +10,8 @@
 //  bb8 deploy <target> [--port COMx]   build + upload + monitor
 //  bb8 monitor <targets...|COMx> [--baud n] [--log file.csv] [--raw] [--show-tlm]
 //  bb8 identify                     probe ESP32 ports, read boot banner
+//  bb8 update [--flash]             pull new firmware/tooling from GitHub
+//  (every build/upload/deploy also checks GitHub first; --no-update skips)
 // ============================================================
 
 using System.Diagnostics;
@@ -31,9 +33,20 @@ var config = JsonSerializer.Deserialize<Bb8Config>(File.ReadAllText(configPath),
 
 if (args.Length == 0) { PrintHelp(); return 0; }
 
+const int REBUILD_EXIT = 75;   // tells bb8.cmd: bb8's own source changed - rebuild bin\ and re-run this command
+var boolFlags = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    { "--raw", "--show-tlm", "--list", "--auto", "--install-driver", "--no-update", "--flash" };
+
 try
 {
-    switch (args[0].ToLowerInvariant())
+    var cmd = args[0].ToLowerInvariant();
+    if (cmd is not ("help" or "-h" or "--help" or "update") && !Flag("--no-update")
+        && Environment.GetEnvironmentVariable("BB8_NO_UPDATE") is not ("1" or "true"))
+    {
+        var urc = await AutoUpdateCheck(cmd);
+        if (urc != 0) return urc;
+    }
+    switch (cmd)
     {
         case "list":     return CmdList();
         case "build":    return CmdBuild(Arg(1));
@@ -52,6 +65,7 @@ try
         case "tune":     return await CmdTune(Arg(1), Opt("--port"));
         case "pair":     return Flag("--install-driver") ? await CmdInstallPadDriver() : await CmdPair(Opt("--mac"), Opt("--port"), Flag("--list"));
         case "identify": return await CmdIdentify();
+        case "update":   return await CmdUpdate(Flag("--flash"));
         case "help": case "-h": case "--help": PrintHelp(); return 0;
         default:
             Fail($"Unknown command '{args[0]}'."); PrintHelp(); return 1;
@@ -71,7 +85,7 @@ List<string> PositionalArgs(int from)
     var list = new List<string>();
     for (int i = from; i < args.Length; i++)
     {
-        if (args[i].StartsWith("--")) { i++; continue; }  // skip option + value
+        if (args[i].StartsWith("--")) { if (!boolFlags.Contains(args[i])) i++; continue; }  // skip option (+ its value)
         list.Add(args[i]);
     }
     return list;
@@ -119,6 +133,8 @@ void PrintHelp()
           bb8 pair [--list] [--auto] [--mac XX:..] guided PS3/Nav pairing + primary/secondary assignment
           bb8 pair --install-driver               install the libusb driver for PS3/Nav pads (UAC)
           bb8 identify                            probe ports, read boot banners
+          bb8 update [--flash]                    pull new firmware/tooling from GitHub; --flash also reflashes
+                                                  every plugged-in board whose firmware is older than its sketch
 
         Monitor (full-screen):
           - type + Enter          send a serial command to the ACTIVE board
@@ -129,6 +145,11 @@ void PrintHelp()
           - telemetry lines render in the live status bar instead of scrolling
             (--show-tlm scrolls them too; --log always captures everything)
           - --raw = plain line streaming, no UI (for piping/CI)
+
+        Updates:
+          build / upload / deploy always check GitHub first (other commands: at most every 4 h),
+          fast-forward this checkout when that is safe, and rebuild bb8 if its own source changed.
+          Skip with --no-update or BB8_NO_UPDATE=1.
 
         Examples:
           bb8 monitor drive
@@ -250,24 +271,24 @@ async Task<int> CmdUpload(string? name, string? port)
     // 32u4/Trinket (it often reports a failure for a flash that landed, and
     // vice-versa). If the running build number != the stamp, flash again —
     // up to 3 attempts in total.
-    bool nativeUsbBoot = t.Fqbn.Contains(":avr:") || t.Fqbn.Contains(":samd:");
+    bool nativeUsbBoot = IsNativeUsb(t);
     const int MAX_ATTEMPTS = 3;
     for (int a = 1; a <= MAX_ATTEMPTS; a++)
     {
-        Console.WriteLine($"[36m[UPLOAD] {t.Name} -> {port}{(a > 1 ? $"  (attempt {a}/{MAX_ATTEMPTS})" : "")}[0m");
+        Console.WriteLine($"\u001b[36m[UPLOAD] {t.Name} -> {port}{(a > 1 ? $"  (attempt {a}/{MAX_ATTEMPTS})" : "")}\u001b[0m");
         var (urc, _, _) = Run(config.ArduinoCli,
             $"upload -p {port} --fqbn {t.Fqbn} --input-dir \"{buildPath}\" \"{sketch}\"", capture: false);
-        if (urc != 0) Console.WriteLine("[33m[UPLOAD] avrdude/esptool reported an error — ignoring, the banner decides.[0m");
+        if (urc != 0) Console.WriteLine("\u001b[33m[UPLOAD] avrdude/esptool reported an error — ignoring, the banner decides.\u001b[0m");
 
         int running = await ReadRunningBuild(t, port, nativeUsbBoot);
         if (running == build)
         {
-            Console.WriteLine($"[32m[VERIFY] OK — {t.Name} is running build {build}.[0m");
+            Console.WriteLine($"\u001b[32m[VERIFY] OK — {t.Name} is running build {build}.\u001b[0m");
             return 0;
         }
         Console.WriteLine(running < 0
-            ? $"[33m[VERIFY] no banner from {t.Name} after attempt {a}.[0m"
-            : $"[33m[VERIFY] {t.Name} still reports build {running} (wanted {build}) after attempt {a}.[0m");
+            ? $"\u001b[33m[VERIFY] no banner from {t.Name} after attempt {a}.\u001b[0m"
+            : $"\u001b[33m[VERIFY] {t.Name} still reports build {running} (wanted {build}) after attempt {a}.\u001b[0m");
         if (a < MAX_ATTEMPTS)
         {
             await Task.Delay(2500);
@@ -290,8 +311,14 @@ async Task<int> CmdUpload(string? name, string? port)
 // auto-resets on open and prints its BOOT banner), and also asks 'version'
 // in case the boot banner was missed. Returns -1 if nothing answered.
 async Task<int> ReadRunningBuild(Bb8Target t, string port, bool nativeUsb)
+    => (await ReadBannerStamp(t, port, nativeUsb, quiet: false)).Build;
+
+// Same probe, but keeps the git stamp and the raw banner text too (bb8 update --flash
+// judges staleness from them). Raw is "" when nothing answered at all.
+async Task<BannerStamp> ReadBannerStamp(Bb8Target t, string port, bool nativeUsb, bool quiet)
 {
-    Console.WriteLine($"[36m[VERIFY] waiting for {t.Name} to re-enumerate and report its build...[0m");
+    if (!quiet) Console.WriteLine($"\u001b[36m[VERIFY] waiting for {t.Name} to re-enumerate and report its build...\u001b[0m");
+    var raw = new StringBuilder();
     var deadline = DateTime.Now.AddSeconds(25);
     await Task.Delay(nativeUsb ? 3000 : 1500);
     while (DateTime.Now < deadline)
@@ -314,15 +341,18 @@ async Task<int> ReadRunningBuild(Bb8Target t, string port, bool nativeUsb)
             {
                 if (sw.ElapsedMilliseconds - lastAsk > 1500) { try { sp.WriteLine("version"); } catch { } lastAsk = sw.ElapsedMilliseconds; }
                 try { sb.Append(sp.ReadExisting()); } catch (TimeoutException) { }
-                var m = System.Text.RegularExpressions.Regex.Match(sb.ToString(), @"(BOOT|VERSION|CONNECT|AFTER WAIT) \| [^\r\n]*?build (\d+)");
-                if (m.Success) return int.Parse(m.Groups[2].Value);
+                var m = System.Text.RegularExpressions.Regex.Match(sb.ToString(),
+                    @"(BOOT|VERSION|CONNECT|AFTER WAIT) \| [^\r\n]*?build (\d+)(?: \| [^|\r\n]* \| git ([^\s|]+))?");
+                if (m.Success)
+                    return new BannerStamp(int.Parse(m.Groups[2].Value), m.Groups[3].Success ? m.Groups[3].Value : null, sb.ToString());
                 await Task.Delay(100);
             }
-            return -1;   // port opened, board answered nothing useful in 8 s
+            raw.Append(sb);
+            return new BannerStamp(-1, null, raw.ToString());   // port opened, no build stamp in 8 s
         }
         catch (Exception) { await Task.Delay(700); }   // port busy / re-enumerating — retry
     }
-    return -1;
+    return new BannerStamp(-1, null, raw.ToString());
 }
 
 async Task<string?> AutoPort(Bb8Target t)
@@ -490,7 +520,7 @@ int CmdAnalyze(string? file)
     else durS = samples.Count / 20.0;
     double rate = samples.Count / Math.Max(0.001, durS);
 
-    Console.WriteLine($"[36m=== bb8 analyze — {Path.GetFileName(file)} ===[0m");
+    Console.WriteLine($"\u001b[36m=== bb8 analyze — {Path.GetFileName(file)} ===\u001b[0m");
     Console.WriteLine($"samples: {samples.Count}   duration: {durS:F1}s   effective rate: {rate:F1} Hz");
 
     var report = new List<string>();
@@ -523,7 +553,7 @@ int CmdAnalyze(string? file)
             meanAbsPwm = pwm.Select(Math.Abs).Average();
         }
 
-        Console.WriteLine($"\n[33m{name}[0m  mean {mean,7:F2}   sigma {sd,6:F2}   range [{min:F2} .. {max:F2}]");
+        Console.WriteLine($"\n\u001b[33m{name}\u001b[0m  mean {mean,7:F2}   sigma {sd,6:F2}   range [{min:F2} .. {max:F2}]");
         Console.WriteLine($"       oscillation ~{freq:F2} Hz ({crossings} crossings)   {pwmKey}: mean|PWM| {meanAbsPwm:F0}, saturated {satPct:F0}%");
 
         bool activelyDriven = meanAbsPwm > 15;
@@ -545,7 +575,7 @@ int CmdAnalyze(string? file)
     if (track.Length > 20)
     {
         double meanErr = track.Average(), p95 = track.OrderBy(v => v).ElementAt((int)(track.Length * 0.95));
-        Console.WriteLine($"\n[33mS2S position[0m  mean |tgt-pot| {meanErr:F0} counts   p95 {p95:F0} counts");
+        Console.WriteLine($"\n\u001b[33mS2S position\u001b[0m  mean |tgt-pot| {meanErr:F0} counts   p95 {p95:F0} counts");
         if (meanErr > 40) report.Add($"S2S inner loop: mean position error {meanErr:F0} counts -> raise 'pref innerkp' by 0.1-0.2, or the mechanism is binding.");
     }
 
@@ -555,13 +585,13 @@ int CmdAnalyze(string? file)
 
     if (events.Count > 0)
     {
-        Console.WriteLine($"\n[36mExperiments in this capture:[0m");
+        Console.WriteLine($"\n\u001b[36mExperiments in this capture:\u001b[0m");
         foreach (var e in events.Take(20)) Console.WriteLine($"  {e}");
     }
 
-    Console.WriteLine($"\n[36mAssessment:[0m");
+    Console.WriteLine($"\n\u001b[36mAssessment:\u001b[0m");
     if (report.Count == 0) Console.WriteLine("  Nothing alarming — angles quiet, no sustained oscillation, no saturation.");
-    foreach (var r in report) Console.WriteLine($"  [33m-[0m {r}");
+    foreach (var r in report) Console.WriteLine($"  \u001b[33m-\u001b[0m {r}");
     Console.WriteLine("\nDeeper dive: hand this CSV to Claude in the BB8 workspace — it reads the physics out of it.");
     return 0;
 }
@@ -600,7 +630,7 @@ async Task<int> TuneBalance(string axis, string? portOpt, int nudgesPer, int max
     if (port is null) { Fail("No drive port found. Close any monitor and plug the drive in."); return 1; }
 
     Console.WriteLine($"""
-        [36m=== bb8 tune {axis} — live closed-loop tuner ({nudgesPer} nudge(s) per decision, max {maxCycles} cycles) ===[0m
+        [36m=== bb8 tune {axis} — live closed-loop tuner ({nudgesPer} nudge(s) per decision, max {maxCycles} cycles) ===[0m
         Droid on the ROLLERS, drive enabled (CIRCLE), autoBalance ON (CROSS).
         When prompted: nudge the top ~5 deg {(isS2s ? "SIDEWAYS" : "FORWARD")} and LET GO.
         Ctrl+C aborts (gains stay whatever was last set, not saved).
@@ -634,7 +664,7 @@ async Task<int> TuneBalance(string axis, string? portOpt, int nudgesPer, int max
         if (kp == 0 && attempt < 6) Console.WriteLine($"[TUNE] no answer yet (boot in progress?) — retry {attempt}/5");
     }
     if (kp == 0) { Fail("Could not read current PID gains (is this the drive board? monitor closed?)"); return 1; }
-    Console.WriteLine($"[36m[TUNE] starting gains: Kp={kp:F1} Ki={ki:F1} Kd={kd:F2}[0m");
+    Console.WriteLine($"\u001b[36m[TUNE] starting gains: Kp={kp:F1} Ki={ki:F1} Kd={kd:F2}\u001b[0m");
     link.Send("telemetry fast"); link.Pump(400, null);
 
     void SetGains()
@@ -648,7 +678,7 @@ async Task<int> TuneBalance(string axis, string? portOpt, int nudgesPer, int max
     // catastrophically so on the drive axis where the shell spins freely)
     if (ki > 0)
     {
-        Console.WriteLine("[36m[TUNE] disabling integral during tuning (prevents roll-away on the rig)[0m");
+        Console.WriteLine("\u001b[36m[TUNE] disabling integral during tuning (prevents roll-away on the rig)\u001b[0m");
         ki = 0; link.Send($"pid set {axis} ki 0"); link.Pump(250, null);
     }
 
@@ -666,16 +696,16 @@ async Task<int> TuneBalance(string axis, string? portOpt, int nudgesPer, int max
         {
             double meanPwm = sumPwm / n, meanAng = sumAng / n;
             if (Math.Abs(meanAng) > 2.5)
-                Console.WriteLine($"[33m[TUNE] WARNING: {chan} reads {meanAng:F1} deg at rest — level zero is off. Recommend: disable, sit level, 'cfg calibrate {axis}', rerun.[0m");
+                Console.WriteLine($"\u001b[33m[TUNE] WARNING: {chan} reads {meanAng:F1} deg at rest — level zero is off. Recommend: disable, sit level, 'cfg calibrate {axis}', rerun.\u001b[0m");
             else if (meanPwm > 40)
-                Console.WriteLine($"[33m[TUNE] WARNING: motor averaging {meanPwm:F0} PWM at rest — residual windup or zero drift.[0m");
+                Console.WriteLine($"\u001b[33m[TUNE] WARNING: motor averaging {meanPwm:F0} PWM at rest — residual windup or zero drift.\u001b[0m");
         }
     }
-    Console.WriteLine("[32m[TUNE] beginning cycles[0m");
+    Console.WriteLine("\u001b[32m[TUNE] beginning cycles\u001b[0m");
 
     Transient? Measure(int cycle, int nudgeIx)
     {
-        Console.WriteLine($"[33m[TUNE {cycle}/{maxCycles} · nudge {nudgeIx}/{nudgesPer}] >>> NUDGE ~5 deg and LET GO <<<[0m");
+        Console.WriteLine($"\u001b[33m[TUNE {cycle}/{maxCycles} · nudge {nudgeIx}/{nudgesPer}] >>> NUDGE ~5 deg and LET GO <<<\u001b[0m");
         double baseline = 0; int baseN = 0;
         link.Pump(800, d => { baseline += d[chan]; baseN++; });
         if (baseN > 0) baseline /= baseN;
@@ -722,7 +752,7 @@ async Task<int> TuneBalance(string axis, string? portOpt, int nudgesPer, int max
         double peak = set.Average(x => x.Peak), over = set.Average(x => x.Overshoots),
                settle = set.Average(x => x.SettleT), tails = set.Average(x => x.TailSigma),
                sat = set.Average(x => x.SatPct);
-        Console.WriteLine($"[36m[TUNE] cycle {cycle} avg of {set.Count}: overshoots={over:F1} settle={settle:F1}s tailSigma={tails:F2} sat={sat:F0}%[0m");
+        Console.WriteLine($"\u001b[36m[TUNE] cycle {cycle} avg of {set.Count}: overshoots={over:F1} settle={settle:F1}s tailSigma={tails:F2} sat={sat:F0}%\u001b[0m");
 
         string verdict;
         if (tails > 2.0 || settle >= 7.9)
@@ -734,7 +764,7 @@ async Task<int> TuneBalance(string axis, string? portOpt, int nudgesPer, int max
             goodStreak++;
             if (goodStreak == 1 && isS2s && ki < 2) { verdict = "GOOD — adding centering Ki"; ki = 3; }
             else if (goodStreak >= 2 || (!isS2s && cycle > 1))
-            { Console.WriteLine("[32m[TUNE] GOOD — confirmed[0m"); break; }
+            { Console.WriteLine("\u001b[32m[TUNE] GOOD — confirmed\u001b[0m"); break; }
             else verdict = "GOOD — confirming";
         }
         else if (over < 0.5 && settle > 3.0)
@@ -743,7 +773,7 @@ async Task<int> TuneBalance(string axis, string? portOpt, int nudgesPer, int max
         { verdict = "ACCEPTABLE — small refine"; kd *= 1.1; goodStreak = 0; }
 
         kp = Math.Clamp(kp, 1, isS2s ? 200 : 100); kd = Math.Clamp(kd, 0, 20); ki = Math.Clamp(ki, 0, 100);
-        Console.WriteLine($"[36m[TUNE] {verdict} -> Kp={kp:F1} Ki={ki:F1} Kd={kd:F2}[0m");
+        Console.WriteLine($"\u001b[36m[TUNE] {verdict} -> Kp={kp:F1} Ki={ki:F1} Kd={kd:F2}\u001b[0m");
         link.LogNote($"decision,cycle={cycle},verdict={verdict},kp={kp:F2},ki={ki:F2},kd={kd:F3}");
         SetGains();
     }
@@ -751,8 +781,8 @@ async Task<int> TuneBalance(string axis, string? portOpt, int nudgesPer, int max
     if (!link.Quit)
     {
         link.Send("pid save"); link.Pump(600, null);
-        Console.WriteLine($"[32m[TUNE] DONE — saved {axis}: Kp={kp:F1} Ki={ki:F1} Kd={kd:F2}[0m");
-        if (!isS2s) Console.WriteLine("[36m[TUNE] drive Ki left at 0 for the rig. On the floor, if it drifts or won't hold a slope: 'pid set drive ki 2' then 'pid save'.[0m");
+        Console.WriteLine($"\u001b[32m[TUNE] DONE — saved {axis}: Kp={kp:F1} Ki={ki:F1} Kd={kd:F2}\u001b[0m");
+        if (!isS2s) Console.WriteLine("\u001b[36m[TUNE] drive Ki left at 0 for the rig. On the floor, if it drifts or won't hold a slope: 'pid set drive ki 2' then 'pid save'.\u001b[0m");
     }
     else Console.WriteLine("[TUNE] aborted — gains left as last set, NOT saved.");
     link.Send("telemetry off"); link.Pump(300, null);
@@ -771,7 +801,7 @@ async Task<int> TuneDome(string? portOpt, int rocksPer, int maxCycles)
     if (port is null) { Fail("No body port found. Plug the 32u4 in (and close any monitor)."); return 1; }
 
     Console.WriteLine($"""
-        [36m=== bb8 tune dome — tilt-compensation tuner ({rocksPer} rock(s) per decision, max {maxCycles} cycles) ===[0m
+        [36m=== bb8 tune dome — tilt-compensation tuner ({rocksPer} rock(s) per decision, max {maxCycles} cycles) ===[0m
         Drive enabled (CIRCLE) + autoBalance ON (CROSS) so body tilt drives the dome servos.
         When prompted: ROCK the droid side-to-side steadily, ~1 Hz, for 6 seconds.
         The dome should lean OPPOSITE the body (stay level). If it leans WITH the body, abort and
@@ -799,7 +829,7 @@ async Task<int> TuneDome(string? portOpt, int rocksPer, int maxCycles)
         }
     }
     if (alpha == 0) { Fail("Body did not answer 'tilt show' — is it running RC4.2 firmware? (bb8 upload body)"); return 1; }
-    Console.WriteLine($"[36m[TUNE] starting: gain={gain:F2} alpha={alpha:F2} slew={slew:F0}[0m");
+    Console.WriteLine($"\u001b[36m[TUNE] starting: gain={gain:F2} alpha={alpha:F2} slew={slew:F0}\u001b[0m");
     link.Send("telemetry on"); link.Pump(300, null);
 
     bool ready = false; var deadline = DateTime.Now.AddSeconds(90);
@@ -816,7 +846,7 @@ async Task<int> TuneDome(string? portOpt, int rocksPer, int maxCycles)
 
     (double lagMs, double ratio, double rough, double amp)? Measure(int cycle, int ix)
     {
-        Console.WriteLine($"[33m[TUNE {cycle}/{maxCycles} · rock {ix}/{rocksPer}] >>> ROCK side-to-side ~1 Hz for 6 s <<<[0m");
+        Console.WriteLine($"\u001b[33m[TUNE {cycle}/{maxCycles} · rock {ix}/{rocksPer}] >>> ROCK side-to-side ~1 Hz for 6 s <<<\u001b[0m");
         bool moving = false; var kd = DateTime.Now.AddSeconds(25); double b = 0; int bn = 0;
         link.Pump(600, d => { b += d["roll"]; bn++; }); if (bn > 0) b /= bn;
         while (!moving && DateTime.Now < kd && !link.Quit)
@@ -866,7 +896,7 @@ async Task<int> TuneDome(string? portOpt, int rocksPer, int maxCycles)
         for (int i = 1; i <= rocksPer && !link.Quit; i++) { var r = Measure(cycle, i); if (r is not null) set.Add(r.Value); }
         if (set.Count == 0) continue;
         double lag = set.Average(x => x.lagMs), ratio = set.Average(x => x.ratio), rough = set.Average(x => x.rough);
-        Console.WriteLine($"[36m[TUNE] cycle {cycle} avg: lag={lag:F0}ms ratio={ratio:F2} rough={rough:F3}[0m");
+        Console.WriteLine($"\u001b[36m[TUNE] cycle {cycle} avg: lag={lag:F0}ms ratio={ratio:F2} rough={rough:F3}\u001b[0m");
 
         string verdict;
         if (rough > 0.12)
@@ -876,12 +906,12 @@ async Task<int> TuneDome(string? portOpt, int rocksPer, int maxCycles)
         else if (lag <= 100 && ratio >= 0.8)
         {
             good++;
-            if (good >= 2) { Console.WriteLine("[32m[TUNE] GOOD — confirmed[0m"); break; }
+            if (good >= 2) { Console.WriteLine("\u001b[32m[TUNE] GOOD — confirmed\u001b[0m"); break; }
             verdict = "GOOD — confirming";
         }
         else { verdict = "ACCEPTABLE — small refine"; alpha = Math.Min(0.95, alpha * 1.1); good = 0; }
 
-        Console.WriteLine($"[36m[TUNE] {verdict} -> alpha={alpha:F2} slew={slew:F0}[0m");
+        Console.WriteLine($"\u001b[36m[TUNE] {verdict} -> alpha={alpha:F2} slew={slew:F0}\u001b[0m");
         link.LogNote($"decision,cycle={cycle},verdict={verdict},alpha={alpha:F2},slew={slew:F0}");
         Apply();
     }
@@ -889,7 +919,7 @@ async Task<int> TuneDome(string? portOpt, int rocksPer, int maxCycles)
     if (!link.Quit)
     {
         link.Send("tilt save"); link.Pump(500, null);
-        Console.WriteLine($"[32m[TUNE] DONE — saved dome tilt: alpha={alpha:F2} slew={slew:F0} (gain={gain:F2} unchanged — set by eye with 'tilt gain')[0m");
+        Console.WriteLine($"\u001b[32m[TUNE] DONE — saved dome tilt: alpha={alpha:F2} slew={slew:F0} (gain={gain:F2} unchanged — set by eye with 'tilt gain')\u001b[0m");
     }
     else Console.WriteLine("[TUNE] aborted — params left as last set, NOT saved.");
     link.Send("telemetry off"); link.Pump(300, null);
@@ -927,7 +957,7 @@ async Task<int> CmdPair(string? macOpt, string? portOpt, bool listOnly)
     }
 
     Console.WriteLine("""
-        [36m=== bb8 pair — controller pairing wizard ===[0m
+        [36m=== bb8 pair — controller pairing wizard ===[0m
         Step 1  read the drive's Bluetooth address
         Step 2  plug a pad in over USB -> I show its MAC and ask to pair it
         Step 3  choose PRIMARY (drive) or SECONDARY (dome); the choice is saved in the drive
@@ -960,7 +990,7 @@ async Task<int> CmdPair(string? macOpt, string? portOpt, bool listOnly)
         {
             drive = new SerialPort(port, t.Baud) { ReadTimeout = 100, NewLine = "\n", DtrEnable = true, RtsEnable = true };
             drive.Open();
-            Console.WriteLine($"[36m[PAIR] drive on {port} — it reboots on connect, reading its Bluetooth MAC...[0m");
+            Console.WriteLine($"\u001b[36m[PAIR] drive on {port} — it reboots on connect, reading its Bluetooth MAC...\u001b[0m");
             var sw = Stopwatch.StartNew(); long lastAsk = -9000;
             while (sw.ElapsedMilliseconds < 14000 && driveMac is null)
             {
@@ -970,7 +1000,7 @@ async Task<int> CmdPair(string? macOpt, string? portOpt, bool listOnly)
                 if (m.Success) driveMac = Ps3Pair.ParseMac(m.Groups[1].Value);
             }
         }
-        catch (Exception ex) { Console.WriteLine($"[33m[PAIR] could not use {port}: {ex.Message}[0m"); drive = null; }
+        catch (Exception ex) { Console.WriteLine($"\u001b[33m[PAIR] could not use {port}: {ex.Message}\u001b[0m"); drive = null; }
     }
     if (driveMac is null)
     {
@@ -980,14 +1010,14 @@ async Task<int> CmdPair(string? macOpt, string? portOpt, bool listOnly)
         drive?.Dispose();
         return 1;
     }
-    Console.WriteLine($"[32m[PAIR] drive Bluetooth MAC: {Ps3Pair.Fmt(driveMac)}[0m");
+    Console.WriteLine($"\u001b[32m[PAIR] drive Bluetooth MAC: {Ps3Pair.Fmt(driveMac)}\u001b[0m");
     bool canStore = drive is not null;
-    if (!canStore) Console.WriteLine("[33m[PAIR] (no serial link to the drive — pads will be paired, but primary/secondary can't be stored; do it later with 'bt prefer drive|dome <MAC>')[0m");
+    if (!canStore) Console.WriteLine("\u001b[33m[PAIR] (no serial link to the drive — pads will be paired, but primary/secondary can't be stored; do it later with 'bt prefer drive|dome <MAC>')\u001b[0m");
 
     string Ask(string prompt, string def)
     {
         if (auto) return def;
-        Console.Write($"[33m{prompt}[0m");
+        Console.Write($"\u001b[33m{prompt}\u001b[0m");
         var s = Console.ReadLine();
         return string.IsNullOrWhiteSpace(s) ? def : s.Trim();
     }
@@ -995,7 +1025,7 @@ async Task<int> CmdPair(string? macOpt, string? portOpt, bool listOnly)
     // ---- Step 2/3: watch for pads ----
     var seen = new HashSet<string>();
     int paired = 0, assigned = 0, autoSlot = 0;
-    Console.WriteLine("\n[36m[PAIR] Plug a controller into USB now (DATA cable). q + Enter to finish.[0m");
+    Console.WriteLine("\n\u001b[36m[PAIR] Plug a controller into USB now (DATA cable). q + Enter to finish.\u001b[0m");
     var idle = Stopwatch.StartNew();
     while (true)
     {
@@ -1017,7 +1047,7 @@ async Task<int> CmdPair(string? macOpt, string? portOpt, bool listOnly)
             await Task.Delay(400);   // let the HID stack settle after enumeration
             var own = Ps3Pair.ReadOwnMac(p);
             var cur = Ps3Pair.ReadMaster(p);
-            Console.WriteLine($"\n[36m[PAIR] detected: {p.Name}[0m");
+            Console.WriteLine($"\n\u001b[36m[PAIR] detected: {p.Name}\u001b[0m");
             Console.WriteLine($"       pad MAC:        {(own is null ? "(unreadable)" : Ps3Pair.Fmt(own))}");
             Console.WriteLine($"       current master: {(cur is null ? "(unreadable)" : Ps3Pair.Fmt(cur))}{(cur is not null && cur.SequenceEqual(driveMac) ? "  (already this drive)" : "")}");
 
@@ -1026,14 +1056,14 @@ async Task<int> CmdPair(string? macOpt, string? portOpt, bool listOnly)
 
             if (!Ps3Pair.WriteMaster(p, driveMac))
             {
-                Console.WriteLine("[31m       write FAILED — try another USB port/cable, or run as Administrator. (Fallback: SixaxisPairTool with the MAC above)[0m");
+                Console.WriteLine("\u001b[31m       write FAILED — try another USB port/cable, or run as Administrator. (Fallback: SixaxisPairTool with the MAC above)\u001b[0m");
                 continue;
             }
             var back = Ps3Pair.ReadMaster(p);
-            if (back is not null && back.SequenceEqual(driveMac)) { Console.WriteLine($"[32m       master written and verified: {Ps3Pair.Fmt(back)}[0m"); paired++; }
-            else Console.WriteLine($"[33m       written, but read-back = {(back is null ? "unreadable" : Ps3Pair.Fmt(back))} — try once more[0m");
+            if (back is not null && back.SequenceEqual(driveMac)) { Console.WriteLine($"\u001b[32m       master written and verified: {Ps3Pair.Fmt(back)}\u001b[0m"); paired++; }
+            else Console.WriteLine($"\u001b[33m       written, but read-back = {(back is null ? "unreadable" : Ps3Pair.Fmt(back))} — try once more\u001b[0m");
 
-            if (own is null) { Console.WriteLine("[33m       pad MAC unreadable, so it can't be stored as primary/secondary (use 'bt list' on the drive after it connects, then 'bt prefer drive slot0').[0m"); continue; }
+            if (own is null) { Console.WriteLine("\u001b[33m       pad MAC unreadable, so it can't be stored as primary/secondary (use 'bt list' on the drive after it connects, then 'bt prefer drive slot0').\u001b[0m"); continue; }
             if (!canStore) continue;
 
             string choice = auto ? (autoSlot++ == 0 ? "1" : "2")
@@ -1045,12 +1075,12 @@ async Task<int> CmdPair(string? macOpt, string? portOpt, bool listOnly)
                 var reply = DrainDrive(1200);
                 if (reply.Contains("saved preferred"))
                 {
-                    Console.WriteLine($"[32m       stored in drive NVS as {(which == "drive" ? "PRIMARY (drive)" : "SECONDARY (dome)")}[0m");
+                    Console.WriteLine($"\u001b[32m       stored in drive NVS as {(which == "drive" ? "PRIMARY (drive)" : "SECONDARY (dome)")}\u001b[0m");
                     assigned++;
                 }
-                else Console.WriteLine("[33m       drive did not acknowledge 'bt prefer' — it may run pre-RC4.2 firmware. Reflash, then: bt prefer " + which + " " + Ps3Pair.Fmt(own) + "[0m");
+                else Console.WriteLine("\u001b[33m       drive did not acknowledge 'bt prefer' — it may run pre-RC4.2 firmware. Reflash, then: bt prefer " + which + " " + Ps3Pair.Fmt(own) + "\u001b[0m");
             }
-            Console.WriteLine("[36m       Unplug this pad. Plug the next one, or q + Enter to finish.[0m");
+            Console.WriteLine("\u001b[36m       Unplug this pad. Plug the next one, or q + Enter to finish.\u001b[0m");
         }
     }
 
@@ -1065,7 +1095,7 @@ async Task<int> CmdPair(string? macOpt, string? portOpt, bool listOnly)
     }
     Console.WriteLine($"""
 
-        [32m[PAIR] done — {paired} pad(s) paired, {assigned} assignment(s) stored.[0m
+        [32m[PAIR] done — {paired} pad(s) paired, {assigned} assignment(s) stored.[0m
         Next: unplug the pads, power the drive, press PS on each pad. On the drive console,
         'bt list' shows who landed in which slot; 'bt prefer drive slot0' can re-assign live.
         """);
@@ -1084,7 +1114,7 @@ async Task<int> CmdInstallPadDriver()
     if (!File.Exists(inf)) { Fail($"driver package not found: {inf}"); return 1; }
 
     Console.WriteLine("""
-        [36m[DRIVER] Installing libusb-win32 for PS3 / Navigation controllers (VID 054C).[0m
+        [36m[DRIVER] Installing libusb-win32 for PS3 / Navigation controllers (VID 054C).[0m
         A UAC prompt will appear — accept it. Windows may also warn that it can't verify the
         publisher of the INF; choose "Install this driver software anyway".
         """);
@@ -1121,12 +1151,252 @@ async Task<int> CmdInstallPadDriver()
     bool bound = output.Contains("libusb-win32 devices");
     bool added = output.Contains("Driver package added successfully") || output.Contains("already") || output.Contains("Total driver packages:  1");
     if (bound)
-        Console.WriteLine("[32m[DRIVER] pad is bound to libusb-win32 — 'bb8 pair --list' should now read it.[0m");
+        Console.WriteLine("\u001b[32m[DRIVER] pad is bound to libusb-win32 — 'bb8 pair --list' should now read it.\u001b[0m");
     else if (!output.Contains("VID_054C"))
-        Console.WriteLine("[33m[DRIVER] package processed; no pad is plugged in right now. Plug one in — Windows binds it automatically.[0m");
+        Console.WriteLine("\u001b[33m[DRIVER] package processed; no pad is plugged in right now. Plug one in — Windows binds it automatically.\u001b[0m");
     else
-        Console.WriteLine("[33m[DRIVER] a pad is present but still not on libusb-win32. Unplug/replug it; if it stays on HIDClass, see the log above for pnputil's error.[0m");
+        Console.WriteLine("\u001b[33m[DRIVER] a pad is present but still not on libusb-win32. Unplug/replug it; if it stays on HIDClass, see the log above for pnputil's error.\u001b[0m");
     return bound || added ? 0 : 1;
+}
+
+// ------------------------------------------------------------------
+//  GitHub update check
+//  The firmware lives in this repo, so "new firmware on GitHub" means new
+//  commits on this branch's upstream. Before build/upload/deploy (always)
+//  and before any other command (at most once every 4 h) bb8 fetches,
+//  fast-forwards when that is safe, asks bb8.cmd to rebuild itself when
+//  tools/ changed, and names the boards whose firmware moved.
+//    bb8 update            check + pull now
+//    bb8 update --flash    ...then reflash every plugged-in board whose
+//                          running firmware is older than its sketch
+//    --no-update / BB8_NO_UPDATE=1   skip the check
+// ------------------------------------------------------------------
+async Task<int> AutoUpdateCheck(string cmd)
+{
+    bool always = cmd is "build" or "upload" or "deploy";
+    var stamp = Path.Combine(config.BuildRoot, ".update-check");
+    if (!always && File.Exists(stamp) && DateTime.Now - File.GetLastWriteTime(stamp) < TimeSpan.FromHours(4))
+        return 0;
+    var r = await UpdateFromGitHub(explicitRun: false);
+    return r.Applied && r.ToolChanged ? REBUILD_EXIT : 0;
+}
+
+async Task<int> CmdUpdate(bool flash)
+{
+    var r = Flag("--no-update") ? new UpdateResult(false, false, new()) : await UpdateFromGitHub(explicitRun: true);
+    if (r.Applied && r.ToolChanged) return REBUILD_EXIT;   // bb8.cmd rebuilds, then re-runs "update [--flash] --no-update"
+    if (!flash) return 0;
+
+    // Flash whatever is plugged in AND stale. Stale is judged from the board's
+    // own banner — the git hash it was built from vs. commits to its sketch
+    // since — so a board that already runs the latest source is left alone.
+    Console.WriteLine();
+    int flashed = 0, failed = 0;
+    foreach (var t in config.Targets)
+    {
+        var candidates = DetectPorts().Where(p => GuessTargets(p).Contains(t.Name)).ToList();
+        if (candidates.Count == 0) { Console.WriteLine($"[FLASH] {t.Name,-6} not plugged in — skipped."); continue; }
+        BannerStamp? found = null; string? port = null;
+        foreach (var c in candidates)
+        {
+            var s = await ReadBannerStamp(t, c.Port, IsNativeUsb(t), quiet: true);
+            if (s.Raw.Length == 0) continue;
+            if (t.BannerMatch is not null && !s.Raw.Contains(t.BannerMatch, StringComparison.OrdinalIgnoreCase)) continue;
+            found = s; port = c.Port; break;
+        }
+        if (found is null || port is null)
+        {
+            Console.WriteLine($"[FLASH] {t.Name,-6} no board answering as '{t.Name}' on {string.Join("/", candidates.Select(c => c.Port))} — skipped.");
+            continue;
+        }
+        var reason = StaleReason(t, found);
+        if (reason is null)
+        {
+            Console.WriteLine($"\u001b[32m[FLASH] {t.Name,-6} {port}: build {found.Build} git {found.Git} — already current.\u001b[0m");
+            continue;
+        }
+        Console.WriteLine($"\u001b[33m[FLASH] {t.Name,-6} {port}: {reason} — flashing.\u001b[0m");
+        var rc = await CmdUpload(t.Name, port);
+        if (rc == 0) flashed++; else failed++;
+        Console.WriteLine();
+    }
+    Console.WriteLine(failed == 0
+        ? $"\u001b[32m[FLASH] done — {flashed} board{(flashed == 1 ? "" : "s")} reflashed.\u001b[0m"
+        : $"\u001b[31m[FLASH] {flashed} reflashed, {failed} failed — see above.\u001b[0m");
+    return failed == 0 ? 0 : 1;
+}
+
+// null = the board runs the current source for its sketch; otherwise why not.
+string? StaleReason(Bb8Target t, BannerStamp s)
+{
+    var repo = RepoRootDir();
+    string G(string a) => $"-C \"{repo}\" {a}";
+    var sketchPath = $"firmware/{t.Sketch}";
+    if (s.Build < 0) return "running unstamped (pre-bb8) firmware";
+    if (s.Git is null || s.Git is "none" or "nogit" or "unstamped") return $"build {s.Build} has no git stamp";
+    var hash = s.Git.TrimEnd('+');
+    if (Run("git", G($"cat-file -e {hash}^{{commit}}"), capture: true).rc != 0)
+        return $"built from {hash}, which this checkout doesn't have";
+    var since = Git(G($"rev-list --count {hash}..HEAD -- \"{sketchPath}\"")).Trim();
+    if (int.TryParse(since, out var n) && n > 0)
+        return $"build {s.Build} is {n} firmware commit{(n == 1 ? "" : "s")} behind ({hash} -> {Git(G("rev-parse --short HEAD")).Trim()})";
+    var dirty = Git(G($"status --porcelain -- \"{sketchPath}\"")).Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        .Select(l => l.Length > 3 ? l[3..].Trim() : "").Where(f => !f.EndsWith("BuildStamp.h")).ToList();
+    if (dirty.Count > 0) return $"uncommitted local changes in {sketchPath} ({dirty.Count} file{(dirty.Count == 1 ? "" : "s")})";
+    return null;
+}
+
+async Task<UpdateResult> UpdateFromGitHub(bool explicitRun)
+{
+    var none = new UpdateResult(false, false, new());
+    var repo = RepoRootDir();
+    if (!Directory.Exists(Path.Combine(repo, ".git")))
+    {
+        if (explicitRun) Fail("This bb8 is not running from a git checkout — nothing to update from.");
+        return none;
+    }
+    string G(string a) => $"-C \"{repo}\" {a}";
+    void Note(string s) => Console.WriteLine(explicitRun ? s : $"\u001b[90m{s}\u001b[0m");
+
+    // 1. fetch — bounded, the bench is often offline, and never prompt for credentials
+    var (frc, _, ferr) = RunTimed("git", G("fetch --quiet origin"), 15000,
+        new Dictionary<string, string> { ["GIT_TERMINAL_PROMPT"] = "0" });
+    if (frc != 0)
+    {
+        Note($"[UPDATE] GitHub unreachable ({FirstLineOf(ferr, "timed out")}) — using local firmware.");
+        return none;
+    }
+    try
+    {
+        Directory.CreateDirectory(config.BuildRoot);
+        File.WriteAllText(Path.Combine(config.BuildRoot, ".update-check"), DateTime.Now.ToString("s"));
+    }
+    catch { }
+
+    // 2. where this checkout stands vs. its upstream
+    var branch = Git(G("rev-parse --abbrev-ref HEAD")).Trim();
+    var upstream = Git(G("rev-parse --abbrev-ref --symbolic-full-name @{u}")).Trim();
+    if (upstream.Length == 0) upstream = $"origin/{branch}";
+    if (Run("git", G($"rev-parse --verify --quiet {upstream}"), capture: true).rc != 0)
+    {
+        Note($"[UPDATE] branch '{branch}' has no counterpart on GitHub — nothing to compare.");
+        return none;
+    }
+    int behind = int.TryParse(Git(G($"rev-list --count HEAD..{upstream}")).Trim(), out var b) ? b : 0;
+    int ahead  = int.TryParse(Git(G($"rev-list --count {upstream}..HEAD")).Trim(), out var a) ? a : 0;
+    var head = Git(G("rev-parse --short HEAD")).Trim();
+    if (behind == 0)
+    {
+        if (explicitRun || ahead > 0)
+            Note($"[UPDATE] {branch} @ {head} is current with GitHub" +
+                 (ahead > 0 ? $" ({ahead} local commit{(ahead == 1 ? "" : "s")} not pushed)." : "."));
+        return none;
+    }
+
+    // 3. what is coming
+    var files = Git(G($"diff --name-only HEAD {upstream}"))
+        .Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(f => f.Trim()).ToList();
+    var changedTargets = config.Targets
+        .Where(t => files.Any(f => f.StartsWith($"firmware/{t.Sketch}/", StringComparison.OrdinalIgnoreCase)))
+        .Select(t => t.Name).ToList();
+    bool toolChanged = files.Any(f => f.StartsWith("tools/Bb8Commander/", StringComparison.OrdinalIgnoreCase)
+                                   || f.Equals("install.ps1", StringComparison.OrdinalIgnoreCase));
+    bool targetsChanged = files.Any(f => f.Equals("targets.json", StringComparison.OrdinalIgnoreCase));
+
+    Console.WriteLine($"\u001b[36m[UPDATE] GitHub has {behind} new commit{(behind == 1 ? "" : "s")} on {branch}:\u001b[0m");
+    var log = Git(G($"log --oneline --no-decorate HEAD..{upstream}")).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+    foreach (var l in log.Take(12)) Console.WriteLine($"         {l.Trim()}");
+    if (log.Length > 12) Console.WriteLine($"         ... and {log.Length - 12} more");
+
+    if (ahead > 0)
+    {
+        Console.WriteLine($"\u001b[33m[UPDATE] you also have {ahead} local commit{(ahead == 1 ? "" : "s")} GitHub doesn't — not auto-merging.\u001b[0m");
+        Console.WriteLine($"         Reconcile by hand:  git -C \"{repo}\" pull --rebase");
+        return new UpdateResult(false, toolChanged, changedTargets);
+    }
+
+    // 4. fast-forward. versions.json and BuildStamp.h are rewritten by every
+    //    upload, so they are nearly always dirty; both are regenerated, so set
+    //    them aside (keeping the higher build counters) instead of letting
+    //    them block the merge. Anything else dirty makes git refuse — and we
+    //    leave it at that, your edits are never touched.
+    var localVersions = ReadVersions();
+    var generated = Git(G("status --porcelain")).Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        .Select(l => l.Length > 3 ? l[3..].Trim() : "")
+        .Where(f => f.Equals("versions.json", StringComparison.OrdinalIgnoreCase)
+                 || (f.StartsWith("firmware/", StringComparison.OrdinalIgnoreCase) && f.EndsWith("/BuildStamp.h")))
+        .ToList();
+    if (generated.Count > 0)
+        Run("git", G("checkout -- " + string.Join(' ', generated.Select(f => $"\"{f}\""))), capture: true);
+
+    var (mrc, _, merr) = Run("git", G($"merge --ff-only {upstream}"), capture: true);
+
+    var merged = ReadVersions();                      // never let a board's build number go backwards
+    foreach (var kv in localVersions)
+        if (!merged.TryGetValue(kv.Key, out var v) || v < kv.Value) merged[kv.Key] = kv.Value;
+    WriteVersions(merged);
+
+    if (mrc != 0)
+    {
+        Console.WriteLine($"\u001b[33m[UPDATE] could not fast-forward: {FirstLineOf(merr, "git refused")}\u001b[0m");
+        Console.WriteLine($"         Your local edits are untouched. Commit or stash them, then:  git -C \"{repo}\" pull --ff-only");
+        return new UpdateResult(false, toolChanged, changedTargets);
+    }
+    var newHead = Git(G("rev-parse --short HEAD")).Trim();
+    Console.WriteLine($"\u001b[32m[UPDATE] {branch}: {head} -> {newHead}  (fast-forward, {behind} commit{(behind == 1 ? "" : "s")})\u001b[0m");
+
+    if (targetsChanged)
+    {
+        config = JsonSerializer.Deserialize<Bb8Config>(File.ReadAllText(configPath!), JsonCtx.Default.Bb8Config)!;
+        Console.WriteLine("[UPDATE] targets.json changed — reloaded.");
+    }
+    if (changedTargets.Count > 0)
+        Console.WriteLine($"\u001b[33m[UPDATE] new firmware for: {string.Join(", ", changedTargets)}   ->   " +
+                          string.Join("   ", changedTargets.Select(n => $"bb8 upload {n}")) +
+                          "   (or: bb8 update --flash)\u001b[0m");
+    if (toolChanged)
+        Console.WriteLine("[UPDATE] bb8 itself changed — rebuilding from source, then continuing...");
+    return new UpdateResult(true, toolChanged, changedTargets);
+}
+
+string Git(string arguments)
+{
+    var (rc, so, _) = Run("git", arguments, capture: true);
+    return rc == 0 ? so : "";
+}
+
+static string FirstLineOf(string s, string fallback)
+{
+    var line = s.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0);
+    return string.IsNullOrEmpty(line) ? fallback : line;
+}
+
+bool IsNativeUsb(Bb8Target t) => t.Fqbn.Contains(":avr:") || t.Fqbn.Contains(":samd:");
+
+(int rc, string stdout, string stderr) RunTimed(string file, string arguments, int timeoutMs, Dictionary<string, string>? env = null)
+{
+    var psi = new ProcessStartInfo(file, arguments)
+    {
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        RedirectStandardInput = true,
+        UseShellExecute = false
+    };
+    if (env is not null) foreach (var kv in env) psi.Environment[kv.Key] = kv.Value;
+    try
+    {
+        using var p = Process.Start(psi)!;
+        p.StandardInput.Close();
+        var so = p.StandardOutput.ReadToEndAsync();
+        var se = p.StandardError.ReadToEndAsync();
+        if (!p.WaitForExit(timeoutMs))
+        {
+            try { p.Kill(entireProcessTree: true); } catch { }
+            return (-1, "", $"no answer in {timeoutMs / 1000} s");
+        }
+        return (p.ExitCode, so.Result, se.Result);
+    }
+    catch (Exception ex) { return (-1, "", ex.Message); }
 }
 
 // ------------------------------------------------------------------
@@ -1135,6 +1405,14 @@ async Task<int> CmdInstallPadDriver()
 string RepoRootDir() => Path.GetDirectoryName(Path.GetFullPath(configPath!))!;
 
 int BumpBuild(string target)
+{
+    var dict = ReadVersions();
+    dict[target] = dict.TryGetValue(target, out var n) ? n + 1 : 1;
+    WriteVersions(dict);
+    return dict[target];
+}
+
+SortedDictionary<string, int> ReadVersions()
 {
     var path = Path.Combine(RepoRootDir(), "versions.json");
     var dict = new SortedDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -1148,12 +1426,17 @@ int BumpBuild(string target)
         }
         catch (JsonException) { }
     }
-    dict[target] = dict.TryGetValue(target, out var n) ? n + 1 : 1;
+    return dict;
+}
+
+void WriteVersions(SortedDictionary<string, int> dict)
+{
+    var path = Path.Combine(RepoRootDir(), "versions.json");
     var sb = new StringBuilder("{\n");
     sb.AppendJoin(",\n", dict.Select(kv => $"  \"{kv.Key}\": {kv.Value}"));
     sb.Append("\n}\n");
-    File.WriteAllText(path, sb.ToString());
-    return dict[target];
+    var text = sb.ToString();
+    if (!File.Exists(path) || File.ReadAllText(path).Replace("\r\n", "\n") != text) File.WriteAllText(path, text);
 }
 
 string GitStamp()
@@ -1181,7 +1464,7 @@ void WriteBuildStamp(Bb8Target t, int build)
     // BuildStamp change was observed to leave a stale build number in the binary).
     var ino = Path.Combine(config.SketchRoot, t.Sketch, t.Sketch + ".ino");
     if (File.Exists(ino)) File.SetLastWriteTimeUtc(ino, DateTime.UtcNow);
-    Console.WriteLine($"[36m[STAMP] {t.Name} build {build} · {date} · git {git}[0m");
+    Console.WriteLine($"\u001b[36m[STAMP] {t.Name} build {build} · {date} · git {git}\u001b[0m");
 }
 
 (int rc, string stdout, string stderr) Run(string file, string arguments, bool capture)
@@ -1207,6 +1490,8 @@ void Fail(string msg) => Console.WriteLine($"\u001b[31m[ERROR] {msg}\u001b[0m");
 
 // ------------------------------------------------------------------
 record PortInfo(string Port, string? Vid, string? Pid);
+record BannerStamp(int Build, string? Git, string Raw);
+record UpdateResult(bool Applied, bool ToolChanged, List<string> ChangedTargets);
 
 class Channel(string label, string portName, int baud, string color, List<string> connectCmds)
 {
@@ -1610,8 +1895,8 @@ class TuneLink : IDisposable
 
     public void Send(string cmd)
     {
-        try { _sp.WriteLine(cmd); } catch (Exception ex) { Console.WriteLine($"[31m[TUNE] write failed: {ex.Message}[0m"); }
-        Console.WriteLine($"[35m>> {cmd}[0m");
+        try { _sp.WriteLine(cmd); } catch (Exception ex) { Console.WriteLine($"\u001b[31m[TUNE] write failed: {ex.Message}\u001b[0m"); }
+        Console.WriteLine($"\u001b[35m>> {cmd}\u001b[0m");
         _log?.WriteLine($"{DateTime.Now:HH:mm:ss.fff},tune,>> {cmd}");
     }
 

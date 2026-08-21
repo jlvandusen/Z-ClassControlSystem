@@ -61,10 +61,15 @@ bb8 upload body
 bb8 upload imu
 bb8 upload dome
 bb8 deploy drive         # upload + open the monitor
+bb8 update [--flash]     # pull new firmware/tooling from GitHub (--flash: reflash boards that are behind)
 ```
 
 What `upload` does, in order:
 
+0. **Checks GitHub** — `git fetch`, and a fast-forward if the branch is simply behind (local commits/edits
+   are never touched; generated `versions.json` / `BuildStamp.h` are set aside, higher build counters kept).
+   If `tools/` changed, `bb8.cmd` rebuilds `bin\bb8.exe` and re-runs the command. Offline → one grey line, carries on.
+   `--no-update` / `BB8_NO_UPDATE=1` skips it. Other commands check at most once every 4 h.
 1. **Stamps** — bumps `versions.json` for that board, writes `BuildStamp.h` (`BB8_BUILD_NUM / DATE / GIT`), touches the `.ino` so the cache recompiles.
 2. **Compiles** with arduino-cli into `build/<sketch>`.
 3. **Flashes** — auto-detects the port (VID/PID; the two ESP32s are told apart by boot banner). Native-USB boards (body, imu) get an automatic retry for the bootloader race.
@@ -84,6 +89,10 @@ Causes, in order of likelihood:
    - `bb8 list` → note the new COM
    - `bb8 upload body --port COMx` immediately
 3. **Board dropped off USB entirely** (`bb8 list` shows no 239A device) — cable/hub. Re-seat.
+   Confirm from Windows' side: `Get-PnpDevice -PresentOnly | ? InstanceId -match 'VID_239A'` — nothing
+   listed (not even a faulted device) means the PC never saw the board: charge-only cable, wrong socket,
+   or the 32u4 USB stack is wedged → double-tap reset (bootloader enumerates as 239A:000C for ~8 s).
+   Seen 2026-08-21: body "plugged in" but absent from PnP entirely.
 
 ### 3.2 ESP32 notes
 
@@ -252,6 +261,9 @@ By eye, before/after: the dome should **lean opposite the body (stay level)**. I
 | `upload` fails, butterfly/avrdude errors | monitor holding the port / bootloader race | close monitor; retry; double-tap reset + `--port` |
 | "Unknown command" or silence to `help`/`version` | board runs pre-stamp firmware | read the banner; `bb8 upload <board>` |
 | `[VERIFY] MISMATCH` | stale binary in cache | upload again (the `.ino` touch now prevents this) |
+| Board "plugged in" but `bb8 list` / PnP show no 239A | PC never enumerated it | charge-only cable / socket; double-tap reset; try another cable |
+| `[UPDATE] could not fast-forward` | local commits or edits collide with GitHub | `git pull --rebase` (commits) or commit/stash edits; bb8 never forces |
+| `[UPDATE] GitHub unreachable` | offline / proxy | harmless — local firmware is used; `bb8 update` later |
 | Toggle sound plays every other press | old body firmware (`lastTrack`/busy suppressors) | flash body |
 | Track commanded but silent | file missing on SD | `audio scan`, add the file or `pref sndon/off` |
 | CRC/PAYLOAD lines ~30 ms after every sound | SoftwareSerial interrupt blocking | expected; protocol tolerates it; `debug 32u4` shows the rate |

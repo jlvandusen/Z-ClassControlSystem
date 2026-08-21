@@ -41,7 +41,22 @@ bb8 build all          # compile the whole fleet
 bb8 upload drive       # compile + flash (auto-detects the port)
 bb8 deploy drive       # build + upload + open monitor
 bb8 identify           # probe every port, read boot banners
+bb8 update             # pull new firmware / tooling from GitHub
+bb8 update --flash     # ...and reflash every plugged-in board that is behind its sketch
 ```
+
+### Staying current with GitHub
+
+The firmware lives in this repo, so "new firmware" is just new commits.
+Every `build` / `upload` / `deploy` (and any other command, at most once every
+4 h) does a `git fetch` first and **fast-forwards the checkout when that is
+safe** — it never touches local commits or edits (the only files it sets aside
+are the generated `versions.json` / `BuildStamp.h`, keeping the higher build
+counters). If `tools/Bb8Commander` changed, `bb8.cmd` rebuilds `bin\bb8.exe`
+and re-runs your command. Offline, it says so once and carries on with what's
+on disk. `bb8 update --flash` reads each plugged-in board's banner (`git HASH`)
+and reflashes only the boards whose sketch has commits since that hash.
+Skip the check with `--no-update` or `BB8_NO_UPDATE=1`.
 
 ### The serial monitor
 
@@ -125,7 +140,7 @@ tools/Bb8Commander/  C#/.NET 10 source for the bb8 CLI
 targets.json         fleet definition (sketch, FQBN, VID/PID, boot banner)
 docs/                full review, fixes, tuning guide, way forward
 install.ps1          builds bin\bb8.exe
-bb8.cmd              command wrapper
+bb8.cmd              command wrapper (also rebuilds bin\ after a pulled tool change)
 ```
 
 ## Why the firmware is C++ and the tooling is C#
