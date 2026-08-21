@@ -63,14 +63,14 @@ A(dict(ref="U1", value="ESP-WROOM-32 DevKit 30p", kind="module", fp="ZCLASS:DevK
 A(dict(ref="U2", value="RP2350-Zero", kind="module", fp="ZCLASS:RP2350_Zero",
        at=(13, 32), rot=0, side="F", pins=pins_zero()))
 A(dict(ref="U3", value="DFPlayer Mini", kind="module", fp="ZCLASS:DFPlayer_2x8",
-       at=(-21, 29), rot=0, side="F", pins=DFPLAYER))
+       at=(86, 0), rot=270, side="F", pins=DFPLAYER))
 A(dict(ref="J_AMP", value="MAX9744 amp module hdr", kind="connector", fp="ZCLASS:Hdr_2x6",
-       at=(40, 30), rot=0, side="F", pins=AMP_HDR))
+       at=(-28, 30), rot=0, side="F", pins=AMP_HDR))
 # ---- power modules
 A(dict(ref="PS1", value="Pololu D24V50F5 5V 5A", kind="module", fp="ZCLASS:Pololu_D24V50F5",
-       at=(-30, 1), rot=0, side="F", pins=[(1,"VIN","VIN"),(2,"GND","GND"),(3,"VOUT","+5V_LOGIC"),(4,"EN","NC")]))
+       at=(-30, 4), rot=0, side="F", pins=[(1,"VIN","VIN"),(2,"GND","GND"),(3,"VOUT","+5V_LOGIC"),(4,"EN","NC")]))
 A(dict(ref="PS2", value="Pololu D24V22F6 6V 2.5A", kind="module", fp="ZCLASS:Pololu_D24V22F6",
-       at=(86, 0), rot=0, side="F", pins=[(1,"VIN","VIN"),(2,"GND","GND"),(3,"VOUT","+6V_SERVO"),(4,"EN","NC")]))
+       at=(-34, -20), rot=90, side="F", pins=[(1,"VIN","VIN"),(2,"GND","GND"),(3,"VOUT","+6V_SERVO"),(4,"EN","NC")]))
 A(dict(ref="U5", value="AP7361C-33 3.3V LDO", kind="ic3", fp="Package_TO_SOT_SMD:SOT-223-3_TabPin2",
        at=(18, -28), rot=0, side="F", pins=[(1,"GND","GND"),(2,"VOUT","+3V3"),(3,"VIN","+5V_LOGIC")]))
 # ---- protection / input
@@ -88,7 +88,7 @@ A(two("R25", "10k", "res", "Resistor_SMD:R_0603_1608Metric", (44, 41), "VBAT_SEN
 A(two("C2", "470u/10V", "cap", "Capacitor_SMD:CP_Elec_8x10", (-26, -19), "+5V_LOGIC", "GND"))
 A(two("C3", "1000u/10V", "cap", "Capacitor_SMD:CP_Elec_10x10", (-22, -20), "+5V_LED", "GND"))
 A(two("F3", "3A polyfuse", "fuse", "Fuse:Fuse_1812_4532Metric", (-44, -18), "+5V_LOGIC", "+5V_LED"))
-A(two("C4", "470u/10V", "cap", "Capacitor_SMD:CP_Elec_8x10", (78, -14), "+6V_SERVO", "GND"))
+A(two("C4", "470u/10V", "cap", "Capacitor_SMD:CP_Elec_8x10", (-20, -20), "+6V_SERVO", "GND"))
 A(two("D2", "SS14", "diode", "Diode_SMD:D_SMA", (0, 48), "+5V_LOGIC", "RP_5V"))
 A(two("C5", "10u", "cap", "Capacitor_SMD:C_1206_3216Metric", (-1, -30.8), "+5V_LOGIC", "GND"))
 A(two("C6", "10u", "cap", "Capacitor_SMD:C_1206_3216Metric", (24, -31), "+3V3", "GND"))
@@ -98,8 +98,8 @@ A(two("R30", "10k", "res", "Resistor_SMD:R_0603_1608Metric", (25, 48), "V5_SENSE
 A(two("F4", "3A fuse", "fuse", "Fuse:Fuse_1206_3216Metric", (56, 24), "VIN", "AMP_12V_F"))
 A(two("L1", "FB 600R 3A", "res", "Inductor_SMD:L_1206_3216Metric", (60, 24), "AMP_12V_F", "AMP_12V"))
 A(two("C7", "1000u/25V", "cap", "Capacitor_SMD:CP_Elec_10x10", (62, 14), "AMP_12V", "GND"))
-A(two("C26", "1u", "cap", "Capacitor_SMD:C_0603_1608Metric", (-22, 8), "DF_DAC_L", "AMP_INL"))
-A(two("C27", "1u", "cap", "Capacitor_SMD:C_0603_1608Metric", (-22, 5), "DF_DAC_R", "AMP_INR"))
+A(two("C26", "1u", "cap", "Capacitor_SMD:C_0603_1608Metric", (74, -12), "DF_DAC_L", "AMP_INL"))
+A(two("C27", "1u", "cap", "Capacitor_SMD:C_0603_1608Metric", (74, -15), "DF_DAC_R", "AMP_INR"))
 # ---- motor driver headers (keyed 2x5): VCC PWM INA INB GND / VCC PWM INA INB GND
 def motor_hdr(ref, at, chA, chB):
     pa, ia, ib = chA; pb, ja, jb = chB
@@ -154,7 +154,7 @@ A(dict(ref="J10", value="Body NeoPixel", kind="connector", fp="Connector_JST:JST
        at=(77, 14), rot=0, side="F", pins=[(1,"5V","+5V_LED"),(2,"GND","GND"),(3,"DATA","NEO_OUT")]))
 # ---- slip ring: 5V_LED GND CHG+ CHG-   +  charger pass-through XT30 + sense
 A(dict(ref="J11", value="Slip ring", kind="connector", fp="Connector_JST:JST_VH_B4P-VH_1x04_P3.96mm_Vertical",
-       at=(-38, -16), rot=0, side="F", pins=[(1,"5V_LED","+5V_LED"),(2,"GND","GND"),(3,"CHG+","CHG+"),(4,"CHG-","CHG-")]))
+       at=(-10, 46), rot=0, side="F", pins=[(1,"5V_LED","+5V_LED"),(2,"GND","GND"),(3,"CHG+","CHG+"),(4,"CHG-","CHG-")]))
 A(two("F2", "3A fuse", "fuse", "Fuse:Fuse_1206_3216Metric", (-40, 18), "CHG+", "CHG_F"))
 A(dict(ref="J12", value="Charger XT30", kind="connector", fp="ZCLASS:XT30PW",
        at=(-46, 8), rot=90, side="F", pins=[(1,"+","CHG_F"),(2,"-","CHG-")]))
@@ -167,7 +167,7 @@ A(dict(ref="J14", value="SPK R", kind="connector", fp="Connector_JST:JST_VH_B2P-
        at=(-30, 38), rot=0, side="F", pins=[(1,"+","SPK_R+"),(2,"-","SPK_R-")]))
 # ---- ESTOP loop
 A(dict(ref="J15", value="ESTOP", kind="connector", fp="Connector_JST:JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical",
-       at=(-8, 46), rot=0, side="F", pins=[(1,"LOOP","ESTOP_SENSE"),(2,"GND","GND")]))
+       at=(6, 47), rot=0, side="F", pins=[(1,"LOOP","ESTOP_SENSE"),(2,"GND","GND")]))
 A(two("R28", "10k", "res", "Resistor_SMD:R_0603_1608Metric", (-30, 46), "+3V3", "ESTOP_SENSE"))
 # ---- I2C expansion (Qwiic-style SH) on both buses
 A(dict(ref="J16", value="I2C-A exp (ESP32)", kind="connector", fp="Connector_JST:JST_SH_SM04B-SRSS-TB_1x04-1MP_P1.00mm_Horizontal",
@@ -179,16 +179,38 @@ A(two("R6", "4.7k", "res", "Resistor_SMD:R_0603_1608Metric", (92, -15), "+3V3", 
 A(two("R7", "4.7k", "res", "Resistor_SMD:R_0603_1608Metric", (92, 12), "+3V3", "I2C_B_SDA"))
 A(two("R8", "4.7k", "res", "Resistor_SMD:R_0603_1608Metric", (92, 15), "+3V3", "I2C_B_SCL"))
 # ---- DFPlayer RX series
-A(two("R1", "1k", "res", "Resistor_SMD:R_0603_1608Metric", (-16, 14), "DF_TX_RP", "DF_RX_MOD"))
+A(two("R1", "1k", "res", "Resistor_SMD:R_0603_1608Metric", (74, 12), "DF_TX_RP", "DF_RX_MOD"))
 # ---- decoupling near modules
 A(two("C10", "100n", "cap", "Capacitor_SMD:C_0603_1608Metric", (22, 28), "+5V_LOGIC", "GND"))
-A(two("C11", "100n", "cap", "Capacitor_SMD:C_0603_1608Metric", (-18, 30), "+5V_LOGIC", "GND"))
+A(two("C11", "100n", "cap", "Capacitor_SMD:C_0603_1608Metric", (74, 15), "+5V_LOGIC", "GND"))
 A(two("C12", "100n", "cap", "Capacitor_SMD:C_0603_1608Metric", (4, 22), "RP_5V", "GND"))
 # ---- mounting holes (bosses in the casing) — M3
-for i, (x, y) in enumerate([(-42, 24), (-42, -24), (27, 37), (27, -37), (95, 0)], 1):
+for i, (x, y) in enumerate([(-42, 24), (-42, -24), (27, 37), (27, -37), (70, 0)], 1):
     A(dict(ref=f"H{i}", value="M3 boss", kind="hole", fp="MountingHole:MountingHole_3.2mm_M3_Pad",
            at=(x, y), rot=0, side="F", pins=[(1, "1", "GND")]))
 
 # board outline: hardware/kicad/board_outline_draft.dxf (origin = axle centre)
 AXLE_KEEPOUT_R = 19.0
 DEEP_ZONE_R = 42.5
+
+# ---------------------------------------------------------------- board text (silkscreen)
+BOARD_TITLE = "Z-DRIVE v10.0  MAINBOARD"
+BOARD_TEXT_FRONT = [
+    # (x, y, size_mm, text)   KiCad coords (origin = axle centre, +y up)
+    (0, 48.0, 2.0, "Z-DRIVE v10.0"),
+    (0, 44.5, 1.2, "Z-Class Control System"),
+]
+BOARD_TEXT_BACK = [
+    # below the axle hole: x -20..20 between the bore (y -19) and the motor headers (y -36) is pad-free
+    (0, -24, 2.6, "Z-DRIVE v10.0 MAINBOARD"),
+    (0, -28, 1.6, "Design by James VanDusen"),
+    (0, -31.5, 1.4, "Special thanks to Mimir Reynisson, Greg Bellows and Joe Latiola"),
+    # tail, between the DevKit and the DFPlayer rows
+    (0, -34.3, 1.15, "github.com/jlvandusen/Z-ClassControlSystem"),
+    (63.5, -12, 1.0, "rev A ${GIT} ${DATE}"),
+]
+SCH_TITLE = "Z-Drive v10.0 Mainboard"
+SCH_COMPANY = "Z-Class Control System - James VanDusen"
+SCH_COMMENTS = ["Special thanks to Mimir Reynisson, Greg Bellows and Joe Latiola",
+                "Generated from hardware/netlist/mainboard.py - edit the netlist, not this file",
+                "Modules: ESP-WROOM-32 DevKit, RP2350-Zero, DFPlayer Mini, Pololu D24V50F5 / D24V22F6, MAX9744 amp module"]

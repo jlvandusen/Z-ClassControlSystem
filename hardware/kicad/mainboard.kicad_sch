@@ -1,7 +1,7 @@
 (kicad_sch (version 20231120) (generator "zclass_gen") (generator_version "1.0")
   (uuid "0b82c761-6368-5a59-877e-dce7a78c7d89")
   (paper "A2")
-  (title_block (title "Z-Class v10 mainboard") (company "Z-ClassControlSystem") (comment 1 "generated from hardware/netlist/mainboard.py"))
+  (title_block (title "Z-Drive v10.0 Mainboard") (company "Z-Class Control System - James VanDusen") (rev "A") (comment 1 "Special thanks to Mimir Reynisson, Greg Bellows and Joe Latiola") (comment 2 "Generated from hardware/netlist/mainboard.py - edit the netlist, not this file") (comment 3 "Modules: ESP-WROOM-32 DevKit, RP2350-Zero, DFPlayer Mini, Pololu D24V50F5 / D24V22F6, MAX9744 amp module"))
   (lib_symbols
     (symbol "ZCLASS:U1" (pin_names (offset 1.016)) (exclude_from_sim no) (in_bom yes) (on_board yes)
       (property "Reference" "U1" (at 0 21.59 0) (effects (font (size 1.27 1.27))))

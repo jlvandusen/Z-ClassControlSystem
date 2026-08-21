@@ -102,7 +102,8 @@ def write_schematic(m, outbase, project):
     root = U("sheet", project)
     lines = [f'(kicad_sch (version 20231120) (generator "zclass_gen") (generator_version "1.0")',
              f'  (uuid {q(root)})', '  (paper "A2")',
-             '  (title_block (title "Z-Class v10 mainboard") (company "Z-ClassControlSystem") (comment 1 "generated from hardware/netlist/mainboard.py"))',
+             '  (title_block (title ' + q(getattr(m, "SCH_TITLE", "Z-Class v10 mainboard")) + ') (company ' + q(getattr(m, "SCH_COMPANY", "")) + ') (rev "A")'
+             + "".join(f' (comment {i+1} {q(c)})' for i, c in enumerate(getattr(m, "SCH_COMMENTS", []))) + ')',
              '  (lib_symbols']
     for c in comps: lines.append(lib_symbol(c))
     lines.append('  )')
@@ -366,6 +367,8 @@ def place_all(m, outline_pts):
             if math.hypot(cx, cy) < m.AXLE_KEEPOUT_R + 1.0: return False
         return True
     placed = []   # (x, y, w, h)
+    for (tx, ty, sz, text) in getattr(m, "BOARD_TEXT_FRONT", []):   # silkscreen text reserves space
+        placed.append((tx, ty, len(text) * sz * 0.8 + 1, sz * 1.4))
     def overlaps(x, y, w, h, gap=0.6):
         for (px, py, pw, ph) in placed:
             if abs(x - px) < (w + pw) / 2 + gap and abs(y - py) < (h + ph) / 2 + gap: return True
@@ -448,6 +451,16 @@ def write_pcb(m, outbase, outline_dxf, origin=(150.0, 150.0)):
     L.append(f'  (gr_circle (center {cx:.3f} {cy:.3f}) (end {cx + m.DEEP_ZONE_R:.3f} {cy:.3f}) (stroke (width 0.15) (type dash)) (fill none) (layer "Cmts.User") (uuid {q(U("deep"))}))')
     L.append(f'  (gr_text "deep zone r42.5: +20 mm height" (at {cx:.3f} {cy - m.DEEP_ZONE_R - 2:.3f} 0) (layer "Cmts.User") (uuid {q(U("deeptxt"))}) (effects (font (size 1.5 1.5) (thickness 0.2))))')
     L.append(f'  (gr_text "AXLE" (at {cx:.3f} {cy:.3f} 0) (layer "Cmts.User") (uuid {q(U("axletxt"))}) (effects (font (size 3 3) (thickness 0.4))))')
+    import subprocess, datetime
+    try: git = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip() or "nogit"
+    except Exception: git = "nogit"
+    today = datetime.date.today().isoformat()
+    for (tx, ty, sz, text) in getattr(m, "BOARD_TEXT_FRONT", []):
+        px, py = P2(tx, ty); text = text.replace("${GIT}", git).replace("${DATE}", today)
+        L.append(f'  (gr_text {q(text)} (at {px:.3f} {py:.3f} 0) (layer "F.SilkS") (uuid {q(U("ftxt", text))}) (effects (font (size {sz} {sz}) (thickness {sz*0.15:.2f})) (justify left)))'.replace("(justify left)", ""))
+    for (tx, ty, sz, text) in getattr(m, "BOARD_TEXT_BACK", []):
+        px, py = P2(tx, ty); text = text.replace("${GIT}", git).replace("${DATE}", today)
+        L.append(f'  (gr_text {q(text)} (at {px:.3f} {py:.3f} 0) (layer "B.SilkS") (uuid {q(U("btxt", text))}) (effects (font (size {sz} {sz}) (thickness {sz*0.15:.2f})) (justify mirror)))')
     # GND pours both sides
     for layer in ("F.Cu", "B.Cu"):
         L.append(f'  (zone (net {netnum["GND"]}) (net_name "GND") (layer {q(layer)}) (uuid {q(U("zone", layer))}) (hatch edge 0.5)'
