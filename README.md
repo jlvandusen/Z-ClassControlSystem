@@ -135,3 +135,12 @@ The firmware depends on Bluepad32 (BT-Classic gamepad host), ESP-NOW, and a
 (2.5 KB RAM) and SAMD21 can't host a runtime at all. Going full C# would mean
 new hardware, new controller input, and worse latency for zero functional gain.
 The PC side is the opposite story — everything above the serial port is C#.
+
+## Branches
+
+| Branch | Hardware | Purpose |
+|---|---|---|
+| `main` | **v9.15 / v8.2 boards** (HUZZAH32, Feather 32u4, Trinket M0) | RC4.x firmware, bb8 tooling, runbook — the droid as built today. Keeps getting fixes. |
+| `v10` | **v10.0 boards** (ESP32 DevKit, RP2350-Zero, ICM-42688 IMU) | New firmware ports (`RP2350_BODY_RC5`, drive IMU module, new pin tables), `targets.json` for the new modules, KiCad sources under `hardware/`. |
+
+bb8 Commander and the docs are shared: fix them on `main`, merge `main` into `v10` regularly (`git checkout v10 && git merge main`). Firmware directories diverge by design.
