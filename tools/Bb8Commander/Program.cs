@@ -50,7 +50,7 @@ try
         case "monitor":  return await CmdMonitor(PositionalArgs(1), Opt("--port"));
         case "analyze":  return CmdAnalyze(Arg(1));
         case "tune":     return await CmdTune(Arg(1), Opt("--port"));
-        case "pair":     return await CmdPair(Opt("--mac"), Opt("--port"), Flag("--list"));
+        case "pair":     return Flag("--install-driver") ? await CmdInstallPadDriver() : await CmdPair(Opt("--mac"), Opt("--port"), Flag("--list"));
         case "identify": return await CmdIdentify();
         case "help": case "-h": case "--help": PrintHelp(); return 0;
         default:
@@ -117,6 +117,7 @@ void PrintHelp()
           bb8 analyze <file.csv>                  tuning analysis of a logged session
           bb8 tune <s2s|drive|dome> [--nudges N]   LIVE closed-loop tuner (balance PID / dome tilt)
           bb8 pair [--list] [--auto] [--mac XX:..] guided PS3/Nav pairing + primary/secondary assignment
+          bb8 pair --install-driver               install the libusb driver for PS3/Nav pads (UAC)
           bb8 identify                            probe ports, read boot banners
 
         Monitor (full-screen):
@@ -226,6 +227,10 @@ int CmdBuild(string? name)
 async Task<int> CmdUpload(string? name, string? port)
 {
     var t = ResolveTarget(name);
+    // Stamp FIRST so the compile bakes this build number in (it used to stamp
+    // after compiling, so every binary carried the previous build's label).
+    var build = BumpBuild(t.Name);
+    WriteBuildStamp(t, build);
     var rc = CmdBuild(t.Name);
     if (rc != 0) return rc;
 
@@ -239,100 +244,85 @@ async Task<int> CmdUpload(string? name, string? port)
     var sketch = Path.Combine(config.SketchRoot, t.Sketch);
     var buildPath = Path.Combine(config.BuildRoot, t.Sketch);
 
-    // Stamp this write: incrementing build number + date + git hash, baked
-    // into the binary via BuildStamp.h so 'version' on the board matches
-    // back to the exact code.
-    var build = BumpBuild(t.Name);
-    WriteBuildStamp(t, build);
 
-    // Caterina/SAMD boards race their ~8 s bootloader window (the bootloader
-    // can even enumerate on a different COM number) - attempt twice.
+    // Flash, then let the USB re-enumerate, then read the BANNER back. The
+    // banner is the only judge of success: avrdude's exit code lies on the
+    // 32u4/Trinket (it often reports a failure for a flash that landed, and
+    // vice-versa). If the running build number != the stamp, flash again —
+    // up to 3 attempts in total.
     bool nativeUsbBoot = t.Fqbn.Contains(":avr:") || t.Fqbn.Contains(":samd:");
-    int attempts = nativeUsbBoot ? 2 : 1;
-    int urc = 1;
-    for (int a = 1; a <= attempts; a++)
+    const int MAX_ATTEMPTS = 3;
+    for (int a = 1; a <= MAX_ATTEMPTS; a++)
     {
-        Console.WriteLine($"\u001b[36m[UPLOAD] {t.Name} -> {port}{(a > 1 ? " (retry)" : "")}\u001b[0m");
-        (urc, _, _) = Run(config.ArduinoCli,
+        Console.WriteLine($"[36m[UPLOAD] {t.Name} -> {port}{(a > 1 ? $"  (attempt {a}/{MAX_ATTEMPTS})" : "")}[0m");
+        var (urc, _, _) = Run(config.ArduinoCli,
             $"upload -p {port} --fqbn {t.Fqbn} --input-dir \"{buildPath}\" \"{sketch}\"", capture: false);
-        if (urc == 0) break;
-        if (a < attempts)
-        {
-            Console.WriteLine("\u001b[33m[UPLOAD] Bootloader race - waiting 3 s and retrying...\u001b[0m");
-            await Task.Delay(3000);
-        }
-    }
-    if (urc != 0)
-    {
-        Fail($"Upload failed for {t.Name}. (If a monitor holds this port, close it first.)");
-        if (nativeUsbBoot)
-        {
-            Console.WriteLine("[HINT] Manual bootloader entry for 32u4/Trinket:");
-            Console.WriteLine("  1. Double-tap the board reset button (LED pulses = bootloader, ~8 s window)");
-            Console.WriteLine("  2. bb8 list - the bootloader may appear on a DIFFERENT COM number");
-            Console.WriteLine("  3. bb8 upload <target> --port COMx with that number, quickly");
-        }
-        return urc;
-    }
-    Console.WriteLine($"\u001b[32m[UPLOAD] {t.Name} flashed on {port}\u001b[0m");
+        if (urc != 0) Console.WriteLine("[33m[UPLOAD] avrdude/esptool reported an error — ignoring, the banner decides.[0m");
 
-    // Verify: read the banner back and confirm the running build number
-    // matches what we just stamped (catches stale binaries, failed flashes
-    // that reported success, and "which board did I just flash?" mistakes).
-    await VerifyRunningBuild(t, port, build, nativeUsbBoot);
-    return 0;
+        int running = await ReadRunningBuild(t, port, nativeUsbBoot);
+        if (running == build)
+        {
+            Console.WriteLine($"[32m[VERIFY] OK — {t.Name} is running build {build}.[0m");
+            return 0;
+        }
+        Console.WriteLine(running < 0
+            ? $"[33m[VERIFY] no banner from {t.Name} after attempt {a}.[0m"
+            : $"[33m[VERIFY] {t.Name} still reports build {running} (wanted {build}) after attempt {a}.[0m");
+        if (a < MAX_ATTEMPTS)
+        {
+            await Task.Delay(2500);
+            // the board may have come back on a different COM number
+            if (nativeUsbBoot)
+                port = DetectPorts().Where(x => GuessTargets(x).Contains(t.Name)).Select(x => x.Port).FirstOrDefault() ?? port;
+        }
+    }
+    Fail($"{t.Name} never confirmed build {build} after {MAX_ATTEMPTS} attempts.");
+    if (nativeUsbBoot)
+        Console.WriteLine("""
+            [HINT] 32u4/Trinket: double-tap the reset button (LED pulses = bootloader, ~8 s),
+                   'bb8 list' for the bootloader's COM, then 'bb8 upload <target> --port COMx'.
+            """);
+    return 1;
 }
 
-async Task<bool> VerifyRunningBuild(Bb8Target t, string port, int expectedBuild, bool nativeUsb)
+// Reads "build N" from the board's banner after a flash. Waits for the USB
+// to drop and come back (native-USB boards), opens the port (the ESP32
+// auto-resets on open and prints its BOOT banner), and also asks 'version'
+// in case the boot banner was missed. Returns -1 if nothing answered.
+async Task<int> ReadRunningBuild(Bb8Target t, string port, bool nativeUsb)
 {
-    Console.WriteLine($"[36m[VERIFY] waiting for {t.Name} to boot and report its build...[0m");
-    var deadline = DateTime.Now.AddSeconds(20);
-    string? banner = null;
-    int seenBuild = -1;
-
-    while (DateTime.Now < deadline && seenBuild < 0)
+    Console.WriteLine($"[36m[VERIFY] waiting for {t.Name} to re-enumerate and report its build...[0m");
+    var deadline = DateTime.Now.AddSeconds(25);
+    await Task.Delay(nativeUsb ? 3000 : 1500);
+    while (DateTime.Now < deadline)
     {
-        // native-USB boards re-enumerate after flashing (maybe on another COM)
         string? p = port;
         if (nativeUsb)
         {
             var cand = DetectPorts().Where(x => GuessTargets(x).Contains(t.Name)).Select(x => x.Port).ToList();
             p = cand.Contains(port) ? port : cand.FirstOrDefault();
+            if (p is null) { await Task.Delay(600); continue; }
         }
-        if (p is null) { await Task.Delay(500); continue; }
-
         try
         {
             using var sp = new SerialPort(p, t.Baud) { ReadTimeout = 100, NewLine = "\n", DtrEnable = true, RtsEnable = true };
             sp.Open();
             var sb = new StringBuilder();
             var sw = Stopwatch.StartNew();
-            long lastAsk = -1000;
-            while (sw.ElapsedMilliseconds < 9000 && seenBuild < 0)
+            long lastAsk = -2000;
+            while (sw.ElapsedMilliseconds < 8000)
             {
                 if (sw.ElapsedMilliseconds - lastAsk > 1500) { try { sp.WriteLine("version"); } catch { } lastAsk = sw.ElapsedMilliseconds; }
                 try { sb.Append(sp.ReadExisting()); } catch (TimeoutException) { }
-                var m = System.Text.RegularExpressions.Regex.Match(sb.ToString(), @"(BOOT|VERSION|CONNECT|AFTER WAIT) \| ([^\r\n]*?build (\d+)[^\r\n]*)");
-                if (m.Success) { seenBuild = int.Parse(m.Groups[3].Value); banner = m.Groups[2].Value.Trim(); }
+                var m = System.Text.RegularExpressions.Regex.Match(sb.ToString(), @"(BOOT|VERSION|CONNECT|AFTER WAIT) \| [^\r\n]*?build (\d+)");
+                if (m.Success) return int.Parse(m.Groups[2].Value);
                 await Task.Delay(100);
             }
+            return -1;   // port opened, board answered nothing useful in 8 s
         }
-        catch (Exception) { await Task.Delay(700); }
+        catch (Exception) { await Task.Delay(700); }   // port busy / re-enumerating — retry
     }
-
-    if (seenBuild < 0)
-    {
-        Console.WriteLine("[33m[VERIFY] no banner received - board may still be booting, or runs firmware without build stamps. Check with 'bb8 monitor'.[0m");
-        return false;
-    }
-    if (seenBuild == expectedBuild)
-    {
-        Console.WriteLine($"[32m[VERIFY] OK - {t.Name} is running build {seenBuild}: {banner}[0m");
-        return true;
-    }
-    Console.WriteLine($"[31m[VERIFY] MISMATCH - expected build {expectedBuild} but board reports build {seenBuild}: {banner}[0m");
-    Console.WriteLine("[33m         The flashed binary was stale or the flash did not take. Run 'bb8 upload' again.[0m");
-    return false;
+    return -1;
 }
 
 async Task<string?> AutoPort(Bb8Target t)
@@ -1080,6 +1070,63 @@ async Task<int> CmdPair(string? macOpt, string? portOpt, bool listOnly)
         'bt list' shows who landed in which slot; 'bt prefer drive slot0' can re-assign live.
         """);
     return 0;
+}
+
+// ------------------------------------------------------------------
+//  PAIR --install-driver — bind PS3 / Nav pads to libusb-win32 from the
+//  package in tools/drivers/ps3_controller (no SixaxisPairTool needed).
+//  Runs pnputil elevated (one UAC prompt) and reports the binding.
+// ------------------------------------------------------------------
+async Task<int> CmdInstallPadDriver()
+{
+    var pkg = Path.Combine(RepoRootDir(), "tools", "drivers", "ps3_controller");
+    var inf = Path.Combine(pkg, "ps3_controller.inf");
+    if (!File.Exists(inf)) { Fail($"driver package not found: {inf}"); return 1; }
+
+    Console.WriteLine("""
+        [36m[DRIVER] Installing libusb-win32 for PS3 / Navigation controllers (VID 054C).[0m
+        A UAC prompt will appear — accept it. Windows may also warn that it can't verify the
+        publisher of the INF; choose "Install this driver software anyway".
+        """);
+
+    var log = Path.Combine(Path.GetTempPath(), "bb8_pad_driver.log");
+    try { File.Delete(log); } catch { }
+    var script = Path.Combine(Path.GetTempPath(), "bb8_pad_driver.ps1");
+    File.WriteAllText(script, $$"""
+        $log = '{{log}}'
+        "=== $(Get-Date) ===" | Out-File $log
+        pnputil /add-driver '{{inf}}' /install 2>&1 | Out-File $log -Append
+        pnputil /scan-devices 2>&1 | Out-File $log -Append
+        Start-Sleep -Seconds 3
+        Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like 'USB\VID_054C&PID_042F*' -or $_.InstanceId -like 'USB\VID_054C&PID_0268*' } |
+            Select-Object Status, Class, FriendlyName, InstanceId | Format-Table -AutoSize | Out-String | Out-File $log -Append
+        """);
+
+    var psi = new ProcessStartInfo("powershell.exe", $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\"")
+    {
+        UseShellExecute = true,
+        Verb = "runas"
+    };
+    try
+    {
+        using var p = Process.Start(psi)!;
+        await p.WaitForExitAsync();
+    }
+    catch (Exception ex) { Fail($"elevation refused or failed: {ex.Message}"); return 1; }
+
+    string output = File.Exists(log) ? File.ReadAllText(log) : "(no log written)";
+    foreach (var line in output.Split('\n').Select(l => l.TrimEnd()).Where(l => l.Length > 0))
+        Console.WriteLine("  " + line);
+
+    bool bound = output.Contains("libusb-win32 devices");
+    bool added = output.Contains("Driver package added successfully") || output.Contains("already") || output.Contains("Total driver packages:  1");
+    if (bound)
+        Console.WriteLine("[32m[DRIVER] pad is bound to libusb-win32 — 'bb8 pair --list' should now read it.[0m");
+    else if (!output.Contains("VID_054C"))
+        Console.WriteLine("[33m[DRIVER] package processed; no pad is plugged in right now. Plug one in — Windows binds it automatically.[0m");
+    else
+        Console.WriteLine("[33m[DRIVER] a pad is present but still not on libusb-win32. Unplug/replug it; if it stays on HIDClass, see the log above for pnputil's error.[0m");
+    return bound || added ? 0 : 1;
 }
 
 // ------------------------------------------------------------------
