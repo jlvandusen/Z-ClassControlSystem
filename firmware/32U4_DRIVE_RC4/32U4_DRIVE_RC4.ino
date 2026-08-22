@@ -246,10 +246,16 @@ void audioScan(int maxTrack) {
   int runStart = -1, present = 0;
   Serial.print(F("[AUDIO] present: "));
   for (int n = 1; n <= maxTrack; n++) {
+    // RC4.3: wait for the previous track to actually stop (BUSY high) so
+    // its lingering BUSY can't be credited to this track - that produced
+    // one phantom "present" after every real one (e.g. 60 -> 61).
+    unsigned long tIdle = millis();
+    while (digitalRead(DFPLAYER_BUSY_PIN) == LOW && millis() - tIdle < 400) dfWaitReply(10);
+    bool wasIdle = digitalRead(DFPLAYER_BUSY_PIN) == HIGH;
     mp3.playMp3Folder(n);
     uint8_t r = dfWaitReply(140);
-    bool ok = (r != 1) && (digitalRead(DFPLAYER_BUSY_PIN) == LOW || r == 2);
-    if (!ok) { delay(40); ok = (digitalRead(DFPLAYER_BUSY_PIN) == LOW) && dfWaitReply(10) != 1; }
+    bool ok = wasIdle && (r != 1) && digitalRead(DFPLAYER_BUSY_PIN) == LOW;
+    if (!ok && wasIdle && r != 1) { delay(40); ok = (digitalRead(DFPLAYER_BUSY_PIN) == LOW) && dfWaitReply(10) != 1; }
     if (ok) {
       present++;
       if (runStart < 0) runStart = n;
@@ -668,26 +674,28 @@ void handleAudio() {
         Serial.print(F("[AUDIO] Received cmd = "));
         Serial.println(cmdv);
 
-        if (cmdv == 100) {
+        // RC4.3: control codes are 125/126/127 (were 92/93/100 - collided
+        // with real tracks; MP3/0100.mp3 is the shutdown clip). Tracks 1..119.
+        if (cmdv == 127) {
             silentMode = !silentMode;
             currentVolume = silentMode ? 0 : AUDIO_DEFAULT_VOLUME;
             mp3.volume(currentVolume);
             Serial.print(F("[AUDIO] Silent mode "));
             Serial.println(silentMode ? F("ON") : F("OFF"));
         }
-        else if (cmdv == 92) {
+        else if (cmdv == 125) {
             currentVolume = min(currentVolume + 1, 30);
             mp3.volume(currentVolume);
             Serial.print(F("[AUDIO] Volume up -> "));
             Serial.println(currentVolume);
         }
-        else if (cmdv == 93) {
+        else if (cmdv == 126) {
             currentVolume = max(currentVolume - 1, 0);
             mp3.volume(currentVolume);
             Serial.print(F("[AUDIO] Volume down -> "));
             Serial.println(currentVolume);
         }
-        else if (!silentMode && cmdv > 0 && cmdv < 100) {
+        else if (!silentMode && cmdv > 0 && cmdv < 120) {
             Serial.print(F("[AUDIO] Playing folder track: "));
             Serial.println(cmdv);
             mp3.playMp3Folder(cmdv);

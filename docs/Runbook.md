@@ -168,17 +168,19 @@ The drive is the hub: IMU pitch/roll, body replies (`debug from32u4`), what it s
 
 | Input | Drive controller | Dome controller |
 |---|---|---|
-| **CIRCLE** | Drive enable toggle | sound 28 |
-| **PS** tap / **PS hold 2 s** | Drive enable toggle / **force DISABLE** (so powering the remote off leaves the droid safe) | dome-function toggle |
+| **PS** tap / **PS hold 2 s** | **Drive enable toggle** / **force DISABLE** (both sound `pref sndon`/`sndoff`, 60) | dome-function toggle |
+| Drive controller **disconnects** (detected) | force-disable + shutdown clip (`pref sndshut`, **100**) — this is the "powered down" sound after a PS-hold | — |
+| Controller **connects** to the drive slot | startup clip (`pref sndconn`, **1**) | — |
+| **CIRCLE** | sound 28 (RC4.3 — no longer a drive toggle; PS is the only one) | sound 28 |
 | **CROSS** | autoBalance toggle (sound 63) | random sound |
 | Left stick | drive (Y) + steer/S2S (X) | dome tilt |
 | L1 + stick X | dome spin | **flywheel** |
-| L2 | throttle boost | — |
+| L2 | throttle boost; **L2 + D-pad UP/DOWN = volume ±** | — |
 | D-pad | sounds 1-30 random / 3 / 4 / 5; L1-shifted 10-13 | sounds 21-23; L1-shifted 16-19 |
 | L1 + CIRCLE | silent-mode toggle | — |
 | Both D-pad UP 3 s / both DOWN 3 s | save prefs / factory reset + reboot | |
 
-Feedback sounds are **state-aware**: enable plays `pref sndon`, disable plays `pref sndoff` — fired from the state change, so CIRCLE, PS, force-disable and controller-loss all sound the same way.
+Feedback sounds are **state-aware**: enable plays `pref sndon`, disable plays `pref sndoff` — fired from the state change, so PS tap, force-disable and controller-loss all sound the same way. (Both default to 60; a press inside the ~1.7 s clip is ignored by the DFPlayer — same track already playing.)
 
 ---
 
@@ -234,7 +236,8 @@ By eye, before/after: the dome should **lean opposite the body (stay level)**. I
 
 ## 9. Audio
 
-- Files live in `MP3/0001.mp3 … 00NN.mp3` on the DFPlayer's SD (FAT32).
+- **Boot calibration** plays `pref sndcal` (**track 6**, the "I'm level — you can enable" chirp) ~3 s after every power-up; it fires with no controller connected, once per boot. `pref sndcal 0` silences it; `pref sndcal <n>` picks another track. (This is the "random sound with nothing connected" — it's the cal-complete chirp, not noise.)
+- Files live in `MP3/0001.mp3 … 00NN.mp3` on the DFPlayer's SD (FAT32). Tracks **1–119** are addressable from the pad/prefs (the link field is an `int8_t`; 125/126/127 are the volume±/silent control codes since RC4.3). The console `play <n>` has no limit. Card as of 2026-08-22: 1–31, 50, 60, 99–103, 105–106 — **1 = startup, 100 = shutdown**.
 - **`audio scan`** on the body console tells you exactly which numbers exist (muted, ~20 s for 1-100). A missing track now logs `[AUDIO] DFPlayer ERROR (TRACK FILE NOT FOUND on SD)` instead of failing silently.
 - Sound commands ride the 50 Hz state stream with a sequence number, repeated 5×, so the DFPlayer's SoftwareSerial interrupt-blocking (which corrupts ~1–2 link packets per command — the `CRC_ERROR`/`PAYLOAD_ERROR` lines) can't drop them. Those error lines are expected and cosmetic.
 - Known: `0061.mp3` was absent on the 2026-08-20 card → disable sound defaults to 60. Add the file and `pref sndoff 61` to get a distinct disable sound.
@@ -246,7 +249,7 @@ By eye, before/after: the dome should **lean opposite the body (stay level)**. I
 | Event | Response |
 |---|---|
 | IMU stale > 500 ms | autoBalance output cut, motors braked |
-| Drive controller disconnects | drive force-DISABLED; dome pad may be promoted but drive stays disabled until CIRCLE |
+| Drive controller disconnects | drive force-DISABLED + shutdown clip (100); dome pad may be promoted but drive stays disabled until PS |
 | PS held 2 s | drive force-DISABLED (+ sound) |
 | No ESP32 packet to body for 2 s | servos neutral, dome motor stopped |
 | Rig experiment (`step`, `autotune`) | aborts on \|angle\| > 15°, joystick grab, mode change, 25 s timeout |
@@ -267,6 +270,7 @@ By eye, before/after: the dome should **lean opposite the body (stay level)**. I
 | Toggle sound plays every other press | old body firmware (`lastTrack`/busy suppressors) | flash body |
 | Track commanded but silent | file missing on SD | `audio scan`, add the file or `pref sndon/off` |
 | CRC/PAYLOAD lines ~30 ms after every sound | SoftwareSerial interrupt blocking | expected; protocol tolerates it; `debug 32u4` shows the rate |
+| CROSS / dome-pad PS make no sound | tracks 63 / 62 not on the SD (RC4.3 scan: 1–31, 50, 60, 99) | add `MP3/0062.mp3`, `0063.mp3` (and `0061` for L3) |
 | Droid oscillates left-right with balance on | outer S2S gain beyond actuator bandwidth and/or roll zero off | `cfg calibrate`, Kp 10 / Ki 2 / Kd 1, `pref swing 40`, `bb8 tune s2s` |
 | Drive wheel "keeps rolling" on the rig | integral windup on a near-open-loop pitch plant + zero offset | `cfg calibrate drive`, Ki=0 on the rig (`bb8 tune drive` does this) |
 | Controller pairs then drops / laggy | radio coexistence | RC4 uses `PREFER_BALANCE` + 11 dBm; escalate to `PREFER_BT` in the drive sketch if needed |
@@ -345,7 +349,7 @@ bb8 pair
 Slot rules: the preferred DRIVE pad always claims slot 0 (any occupant moves to the dome slot);
 the preferred DOME pad takes slot 1 (or slot 0 temporarily if no drive pad yet); anything else fills
 the first free slot. If the drive pad disconnects, drive is force-DISABLED and the dome pad is
-promoted — but drive stays disabled until you press CIRCLE.
+promoted — but drive stays disabled until you tap PS.
 
 Protocol notes: master = HID feature report `0xF5` `[F5][00][MAC×6]`; own address = report `0xF2`
 bytes 4..9 — identical to Bluepad32's `tools/sixaxispairer` and hid-sony. If Windows refuses the

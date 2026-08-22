@@ -17,6 +17,13 @@ enum SoundCommand : uint16_t {
   SOUND_TOGGLE_DOME_SERVO_MODE = 62,
   SOUND_TOGGLE_BALANCE = 63,
 
+  // RC4.3: link CONTROL codes live above every playable track (tracks are
+  // 1..119 on the wire; the field is an int8_t). They used to be 92/93/100,
+  // which collided with real files (MP3/0100.mp3 is the shutdown clip).
+  SOUND_CTRL_VOL_UP   = 125,
+  SOUND_CTRL_VOL_DOWN = 126,
+  SOUND_CTRL_SILENT   = 127,
+
 
 
   // Special
@@ -35,8 +42,8 @@ static uint16_t resolveDriveControllerSound(const ControllerState &cur) {
   // L1 + D-pad combos
 
   if (cur.L2 > 50) {
-    if (cur.dpadUp.pressed) return 92;    // SOUND_DRIVE_REVERSE
-    if (cur.dpadDown.pressed) return 93;  // Assign a new sound for DOWN
+    if (cur.dpadUp.pressed) return SOUND_CTRL_VOL_UP;     // L2+UP: volume +
+    if (cur.dpadDown.pressed) return SOUND_CTRL_VOL_DOWN;  // L2+DOWN: volume -
   }
 
   if (cur.L1.held) {
@@ -44,7 +51,7 @@ static uint16_t resolveDriveControllerSound(const ControllerState &cur) {
     if (cur.dpadRight.pressed) return 11;
     if (cur.dpadDown.pressed) return 12;
     if (cur.dpadLeft.pressed) return 13;
-    if (cur.circle.pressed) return 100;  // RC4: silent mode moved to L1+CIRCLE
+    if (cur.circle.pressed) return SOUND_CTRL_SILENT;  // L1+CIRCLE: silent-mode toggle
   }
 
   // Single D-pad
@@ -53,10 +60,13 @@ static uint16_t resolveDriveControllerSound(const ControllerState &cur) {
   if (cur.dpadDown.pressed) return 4;
   if (cur.dpadLeft.pressed) return 5;
 
-  // RC4.1: circle/PS no longer mapped here — the drive enable/disable
-  // sound is STATE-AWARE and fires from toggleDriveEnabled() itself
-  // (60 = enabled, 61 = disabled), so it also covers force-disable and
-  // controller-loss, and you can HEAR which state you ended up in.
+  // PS is not mapped here — the drive enable/disable sound is STATE-AWARE
+  // and fires from toggleDriveEnabled() itself (pref sndon/sndoff), so it
+  // also covers force-disable and controller-loss.
+
+  // RC4.3: CIRCLE is a plain sound button (it used to duplicate PS as the
+  // drive toggle). Same clip as the dome pad's CIRCLE.
+  if (cur.circle.pressed) return 28;
 
   // Cross toggles balance
   if (cur.cross.pressed) return SOUND_TOGGLE_BALANCE;

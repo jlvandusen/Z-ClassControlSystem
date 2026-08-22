@@ -20,6 +20,7 @@ extern const uint8_t S2S_POT_PIN;
 // External functions
 extern void sendSoundCommand(SerialTransfer &coms, send32u4 &payload, uint16_t cmd);
 extern bool saveConfig();
+extern int soundBootCal;   // RC4.3: 'pref sndcal' — boot-cal-complete track, 0 = silent
 
 // Calibration constants
 const float STABLE_THRESHOLD = 2.5;
@@ -67,7 +68,7 @@ inline void serviceBootCalibration() {
       // RC4: RAM only — RC3 wrote NVS on EVERY boot, clobbering a good
       // saved calibration with the boot pose and wearing flash. Persist
       // explicitly via the both-dpad-up combo or "cfg save".
-      sendSoundCommand(Coms32u4, sendTo32u4, SOUND_CAL_COMPLETE);
+      sendSoundCommand(Coms32u4, sendTo32u4, soundBootCal);  // 0 = silent
       Serial.printf("[BOOT CAL] Completed: pitchOffset=%.2f rollOffset=%.2f potCenter=%d (samples=%u)\n",
                     cfg.pitchOffset, cfg.rollOffset, cfg.potCenter, sampleCount);
     } else {

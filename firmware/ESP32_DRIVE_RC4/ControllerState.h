@@ -11,16 +11,31 @@ struct ButtonState {
   bool released = false;
   bool held = false;
   unsigned long lastChange = 0;
+  // RC4.3: integrating debounce state (see below).
+  bool candidate = false;
+  unsigned long candidateSince = 0;
 
-  void update(bool raw, unsigned long now, uint16_t debounceMs = 120) {
+  // RC4.3: INTEGRATING debounce — the raw level must hold its new value for
+  // 'debounceMs' before it counts. The old code was a LOCKOUT debounce: it
+  // accepted the very first change instantly and then ignored changes for
+  // 120 ms, so a single noisy "button down" sample (one bad RF packet, or a
+  // glitchy first report right after connect) registered as a real press.
+  // That was the source of the random sounds — a transient D-pad-UP spike
+  // -> pickRandom1to30(). Requiring persistence rejects single-sample spikes
+  // (a real press lasts far longer than a few packet intervals) while a
+  // 45 ms confirm window is imperceptible for enable/sound/balance buttons.
+  void update(bool raw, unsigned long now, uint16_t debounceMs = 45) {
     pressed = false;
     released = false;
 
-    if (raw != current && (now - lastChange) >= debounceMs) {
+    if (raw != candidate) {          // level moved — (re)start the confirm timer
+      candidate = raw;
+      candidateSince = now;
+    }
+    if (raw != current && (now - candidateSince) >= debounceMs) {
       previous = current;
-      current = raw;
+      current = raw;                 // accept only after it has persisted
       lastChange = now;
-
       if (current && !previous) pressed = true;
       if (!current && previous) released = true;
     }

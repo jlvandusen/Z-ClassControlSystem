@@ -39,6 +39,10 @@ extern float maxJoyDrivePwm;
 extern float s2sInnerKp;
 extern int soundDriveOn;
 extern int soundDriveOff;
+extern int soundShutdown;
+extern int soundConnect;
+extern int soundBootCal;
+extern void saveSoundPrefs();
 
 // PID
 extern PIDController drivePID;
@@ -98,7 +102,10 @@ inline void printHelpMenu() {
   Serial.println(F("pref lean <float>     - Max joystick drive authority in PWM (default 255)"));
   Serial.println(F("pref innerkp <float>  - S2S position-loop Kp in PWM/count (default 0.9)"));
   Serial.println(F("pref sndon <track>    - Drive-ENABLE feedback track (default 60)"));
-  Serial.println(F("pref sndoff <track>   - Drive-DISABLE feedback track (default 61)"));
+  Serial.println(F("pref sndoff <track>   - Drive-DISABLE feedback track (default 60)"));
+  Serial.println(F("pref sndshut <track>  - drive-controller-disconnect track (default 100)"));
+  Serial.println(F("pref sndconn <track>  - controller-connected track (default 1)"));
+  Serial.println(F("pref sndcal <track>   - boot-calibration-complete track (default 6; 0 = silent)"));
   Serial.println(F("pid set drive kp|ki|kd <val>  - Drive PID (PWM per deg / deg*s / deg per s)"));
   Serial.println(F("pid set s2s kp|ki|kd <val>    - S2S outer PID (pot counts per deg ...)"));
   Serial.println(F("pid show              - Show current PID values"));
@@ -236,18 +243,37 @@ inline void handleSerialCommand(const String &cmd) {
     } else {
       Serial.println(F("[PREF] Invalid value. Must be 50-255."));
     }
-  } else if (cmd.startsWith("pref sndon")) {
-    int v = cmd.substring(10).toInt();
-    if (v >= 1 && v <= 99) {
-      soundDriveOn = v;
-      Serial.printf("[PREF] Drive-ENABLE sound set to track %d\n", v);
-    } else Serial.println(F("[PREF] Invalid track (1-99)."));
-  } else if (cmd.startsWith("pref sndoff")) {
+  } else if (cmd.startsWith("pref sndon ")) {
     int v = cmd.substring(11).toInt();
-    if (v >= 1 && v <= 99) {
-      soundDriveOff = v;
+    if (v >= 1 && v <= 119) {
+      soundDriveOn = v; saveSoundPrefs();
+      Serial.printf("[PREF] Drive-ENABLE sound set to track %d\n", v);
+    } else Serial.println(F("[PREF] Invalid track (1-119)."));
+  } else if (cmd.startsWith("pref sndoff ")) {
+    int v = cmd.substring(12).toInt();
+    if (v >= 1 && v <= 119) {
+      soundDriveOff = v; saveSoundPrefs();
       Serial.printf("[PREF] Drive-DISABLE sound set to track %d\n", v);
-    } else Serial.println(F("[PREF] Invalid track (1-99)."));
+    } else Serial.println(F("[PREF] Invalid track (1-119)."));
+  } else if (cmd.startsWith("pref sndshut ")) {
+    int v = cmd.substring(13).toInt();
+    if (v >= 1 && v <= 119) {
+      soundShutdown = v; saveSoundPrefs();
+      Serial.printf("[PREF] Shutdown sound set to track %d\n", v);
+    } else Serial.println(F("[PREF] Invalid track (1-119)."));
+  } else if (cmd.startsWith("pref sndconn ")) {
+    int v = cmd.substring(13).toInt();
+    if (v >= 1 && v <= 119) {
+      soundConnect = v; saveSoundPrefs();
+      Serial.printf("[PREF] Controller-connected sound set to track %d\n", v);
+    } else Serial.println(F("[PREF] Invalid track (1-119)."));
+  } else if (cmd.startsWith("pref sndcal ")) {
+    int v = cmd.substring(12).toInt();
+    if (v >= 0 && v <= 119) {
+      soundBootCal = v; saveSoundPrefs();
+      if (v == 0) Serial.println(F("[PREF] Boot-calibration sound SILENCED"));
+      else Serial.printf("[PREF] Boot-calibration sound set to track %d\n", v);
+    } else Serial.println(F("[PREF] Invalid track (0-119; 0 = silent)."));
   } else if (cmd.startsWith("pref innerkp")) {
     float v = cmd.substring(12).toFloat();
     if (v > 0 && v <= 5) {

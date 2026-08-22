@@ -154,6 +154,9 @@ float maxJoyDrivePwm = 255.0f;                  // joystick drive authority
 // in case a track file is missing from the SD card
 int soundDriveOn = 60;
 int soundDriveOff = 60;   // user pref: same track both ways ("pref sndoff 61" when 0061.mp3 exists)
+int soundShutdown = 100;  // RC4.3: DRIVE controller disconnect detected -> MP3/0100.mp3 (shutdown clip)
+int soundConnect = 1;     // RC4.3: a controller lands in the DRIVE slot -> MP3/0001.mp3 (startup)
+int soundBootCal = 6;     // RC4.3: boot calibration complete ("I'm level") -> MP3/0006.mp3; 0 = silent (pref sndcal)
 
 // ------------------- PWM CONFIG -------------------
 const int PWM_FREQ = 20000;
@@ -551,6 +554,28 @@ void savePrefMacs() {
   prefs.end();
 }
 
+// RC4.3: the sound prefs (sndon/off/shut/conn/cal) persist in NVS so they
+// survive a reboot — otherwise 'pref sndcal 0' could never silence the boot
+// chirp, which fires ~3 s into loop() (long after loadSoundPrefs() in setup).
+void loadSoundPrefs() {
+  prefs.begin("drivecfg", true);
+  soundDriveOn  = prefs.getInt("sndon",   soundDriveOn);
+  soundDriveOff = prefs.getInt("sndoff",  soundDriveOff);
+  soundShutdown = prefs.getInt("sndshut", soundShutdown);
+  soundConnect  = prefs.getInt("sndconn", soundConnect);
+  soundBootCal  = prefs.getInt("sndcal",  soundBootCal);
+  prefs.end();
+}
+void saveSoundPrefs() {
+  prefs.begin("drivecfg", false);
+  prefs.putInt("sndon",   soundDriveOn);
+  prefs.putInt("sndoff",  soundDriveOff);
+  prefs.putInt("sndshut", soundShutdown);
+  prefs.putInt("sndconn", soundConnect);
+  prefs.putInt("sndcal",  soundBootCal);
+  prefs.end();
+}
+
 void btPreferShow() {
   char a[18], b[18];
   macToStr(prefDriveMac, a);
@@ -600,7 +625,16 @@ void btPrefer(bool driveSlot, String arg) {
   btPreferShow();
 }
 
+// RC4.3: play the startup clip whenever a controller lands in the DRIVE
+// slot (first pairing, and every reconnect after a PS-hold power-off).
 void onConnectedGamepad(GamepadPtr gp) {
+  bool hadDrive = myControllers[0] != nullptr;
+  assignConnectedGamepad(gp);
+  if (!hadDrive && myControllers[0] != nullptr)
+    sendSoundCommand(Coms32u4, sendTo32u4, soundConnect);   // pref sndconn
+}
+
+void assignConnectedGamepad(GamepadPtr gp) {
   uint8_t mac[6];
   memcpy(mac, gp->getProperties().btaddr, 6);
 
@@ -657,8 +691,10 @@ void onDisconnectedGamepad(GamepadPtr gp) {
       autoBalance = false;
       domeFunctionEnabled = false;
       Serial.println(F("[SAFETY] Drive controller lost — drive DISABLED"));
-      sendSoundCommand(Coms32u4, sendTo32u4, soundDriveOff);
     }
+    // RC4.3: the disconnect itself is the "powered down" moment -> shutdown
+    // clip (pref sndshut), whether or not the drive was still enabled.
+    sendSoundCommand(Coms32u4, sendTo32u4, soundShutdown);
   }
   if (wasDome) {
     myControllers[1] = nullptr;
@@ -670,7 +706,7 @@ void onDisconnectedGamepad(GamepadPtr gp) {
     myControllers[1] = nullptr;
     // RC4.1: promotion no longer silently hands a live drive to the dome
     // pad — drive stays DISABLED until deliberately re-enabled.
-    Serial.println(F("[INFO] Dome controller promoted to DRIVE slot (drive remains DISABLED — CIRCLE to enable)"));
+    Serial.println(F("[INFO] Dome controller promoted to DRIVE slot (drive remains DISABLED — PS to enable)"));
   }
 }
 
@@ -705,8 +741,29 @@ inline void handleSoundTriggers() {
 
   static uint16_t lastSoundCmdSent = SOUND_NONE;
 
-  uint16_t cmd = resolveDriveControllerSound(driveController);
-  if (cmd == SOUND_NONE) {
+  // RC4.3: only resolve sounds from a controller that is ACTUALLY connected,
+  // and only after it has been up for SOUND_ARM_MS. This kills the random
+  // sounds heard at boot / with no pad: an unseeded random() makes
+  // pickRandom1to30() return a fixed 6, and a stale or just-connecting
+  // gamepad object could present a phantom D-pad-UP for a few reports.
+  const unsigned long SOUND_ARM_MS = 400;
+  unsigned long now = millis();
+  bool driveOn = myControllers[0] && myControllers[0]->isConnected();
+  bool domeOn  = myControllers[1] && myControllers[1]->isConnected();
+
+  static bool prevDriveOn = false, prevDomeOn = false;
+  static unsigned long driveArmAt = 0, domeArmAt = 0;
+  if (driveOn && !prevDriveOn) driveArmAt = now + SOUND_ARM_MS;
+  if (domeOn  && !prevDomeOn)  domeArmAt  = now + SOUND_ARM_MS;
+  prevDriveOn = driveOn; prevDomeOn = domeOn;
+
+  bool driveArmed = driveOn && (long)(now - driveArmAt) >= 0;
+  bool domeArmed  = domeOn  && (long)(now - domeArmAt)  >= 0;
+
+  if (!driveArmed && !domeArmed) { lastSoundCmdSent = SOUND_NONE; return; }
+
+  uint16_t cmd = driveArmed ? resolveDriveControllerSound(driveController) : SOUND_NONE;
+  if (cmd == SOUND_NONE && domeArmed) {
     cmd = resolveDomeControllerSound(domeController);
   }
   if (cmd != SOUND_NONE && cmd != lastSoundCmdSent) {
@@ -921,11 +978,13 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println(F("\n=== BB-8 Drive System Starting (RC4) ==="));
+  randomSeed(esp_random());   // RC4.3: real entropy — pickRandom1to30() was deterministic (always 6) unseeded
 
   bootMs = millis();
   showBuildInfoSerial("BOOT");
 
   loadPrefMacs();           // RC4.2: preferred controller MACs from NVS
+  loadSoundPrefs();         // RC4.3: sound prefs from NVS (before boot cal chirps)
   if (loadConfig()) {
     Serial.println(F("[NVS] Config loaded successfully"));
   } else {
@@ -1016,8 +1075,8 @@ void toggleDriveEnabled() {
     s2sPID.reset();
   }
   // RC4.1: STATE-AWARE feedback — you can hear which state you ended in.
-  // 60 = enabled, 61 = disabled. Fired from the state change itself so
-  // CIRCLE, PS, force-disable and controller-loss all sound consistent.
+  // pref sndon / sndoff (default 60 both). Fired from the state change itself
+  // so PS tap, force-disable and controller-loss all sound consistent.
   sendSoundCommand(Coms32u4, sendTo32u4,
                    driveEnabled ? soundDriveOn : soundDriveOff);
 }
@@ -1025,16 +1084,12 @@ void toggleDriveEnabled() {
 void handleControllerCombos() {
   static bool psDomeLock = false;
   static bool crossDriveLock = false;
-  static bool circleDriveLock = false;
 
-  // RC4: CIRCLE on the drive controller toggles Drive Enable
-  // (some controllers don't report the PS/system button reliably through
-  //  Bluepad32). Silent-mode sound moved to L1+CIRCLE.
-  if (driveController.circle.pressed && !circleDriveLock && !driveController.L1.held) {
-    toggleDriveEnabled();
-    circleDriveLock = true;
-  }
-  if (!driveController.circle.held) circleDriveLock = false;
+  // RC4.3: CIRCLE no longer toggles Drive Enable — PS does (tap = toggle,
+  // hold 2 s = force-disable). CIRCLE is a plain sound button now (track 28,
+  // see SoundMapping.h); L1+CIRCLE is still the silent-mode toggle.
+  // (The CIRCLE toggle existed for pads whose PS button Bluepad32 doesn't
+  //  report; re-add it here if such a pad turns up.)
 
   // RC4.1: PS tap = toggle drive; PS held >= 2 s = FORCE DISABLE.
   // Holding PS is how you power the remote off — the long-hold guarantees
@@ -1052,7 +1107,7 @@ void handleControllerCombos() {
           autoBalance = false;
           domeFunctionEnabled = false;
           Serial.println(F("[TOGGLE] Drive FORCE-DISABLED (PS held 2s)"));
-          sendSoundCommand(Coms32u4, sendTo32u4, soundDriveOff);
+          sendSoundCommand(Coms32u4, sendTo32u4, soundDriveOff);   // state feedback; the shutdown clip plays when the pad drops
         }
       }
     } else {
