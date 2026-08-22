@@ -230,8 +230,8 @@ inline void handleSerialCommand(const String &cmd) {
   } else if (cmd.startsWith("pref swing")) {
     float newSwing = cmd.substring(10).toFloat();
     if (newSwing > 0 && newSwing <= 90) {
-      s2sMaxDegrees = newSwing;
-      Serial.printf("[PREF] S2S max swing set to %.1f degrees\n", s2sMaxDegrees);
+      s2sMaxDegrees = newSwing; saveSoundPrefs();   // RC4.4: persists (NVS)
+      Serial.printf("[PREF] S2S max swing set to %.1f degrees (saved)\n", s2sMaxDegrees);
     } else {
       Serial.println(F("[PREF] Invalid swing value. Must be 1-90 degrees."));
     }

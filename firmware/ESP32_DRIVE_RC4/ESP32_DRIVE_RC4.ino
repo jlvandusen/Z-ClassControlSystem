@@ -67,6 +67,83 @@
 #include "SoundMapping.h"
 #include "PIDController.h"
 
+// ================= RC4.4: ESP-NOW console tunnel (sealed-shell tuning) =====
+// The dome (on the bench, USB to the PC) bridges bb8 <-> ESP-NOW <-> drive:
+// unknown dome-console lines arrive here as TunnelCmd packets and are fed to
+// the normal command parser; EVERYTHING this sketch prints is mirrored back
+// as TunnelOut packets while the tunnel is armed (any TunnelCmd arms it for
+// 60 s; the dome keepalives while bb8 is attached). `Serial` below is a tee
+// wrapper — sketch code needs no changes.  Structs are hand-mirrored in
+// ESP32_DOME_RC4.ino; sizes are the discriminator, keep them distinct.
+struct __attribute__((packed)) TunnelCmd { uint8_t type, seq, len; char data[180]; uint16_t checksum; };
+struct __attribute__((packed)) TunnelOut { uint8_t type, seq, len; char data[236]; uint16_t checksum; };
+static const uint8_t TUNNEL_CMD_TYPE = 0xC1, TUNNEL_OUT_TYPE = 0xC2;
+static uint16_t tunnelSumBytes(const void *p, size_t n) {
+  const uint8_t *b = (const uint8_t *)p; uint16_t s = 0;
+  for (size_t i = 0; i + 2 < n; i++) s += b[i];
+  return s;
+}
+#define tunnelSum(pkt) tunnelSumBytes(&(pkt), sizeof(pkt))
+
+static HardwareSerial &UsbSerial = Serial;   // capture before the #define below
+
+class TeeSerial : public Print {
+public:
+  // ---- output: USB always; tunnel ring while armed ----
+  size_t write(uint8_t c) override { UsbSerial.write(c); push(c); return 1; }
+  size_t write(const uint8_t *b, size_t n) override {
+    UsbSerial.write(b, n);
+    for (size_t i = 0; i < n; i++) push(b[i]);
+    return n;
+  }
+  void begin(unsigned long baud) { UsbSerial.begin(baud); }
+  void flush() { UsbSerial.flush(); }
+  // ---- input: injected tunnel lines first, then real USB ----
+  int available() { return injLen() + UsbSerial.available(); }
+  int read() {
+    portENTER_CRITICAL(&mux);
+    int c = -1;
+    if (injTail != injHead) { c = injBuf[injTail]; injTail = (injTail + 1) % sizeof(injBuf); }
+    portEXIT_CRITICAL(&mux);
+    return c >= 0 ? c : UsbSerial.read();
+  }
+  // ---- tunnel plumbing ----
+  volatile unsigned long armedUntil = 0;
+  bool armed() { return (long)(millis() - armedUntil) < 0; }
+  void inject(const char *s, uint8_t n) {           // from the ESP-NOW RX task
+    portENTER_CRITICAL(&mux);
+    for (uint8_t i = 0; i < n; i++) {
+      uint16_t nx = (injHead + 1) % sizeof(injBuf);
+      if (nx == injTail) break;                     // full: drop the tail of the line
+      injBuf[injHead] = s[i]; injHead = nx;
+    }
+    portEXIT_CRITICAL(&mux);
+  }
+  uint16_t pending() { portENTER_CRITICAL(&mux); uint16_t n = (uint16_t)((outHead - outTail + sizeof(outBuf)) % sizeof(outBuf)); portEXIT_CRITICAL(&mux); return n; }
+  uint8_t drain(char *dst, uint8_t maxN) {
+    portENTER_CRITICAL(&mux);
+    uint8_t n = 0;
+    while (n < maxN && outTail != outHead) { dst[n++] = outBuf[outTail]; outTail = (outTail + 1) % sizeof(outBuf); }
+    portEXIT_CRITICAL(&mux);
+    return n;
+  }
+private:
+  void push(uint8_t c) {
+    if (!armed()) return;
+    portENTER_CRITICAL(&mux);
+    uint16_t nx = (outHead + 1) % sizeof(outBuf);
+    if (nx != outTail) { outBuf[outHead] = c; outHead = nx; }   // full: drop newest
+    portEXIT_CRITICAL(&mux);
+  }
+  uint16_t injLen() { portENTER_CRITICAL(&mux); uint16_t n = (uint16_t)((injHead - injTail + sizeof(injBuf)) % sizeof(injBuf)); portEXIT_CRITICAL(&mux); return n; }
+  char outBuf[1024]; volatile uint16_t outHead = 0, outTail = 0;
+  char injBuf[256];  volatile uint16_t injHead = 0, injTail = 0;
+  portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+};
+TeeSerial SerialTee;
+#define Serial SerialTee
+// ===========================================================================
+
 #define ENABLE_ESPNOW 1
 #define WIFI_CHANNEL 11
 #define HEARTBEAT_LED 2
@@ -564,6 +641,7 @@ void loadSoundPrefs() {
   soundShutdown = prefs.getInt("sndshut", soundShutdown);
   soundConnect  = prefs.getInt("sndconn", soundConnect);
   soundBootCal  = prefs.getInt("sndcal",  soundBootCal);
+  s2sMaxDegrees = prefs.getFloat("swing", s2sMaxDegrees);   // RC4.4: swing persists too
   prefs.end();
 }
 void saveSoundPrefs() {
@@ -573,6 +651,7 @@ void saveSoundPrefs() {
   prefs.putInt("sndshut", soundShutdown);
   prefs.putInt("sndconn", soundConnect);
   prefs.putInt("sndcal",  soundBootCal);
+  prefs.putFloat("swing", s2sMaxDegrees);
   prefs.end();
 }
 
@@ -726,6 +805,22 @@ void onEspNowRecv(const uint8_t* mac, const uint8_t* data, int len) {
     uint16_t calc = calculateChecksumDome(temp);
     if (calc != temp.checksum) return;
     lastBatteryVoltage = temp.bat;
+  }
+  // RC4.4: console command tunneled in from the dome bridge. len==0 is a
+  // keepalive (arms the output mirror while bb8 is attached to the dome).
+  else if (len == sizeof(TunnelCmd)) {
+    TunnelCmd c;
+    memcpy(&c, data, sizeof(c));
+    if (c.type != TUNNEL_CMD_TYPE || c.len > sizeof(c.data)) return;
+    if (tunnelSum(c) != c.checksum) return;
+    static uint8_t lastSeq = 0;
+    if (c.seq == lastSeq) return;               // dome retries dupes
+    lastSeq = c.seq;
+    SerialTee.armedUntil = millis() + 60000UL;
+    if (c.len > 0) {
+      SerialTee.inject(c.data, c.len);
+      SerialTee.inject("\n", 1);
+    }
   }
 }
 
@@ -963,6 +1058,23 @@ void serviceEspNow() {
     }
     lastSendMs = now;
   }
+
+  // RC4.4: mirror buffered console output to the dome bridge. Lights have
+  // priority (handled above); tunnel chunks fill the gaps, one in flight,
+  // >=12 ms apart (~80 pkt/s ceiling — telemetry fast fits with room over).
+  static unsigned long lastTunnelMs = 0;
+  if (!espnowSendInFlight && SerialTee.pending() > 0 && (now - lastTunnelMs) >= 12) {
+    static TunnelOut tp;
+    static uint8_t tseq = 0;
+    tp.type = TUNNEL_OUT_TYPE;
+    tp.seq = ++tseq;
+    tp.len = SerialTee.drain(tp.data, sizeof(tp.data));
+    tp.checksum = tunnelSum(tp);
+    espnowSendInFlight = true;
+    if (esp_now_send(domeMACAddress, (uint8_t*)&tp, sizeof(tp)) != ESP_OK)
+      espnowSendInFlight = false;               // chunk lost; stream is best-effort
+    lastTunnelMs = now;
+  }
 #endif
 }
 
@@ -1042,6 +1154,11 @@ void setup() {
   if (esp_now_init() == ESP_OK) {
     esp_now_register_send_cb(onEspNowSend);
     esp_now_register_recv_cb(onEspNowRecv);  // RC4: battery telemetry now received
+    // RC4.4: BT forces WiFi modem sleep to stay ON, which left the RX window
+    // shut almost always — the dome's tunnel commands got no MAC ACK (3/3
+    // FAIL measured). This keeps the connectionless-RX window open full-time
+    // while coexistence still schedules BT; TX was never the problem.
+    esp_now_set_wake_window(65535);
 
     esp_now_peer_info_t peer = {};
     memcpy(peer.peer_addr, domeMACAddress, 6);

@@ -81,7 +81,16 @@ AnimState currentAnim = IDLE;
 String cmdBuffer = "";
 
 // === Function Prototypes ===
+// RC4.3: the dome now builds on the STOCK esp32 core (no Bluepad32) — the
+// Bluepad32 core boots BTstack even for sketches that never use BT, which
+// (a) contended the radio into 89-94% ESP-NOW loss and (b) made
+// WiFi.setSleep(false) an abort(). Core 3.x changed the recv callback
+// signature; both are supported here.
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len);
+#else
 void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len);
+#endif
 // void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
 void checkSerialCommand();
 void updateAnimations();
@@ -137,10 +146,15 @@ void setup() {
   }
 
   WiFi.mode(WIFI_STA);
+  // RC4.3: WiFi modem sleep is ON by default in STA mode and the receiver
+  // naps between AP beacons it isn't even associated to — measured 89-94%
+  // ESP-NOW loss (no MAC ACK) on the bench until this line. The dome's
+  // radio has no BT to share with, so keep it awake permanently.
+  WiFi.setSleep(false);
   esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
 
   uint8_t mac[6];
-  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  WiFi.macAddress(mac);   // core-3.x-safe (esp_read_mac needs esp_mac.h there)
   Serial.printf("[MAC] Dome WiFi STA MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
   if (esp_now_init() != ESP_OK) {
@@ -148,7 +162,7 @@ void setup() {
     return;
   }
   esp_now_register_recv_cb(OnDataRecv);
-  // esp_now_register_send_cb(OnDataSent);
+  esp_now_register_send_cb(OnDataSent);   // RC4.4: tunnel retry needs the ACK
 
   esp_now_peer_info_t peerInfo = {};
   memcpy(peerInfo.peer_addr, masterMAC, 6);
@@ -178,6 +192,7 @@ void setup() {
 
 void loop() {
   checkSerialCommand();
+  serviceTunnelRetry();
   updateAnimations();
   handleAnimation();
 
@@ -213,21 +228,72 @@ bool parseMAC(const String &macStr, uint8_t *macArray) {
   return false;
 }
 
+
+// ============ RC4.4: bb8 <-> drive console tunnel over ESP-NOW ============
+// This dome (on USB at the PC) is a transparent bridge: any console line
+// that is not a dome-local command (help/version/debug/setmac) is sent to
+// the drive as a TunnelCmd; the drive mirrors its whole console back as
+// TunnelOut packets which are written raw to USB. While bb8 is attached
+// (USB activity in the last 10 min) a keepalive TunnelCmd goes out every
+// 15 s so the drive keeps its mirror armed. Structs hand-mirrored from
+// ESP32_DRIVE_RC4.ino — sizes are the discriminator.
+struct __attribute__((packed)) TunnelCmd { uint8_t type, seq, len; char data[180]; uint16_t checksum; };
+struct __attribute__((packed)) TunnelOut { uint8_t type, seq, len; char data[236]; uint16_t checksum; };
+static const uint8_t TUNNEL_CMD_TYPE = 0xC1, TUNNEL_OUT_TYPE = 0xC2;
+static uint16_t tunnelSumBytes(const void *p, size_t n) {
+  const uint8_t *b = (const uint8_t *)p; uint16_t s = 0;
+  for (size_t i = 0; i + 2 < n; i++) s += b[i];
+  return s;
+}
+#define tunnelSum(pkt) tunnelSumBytes(&(pkt), sizeof(pkt))
+TunnelCmd gTunTx;                     // last command sent (kept for retry)
+uint8_t gTunSeq = 0, gTunAttempts = 0;
+volatile bool gTunAwaitAck = false, gTunResend = false;
+unsigned long lastUsbMs = 0, lastPingMs = 0, gTunSentMs = 0;
+
+void sendTunnelCmd(const String &line) {
+  gTunTx.type = TUNNEL_CMD_TYPE;
+  gTunTx.seq = ++gTunSeq; if (gTunSeq == 0) gTunTx.seq = gTunSeq = 1;
+  gTunTx.len = (uint8_t)min((unsigned int)line.length(), (unsigned int)sizeof(gTunTx.data));
+  memcpy(gTunTx.data, line.c_str(), gTunTx.len);
+  gTunTx.checksum = tunnelSum(gTunTx);
+  gTunAttempts = 1; gTunAwaitAck = true; gTunSentMs = millis();
+  esp_now_send(masterMAC, (uint8_t *)&gTunTx, sizeof(gTunTx));
+}
+void serviceTunnelRetry() {          // called from loop(); resend on NACK, max 6 tries 40 ms apart
+  if (gTunResend && gTunAttempts < 6 && millis() - gTunSentMs >= 40) {
+    gTunResend = false; gTunAttempts++; gTunAwaitAck = true; gTunSentMs = millis();
+    esp_now_send(masterMAC, (uint8_t *)&gTunTx, sizeof(gTunTx));
+  }
+  // keepalive while bb8 is attached so the drive keeps mirroring
+  if (millis() - lastUsbMs < 600000UL && millis() - lastPingMs >= 15000UL) {
+    lastPingMs = millis();
+    if (!gTunAwaitAck) sendTunnelCmd("");
+  }
+}
+// ==========================================================================
+
 // === Functions ===
 void checkSerialCommand() {
   while (Serial.available()) {
     char c = Serial.read();
+    lastUsbMs = millis();
     if (c == '\n') {
       cmdBuffer.trim();
+      String rawLine = cmdBuffer;          // RC4.4: preserve case for the tunnel
+      bool local = false;
       cmdBuffer.toLowerCase();
       if (cmdBuffer == "version") {
+        local = true;
         showBuildInfoSerial("VERSION");
       }
       if (cmdBuffer == "debug") {
+        local = true;
         debugLocal = !debugLocal;
         Serial.println(debugLocal ? F("Dome local debug ENABLED") : F("Dome local debug DISABLED"));
       }
     if (cmdBuffer.startsWith("setmac")) {
+      local = true;
       String macStr = cmdBuffer.substring(6);
       macStr.trim();
       if (parseMAC(macStr, masterMAC)) {
@@ -238,8 +304,12 @@ void checkSerialCommand() {
       }
     }
     if (cmdBuffer == "help") {
-      Serial.println("You can use help, version, debug or setmac XX:XX:XX:XX:XX:XX");
+      local = true;
+      Serial.println("Dome-local: help, version, debug, setmac XX:XX:XX:XX:XX:XX");
+      Serial.println("Anything else is sent to the DRIVE over ESP-NOW; its console streams back here.");
     }
+      // RC4.4: not a dome command -> tunnel it to the drive
+      if (!local && rawLine.length()) sendTunnelCmd(rawLine);
       cmdBuffer = "";
     } else {
       cmdBuffer += c;
@@ -316,7 +386,22 @@ void rainbowCycle() {
 }
 
 
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
+  const uint8_t *mac = info->src_addr;
+#else
 void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
+#endif
+  // RC4.4: drive console stream -> straight out the USB port
+  if (len == sizeof(TunnelOut)) {
+    TunnelOut t;
+    memcpy(&t, data, sizeof(t));
+    if (t.type != TUNNEL_OUT_TYPE || t.len > sizeof(t.data)) return;
+    if (tunnelSum(t) != t.checksum) return;
+    Serial.write((const uint8_t *)t.data, t.len);
+    lastDataTime = millis();
+    return;
+  }
   if (len != sizeof(incoming)) return;
   memcpy(&incoming, data, sizeof(incoming));
   lastDataTime = millis();
@@ -347,9 +432,18 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
   }
 }
 
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
+#else
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+#endif
   if (debugLocal) {
     Serial.printf("[SEND STATUS] %s\n", status == ESP_NOW_SEND_SUCCESS ? "Success" : "Fail");
+  }
+  // RC4.4: command packets retry until the MAC ACK lands (max 3 tries)
+  if (gTunAwaitAck) {
+    gTunAwaitAck = false;
+    if (status != ESP_NOW_SEND_SUCCESS) gTunResend = true;
   }
 }
 

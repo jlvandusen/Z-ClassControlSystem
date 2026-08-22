@@ -198,6 +198,11 @@ When: after mounting changes, after any "it leans at rest", before the first tun
 
 ## 8. Tuning
 
+> **Start here: [`docs/RigTuning.md`](RigTuning.md)** — the measured, repeatable
+> rig/sealed-shell procedure (2026-08-22): S2S autotune numbers and the
+> conservative-gain rule, the drive-Ki=0 rig rule, and the wireless console
+> bridge (`bb8 monitor ball`) for tuning with the shell closed.
+
 ### 8.1 The loop: capture → analyze → correct → verify
 
 ```powershell

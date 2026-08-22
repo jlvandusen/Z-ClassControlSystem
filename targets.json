@@ -19,12 +19,24 @@
       "name": "dome",
       "description": "ESP32 HUZZAH32 dome remote (ESP-NOW, NeoPixels)",
       "sketch": "ESP32_DOME_RC4",
-      "fqbn": "esp32-bluepad32:esp32:featheresp32",
+      "fqbn": "esp32:esp32:featheresp32",
       "baud": 115200,
       "usbVid": "10C4",
       "usbPid": "EA60",
       "bannerMatch": "Dome ESP32 Boot",
       "revMatch": "RC4 DOME"
+    },
+    {
+      "name": "ball",
+      "description": "DRIVE console via the dome ESP-NOW bridge (sealed-shell tuning) - plug the DOME into USB",
+      "sketch": "ESP32_DOME_RC4",
+      "fqbn": "esp32:esp32:featheresp32",
+      "baud": 115200,
+      "usbVid": "10C4",
+      "usbPid": "EA60",
+      "bannerMatch": "RC4 DOME",
+      "revMatch": "RC4 DOME",
+      "connectCommands": ["version", "pid show"]
     },
     {
       "name": "body",
