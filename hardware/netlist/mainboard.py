@@ -136,7 +136,8 @@ A(two("L1", "FB 600R 3A", "res", "Inductor_SMD:L_1206_3216Metric", (60, 24), "AM
 A(two("C7", "1000u/25V", "cap", "Capacitor_SMD:CP_Elec_10x10", (62, 14), "AMP_12V", "GND"))
 A(two("C26", "1u", "cap", "Capacitor_SMD:C_0603_1608Metric", (74, -12), "DF_DAC_L", "AMP_INL"))
 A(two("C27", "1u", "cap", "Capacitor_SMD:C_0603_1608Metric", (74, -15), "DF_DAC_R", "AMP_INR"))
-# ---- motor driver headers (keyed 2x5): VCC PWM INA INB GND / VCC PWM INA INB GND
+# ---- motor driver headers (bare unshrouded 2x5, NOT keyed — mark pin 1 on the ribbons):
+#      odd pins = channel A: VCC PWM INA INB GND / even pins = channel B: VCC PWM INA INB GND
 def motor_hdr(ref, at, chA, chB):
     pa, ia, ib = chA; pb, ja, jb = chB
     return dict(ref=ref, value="DFR0601 ribbon 2x5", kind="connector", fp="Connector_PinHeader_2.54mm:PinHeader_2x05_P2.54mm_Vertical",
@@ -251,7 +252,7 @@ SCH_TITLE = "Z-Drive v10.0 Mainboard"
 SCH_COMPANY = "Z-Class Control System - James VanDusen"
 SCH_COMMENTS = ["Special thanks to Mimir Reynisson, Greg Bellows and Joe Latiola",
                 "Generated from hardware/netlist/mainboard.py - edit the netlist, not this file",
-                "Modules: ESP-WROOM-32 DevKit, RP2350-Zero, DFPlayer Mini, Pololu D24V50F5 / D24V22F6, MAX9744 amp module"]
+                "Modules: ESP-WROOM-32 DevKitC 30-pin, RP2350-Zero, DFPlayer Mini, Pololu D24V50F5 / D24V25F6, MAX9744 amp module"]
 
 # ---------------------------------------------------------------- rule areas / netclasses
 # DevKit antenna end = top of the module (EN / D23 end): no copper on either layer under it.

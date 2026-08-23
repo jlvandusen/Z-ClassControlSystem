@@ -16,15 +16,17 @@ py tools/hw/gen_kicad.py hardware/netlist/mainboard.py hardware/kicad/extended/m
 
 PCB coordinates: the **axle centre is at (150, 150) mm** in KiCad; +x toward the tail, +y up in the
 netlist = down in KiCad (handled by the generator). Edge.Cuts includes the Ø 38 axle cut-out.
-Unrouted by design: placement is verified against the casing; routing is GUI work (Power netclass
-1.5 mm, Default 0.25 mm are preset in the project).
+Netclasses come from the netlist (Default 0.15 mm clearance / 0.25 mm track, Rail 0.6, Motor 0.5,
+Audio 1.0, Power 1.2). Routing recipe: `tools/hw/prep_route.py --route-5v` → Freerouting
+(`tools/freerouting/`, `-mp 16 -mt 6`) → `tools/hw/post_route.py` (SES import + GND stitching), last
+nets by hand in pcbnew. KiCad DRC is the judge — Freerouting's on-screen "violations" count is not.
 
 ## Two board variants (Aug 2026)
 
 | Folder | Outline | Use |
 |---|---|---|
 | `extended/` | teardrop 152 × 125 mm — casing extended 15 mm downward | the roomier layout; auto-placed |
-| `compact/`  | teardrop 152 × 110 mm — the original casing | hand-placed in pcbnew (James); DRC-clean |
+| `compact/`  | teardrop 152 × 110 mm — the original casing | **the built board**: hand-placed (James), 4-layer routed, DRC 0 errors, JLCPCB package r7 (`hardware/fab/`) |
 
 Both are generated from the **same netlist** (`hardware/netlist/mainboard.py`) and are kept in sync
 with `tools/hw/sync_parts.py <hand-placed.kicad_pcb> <freshly-generated.kicad_pcb>` — it updates

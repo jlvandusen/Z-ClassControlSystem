@@ -1,47 +1,172 @@
 # Getting the v10 mainboard built and assembled
 
-Short answer: **yes** — a turnkey PCBA house can fabricate the board, source the parts, and solder
-everything, including the through-hole modules. Two honest caveats decide *how*:
+Status: the v10 mainboard, **compact variant (152 x 110 mm), rev A, is laid out and packaged for JLCPCB
+(2026-08-23)**. Current package: `hardware/fab/ZDrive_v10_compact_JLCPCB_r7.zip`; working folder
+`hardware/fab/compact-20260823/` (gerbers.zip, cpl.csv, bom.csv, bom_jlcpcb.csv, cpl_jlcpcb.csv,
+assembly_top.pdf, schematic.pdf, board renders, README_PCBWAY.txt). The r6 gerbers were uploaded and previewed
+at JLCPCB first; **r7 differs only in the U7 direction fix** (same BOM/CPL) — record here which one went to
+production, because r6 boards need the U7 rework in the first-power-up section. JLCPCB assembles every SMD/THT
+part in `bom_jlcpcb.csv`. This file is the hand-assembly and bring-up guide for the boards when they arrive.
+Two things decide what you do on the bench:
 
-1. **The board must be routed first.** Rev A is placed and netlisted (ratsnest-ready) but unrouted.
-   No fab accepts a ratsnest; routing is the next step (GUI, or Freerouting autorouter + cleanup).
-2. **Five parts are not in any assembler's catalogue** and have to be *consigned* (you ship them
-   to the assembler) or left for you to plug in: the ESP32 DevKit, RP2350-Zero, DFPlayer Mini, the two
-   Pololu bucks, and the MAX9744 amp module. Everything else (JST, passives, LDO, shifters, TVS,
-   fuses, caps) is standard LCSC / Digi-Key stock.
+1. **The compact board is fully routed.** 4-layer (F.Cu signal + GND pour / In1 solid GND /
+   In2 +5V pour + signal / B.Cu signal + GND pour), KiCad DRC 0 errors (17 cosmetic warnings), fab notes in
+   `hardware/fab/compact-20260823/README_PCBWAY.txt`. The **extended** variant (152 x 125 mm,
+   `hardware/kicad/extended/`) is synced to the same netlist but unrouted and was NOT ordered.
+2. **Six items are customer-fitted** (not in any assembler's catalogue; the fab was told DO NOT POPULATE
+   them): U1 ESP32 DevKitC 30-pin (plugs into sockets J_U1A/J_U1B), U2 Waveshare RP2350-Zero (plugs into
+   sockets J_U2A/J_U2B/J_U2C), U3 DFPlayer Mini (fits the U3 2x8 position - there is no socket row in
+   `bom_jlcpcb.csv`, so solder it direct or supply two 1x8 female headers yourself), PS1 Pololu D24V50F5 and
+   PS2 Pololu D24V25F6 (soldered directly into their 5-pin rows EN VIN GND GND OUT, EN left open = enabled),
+   and the MAX9744 amp module (off-board, on a harness to the J_AMP 2x7 male header - the header itself IS
+   assembled). Plus the F1 blade fuse (holder is on the board; fuse is not). Everything else is LCSC stock -
+   every placed ref has an LCSC number in `hardware/bom/lcsc_map.csv`.
 
 ## Recommended path
 
 | Option | Who | How it works | Cost (5 boards) |
 |---|---|---|---|
-| **A. JLCPCB PCBA + socket the modules yourself** (recommended) | jlcpcb.com | They fab + assemble every SMD/THT part in their catalogue (we pick LCSC numbers in the BOM). Board ships with **female headers soldered** for the DevKit / Zero / DFPlayer / Pololus / amp; you push the modules in. No consignment, no waiting. | ≈ $60 fab+assembly + $40 parts + shipping; modules bought separately (≈ $85/set) |
+| **A. JLCPCB PCBA + socket the MCU modules yourself** (what was done, 2026-08-23) | jlcpcb.com - package `hardware/fab/ZDrive_v10_compact_JLCPCB_r7.zip`; `bom_jlcpcb.csv` / `cpl_jlcpcb.csv` in `hardware/fab/compact-20260823/` | They fab + assemble every SMD/THT part in `bom_jlcpcb.csv` (LCSC numbers from `hardware/bom/lcsc_map.csv`). Board ships with the female sockets soldered for the DevKit (J_U1A/J_U1B, 2x 1x15, Ckmtw B-2200S15P-A120 8.5 mm, LCSC C124408) and the RP2350-Zero (J_U2A/J_U2B 1x9 C124417, J_U2C 1x5 C50950); you push those two modules in. The Pololus are NOT socketed (soldered direct into their 5-pin rows), the amp module is off-board on a harness to the J_AMP male 2x7 header, and the DFPlayer has no socket in the BOM (solder it, or fit your own 2x 1x8 female headers). No consignment. | ≈ $60 fab+assembly + $40 parts + shipping; modules bought separately (≈ $85/set) |
 | B. PCBWay turnkey with consignment | pcbway.com | Same, plus they accept your shipped modules and hand-solder them. Fully finished board. | + $30–60 consignment/labor, +2 weeks |
 | C. MacroFab / Screaming Circuits (US) | US-based | Full turnkey, source anything incl. Pololu/Adafruit; best for "I never want to touch it". | 3–5× the price |
 
-Option A also matches the repair story: a dead module is a 10-second swap, not a rework job.
+Repair story: a dead ESP32 DevKit or RP2350-Zero is a 10-second socket swap. A dead Pololu regulator or
+DFPlayer (if soldered) is a desolder job, so check those modules on the bench before fitting them.
 
 ## What the assembler needs (all generated from the KiCad project)
 
 ```powershell
-# after routing, from the repo root:
-.\tools\hw\fab_outputs.ps1     # -> hardware/fab/<date>/  gerbers.zip, drill, CPL (pick-and-place), BOM.csv
+# from the repo root (compact | extended):
+.\tools\hw\fab_outputs.ps1 compact   # -> hardware/fab/compact-<yyyymmdd>/  gerbers/ + gerbers.zip (11 layers + Excellon drill + .gbrjob; NO drill map - JLC's previewer chokes on it),
+                                      #    cpl.csv, assembly_top.pdf, schematic.pdf, bom_from_schematic.csv, bom.csv (copy of hardware/bom/v10_mainboard_bom.csv)
+& "$env:LOCALAPPDATA\Programs\KiCad\10.0\bin\python.exe" tools\hw\jlc_outputs.py hardware\kicad\compact\mainboard.kicad_pcb hardware\bom\v10_mainboard_bom.csv hardware\fab\compact-<yyyymmdd>
+                                      # -> bom_jlcpcb.csv + cpl_jlcpcb.csv (JLC headers, courtyard centroids, +90 deg for socket/pin headers, C-numbers from hardware/bom/lcsc_map.csv)
+# README_PCBWAY.txt / board_*_render.png in that folder are added separately.
+# The JLCPCB upload (gerbers + bom_jlcpcb.csv + cpl_jlcpcb.csv) is zipped as hardware/fab/ZDrive_v10_compact_JLCPCB_r<n>.zip.
 ```
 
 | File | Generated by | Notes |
 |---|---|---|
-| Gerbers + drill (zip) | `kicad-cli pcb export gerbers / drill` | 2-layer, 2 oz, 1.6 mm, ENIG, green, 0.25 mm min trace |
+| Gerbers + drill (zip) | `kicad-cli pcb export gerbers / drill` | **4-layer, 1 oz**, FR4 1.6 mm Tg150; stackup F.Cu signal + GND pour / In1.Cu solid GND / In2.Cu +5V pour + signal / B.Cu signal + GND pour; HASL lead-free or ENIG (either); green / white; min trace/space 0.25 / 0.15 mm; min via 0.6 mm pad / 0.3 mm drill; copper-to-edge 0.30 mm; 38 mm dia centre axle cut-out; netclasses Default 0.15/0.25, Rail 0.6, Power 1.2 mm |
 | CPL / centroid | `kicad-cli pcb export pos` | rotations follow KiCad; JLC wants CSV with Designator, Mid X/Y, Layer, Rotation |
-| BOM | `hardware/bom/v10_mainboard_bom.csv` + LCSC numbers | the `LCSC` column must be filled for every assembled part |
-| Assembly drawing / notes | `docs/pcb-renders/` + this file | "Do not populate: U1, U2, U3, PS1, PS2, J_AMP — install female headers" |
+| BOM | `hardware/bom/lcsc_map.csv` (LCSC number per placed ref) merged into `bom_jlcpcb.csv` (Comment, Designator, Footprint, JLCPCB Part #) + `cpl_jlcpcb.csv` | Done for every assembled part. `v10_mainboard_bom.csv` is the human/ordering BOM (includes the customer-fitted modules and the parts you buy); hand the assembler `bom_jlcpcb.csv`, not the human BOM. |
+| Assembly drawing / notes | `hardware/fab/compact-20260823/assembly_top.pdf`, `board_top_render.png`, `board_bottom_render.png`, `board_iso_render.png` + `README_PCBWAY.txt` | "DO NOT populate U1 (ESP32 DevKit), U2 (RP2350-Zero), U3 (DFPlayer Mini), PS1/PS2 (Pololu regulators) - the customer fits these. J_AMP IS populated (2x7 male header). Through-hole connectors (JST-XH/VH, pin headers/sockets, XT60, F1 holder) may be assembled or left for the customer. Q1 PowerPAK SO-8: pads 1-3 source, 4 gate, tab drain. D1/D2/D6 cathode = pad 1. C1-C4, C7 polarised (+ on silk)." |
 
 ## Before ordering — checklist
-- [ ] Routed; DRC clean except "unconnected = 0"; GND pours filled
-- [ ] Board outline true-offset 2.0 mm from the casing wall (done, rev A)
-- [ ] Confirm DevKit pin count (30 vs 38) → footprint row spacing
-- [ ] Bosses added to the empty casing model at the §ENVELOPE coordinates; test-fit a cardboard / 3D-printed board blank in the casing first (`hardware/kicad/board_outline_draft.dxf` → any laser/print)
-- [ ] BOM: fill LCSC part numbers (passives, JST, LDO, shifters, diodes, fuses); mark modules DNP
-- [ ] Order 5 boards, assemble 2 (JLC minimum assembly is 2)
-- [ ] Modules on hand: DevKit ×2, RP2350-Zero, DFPlayer, D24V50F5, D24V22F6, amp module, BMI160, AS5600
+- [x] Routed (compact); KiCad 10 DRC 0 errors, 15 cosmetic warnings; F/B GND pours + In1 GND + In2 +5V planes filled
+- [x] Compact outline: board x -51.3 … 100.5, y -54.8 … 54.8 (board frame, origin = axle centre, +x = tail, +y up); casing frame Y = x + 5.6, Z = y + 160.9 (`hardware/mechanical/compact-cover/cover_layout.md`)
+- [x] DevKit is the **30-pin** ESP32 DevKitC only (J_U1A/J_U1B rows 25.4 mm apart). A 38-pin DevKit is wider and will not fit.
+- [ ] Bosses (Ø6 x 5 mm, M3 heat-set insert) at the five M3 plated holes H1 (-42, 24), H2 (-42, -24), H3 (27, 37), H4 (27, -37), H5 (70, 0) board frame - casing coordinates and the tall-part/vent map are in `hardware/mechanical/compact-cover/cover_layout.md`. Cover budget is ~14 mm above the board in the teardrop zone: J1 XT60 (15.5 mm + mating plug) needs a cover cut-out, and F1 needs a low-profile APS/ATT mini fuse (a standard mini ATM fuse is ~16 mm) or a window.
+- [x] LCSC numbers filled (`hardware/bom/lcsc_map.csv`, `bom_jlcpcb.csv`); U1/U2/U3/PS1/PS2 marked DNP in README_PCBWAY.txt
+- [ ] Order at JLCPCB (compact rev A, `ZDrive_v10_compact_JLCPCB_r7.zip`, PCBA of every line in `bom_jlcpcb.csv`). Record here: package revision that went to production (r6 = U7 rework needed / r7), quantity, order date.
+- [ ] Parts you supply: ESP32 DevKitC 30-pin x2, RP2350-Zero, DFPlayer Mini DFR0299 (+ 2x 1x8 female headers if socketing it), Pololu D24V50F5 (#2851) and **D24V25F6 (#2852)** with a 1x5 0.1 in male header strip each, MAX9744 amp module + 2x7 harness, GY-BMI160 breakout (I2C), AS5600 board (or pot), 10 A **low-profile mini** blade fuse for F1, XT60 female for the pack lead, 2x 2x5 IDC ribbons for J2/J3, JST-XH/VH crimped leads.
 
-Expect ~2 weeks from order to doorstep with JLC; a first revision almost always needs one spin, so
-don't assemble all five.
+A first revision usually needs one spin: fit modules to ONE board first and take it through the
+first-power-up procedure below before populating the rest.
+
+## Module sockets — what you plug in
+
+| Socket refs | Part on board (fab-assembled) | Module you fit | Orientation |
+|---|---|---|---|
+| J_U1A (left row, pins 1-15) / J_U1B (right row, pins 16-30) | 2x female 1x15, 2.54 mm, 8.5 mm (Ckmtw B-2200S15P-A120, LCSC C124408), rows 25.4 mm apart | ESP32 DevKitC **30-pin** (ELEGOO / DevKit V1) | Antenna end toward the silk keep-out rectangle and H3 (+y, away from the axle); USB end toward the J2/J3 motor-header side (-y). J_U1A pin 1 = EN is at the antenna end. Pin 15 of J_U1A = DevKit VIN = +5V_LOGIC; J_U1B pin 15 = DevKit 3V3 = NC (the DevKit runs from its own regulator off the 5 V rail). |
+| J_U2A (pins 1-9) / J_U2B (pins 10-18) / J_U2C (end row, pins 19-23) | 2x female 1x9 (B-2200S09P-A120, C124417; if out of stock cut a 1x15 C124408 at position 10) + 1x female 1x5 (BOOMELE 2.54-1*5P, C50950) | Waveshare RP2350-Zero, with header pins soldered to ALL three edges (the 5-pin GP9-GP13 edge too) | 5-pin end row (GP9-GP13) toward the axle (-y), USB-C end toward the board's top edge (+y). J_U2A pin 1 = 5V = RP_5V (fed from +5V_LOGIC through D2, so the Zero's USB-C cannot back-feed the board). |
+| U3 position (2x8, no socket in the BOM) | bare THT pads | DFPlayer Mini DFR0299 - solder directly, or fit two 1x8 female headers you supply | Pin 1 = VCC; microSD slot faces the tail (+x), silk says "SD CARD >>"; a 24 mm card-removal keep-out runs toward the tail. |
+| J_AMP (2x7 male header, fab-assembled) | A2541WV-2x7P, C5298387 | MAX9744 amp module mounted OFF the board, on a 14-way harness | Pin 1 (square) VDD12, 2 GND, 3 INL, 4 INR, 5 AGND, 6 SDA, 7 SCL, 8 SHDN, 9 OUTL+, 10 OUTL-, 11 OUTR+, 12 OUTR-, 13 Vi2c (3.3 V - REQUIRED, the module's I2C level-shifter reference), 14 GND. Speakers come back to J13/J14 (JST-VH) via SPK_L+/- and SPK_R+/-. |
+
+The DevKit's VIN pin is tied straight to +5V_LOGIC with no blocking diode (only the Zero has D2). Plugging
+USB into an ESP32 that is in its socket on an unpowered board will back-feed the whole 5 V rail from the
+laptop through the DevKit's own USB diode - program it out of the socket, or with the pack connected.
+
+## Pololu regulators PS1 / PS2 — soldered direct into their 5-pin rows
+
+- PS1 = Pololu **D24V50F5** (5 V 5 A, #2851) -> +5V_LOGIC (and +5V_LED through polyfuse F3). PS2 = Pololu **D24V25F6** (6.0 V 2.5 A, #2852) -> +6V_SERVO. 6.0 V is the one voltage both the Hitec HS-805BB (4.8-6 V) and the JX PDI-HV2060MG (6-8.4 V) accept - do not fit a D24V22F6 or a 7.4 V part.
+- Each module's real pin row is FIVE 0.1 in pins along one short edge, 1.27 mm in from the edge: **EN VIN GND GND OUT**. The board footprint repeats this order on the silk ("EN VIN GND GND OUT") and **pin 1 (EN) is the square pad**; the other four are round.
+- Fitting: push a 1x5 0.1 in male strip through the module's five holes from the underside and solder on the module's component side; then drop the long pins into the board pads with the module component-side UP, square pad = EN, and solder from the board underside. The module lies flat, parallel to the board, sitting on the header's plastic spacer (~9 mm tall overall per cover_layout.md). PS1 outline 17.8 x 20.3 mm, PS2 17.8 x 17.8 mm; PS2 is rotated 90 deg relative to PS1 - follow the silk outline, not PS1.
+- EN is NC on the board: leave it open (= enabled) beyond its pad; the module's own 100 k pull-up enables it. Solder BOTH GND pins (they are bonded on the module and both carry current).
+- Check with a meter before powering: VIN pad to +XT60 side continuity (through F1/Q1 you will see the body diode, that is expected), OUT pad to +5V_LOGIC (PS1) / +6V_SERVO (PS2), and no short OUT-to-GND.
+
+## Battery input J1 — vertical XT60
+
+- J1 is an Amass **XT60PB-M vertical PCB male** (LCSC C19268037; alt JLC lib C9900017179): two 4.0 mm holes at 7.2 mm pitch, housing 16.0 x 8.1 mm, 15.5 mm tall; the pack lead ends in an **XT60 female**. This is the SINGLE board power input (one 12 V 3S4P pack, 9-12.6 V): XT60 -> F1 10 A mini ATM -> Q1 Si7461DP reverse-polarity P-FET (+ D6 12 V gate zener / R33 47 k) -> VIN -> PS1, PS2, amp (F4 3 A + L1 ferrite -> AMP_12V). Motor drivers are fed from the pack directly, not through J1/F1.
+- Polarity: pin 1 = **"+" = the SQUARE pad = BAT+**, pin 2 = "-" round pad = GND. The silk "+"/"-" must agree with the "+" moulded into the XT60 housing when it is soldered; if the connector is fab-assembled, verify this before the first power-up.
+- Soldering it yourself: the pads sit on 1.2 mm Power tracks and the GND pour, so use a large tip / high heat and fill the 4 mm barrels fully from the underside.
+- There is NO charge path and no charger sense on the board: the pack charges through its own charge lead routed out through the axle. The slip ring J11 (2-pin JST-XH) carries only +5V_LED/GND to the body-shell NeoPixels.
+- Mechanical: J1 plus its mating plug exceeds the ~14 mm cover budget - the cover needs a cut-out over J1 (cover_layout.md).
+
+## F1 fuse holder and fuse
+
+- Holder: Keystone 3568 **mini (ATM) blade fuse holder**, THT, 9.9 mm pitch, 1.6 mm holes, body 16.0 x 6.7 mm (LCSC C5249699). It is in the assembler BOM but may also be left for the customer.
+- Fuse: **10 A mini blade**. The board's fuse protects only the bucks + amp (motors are fed from the pack). A standard ATM mini fuse stands ~16 mm, over the ~14 mm cover budget - fit a **low-profile mini (APS/ATT) 10 A** (~11 mm) and confirm its shorter blades engage the 3568 clips, or cut a window in the cover.
+- With the fuse OUT, nothing on the board is powered: BAT+ stops at F1 pad 1. **Insert the fuse last**, after every visual/polarity check and with all modules still out of their sockets (see first power-up).
+
+## Connector pinouts — as built (pin 1 = square pad on every header/JST)
+
+| Ref | Type | Pins |
+|---|---|---|
+| J1 | XT60PB-M vertical | 1 + (BAT+), 2 - (GND) |
+| F1 | mini blade holder | 1 BAT+, 2 BAT_F |
+| J2 | 2x5 **bare unshrouded** header, DRIVE + S2S | odd pins = channel A (DRIVE): 1 VCC(+3V3), 3 PWM, 5 INA, 7 INB, 9 GND; even pins = channel B (S2S): 2 VCC(+3V3), 4 PWM, 6 INA, 8 INB, 10 GND |
+| J3 | 2x5 **bare unshrouded** header, FLYWHEEL + DOME | odd = channel A (FLYWHEEL): 1 VCC, 3 PWM, 5 INA, 7 INB, 9 GND; even = channel B (DOME): 2 VCC, 4 PWM, 6 INA, 8 INB, 10 GND |
+| J4 / J5 | 1x3 servo L / R | 1 SIG, 2 +6V_SERVO, 3 GND |
+| J6 | XH 4-pin, IMU GY-BMI160 breakout over I2C-A | 1 +5V (breakout VIN - its LDO makes 3.3 V), 2 GND, 3 SCL (ESP32 D15), 4 SDA (ESP32 D13) - same order as the v9.15 MPU lead. Leave CS/SA0 open = I2C mode. NOT SPI: ESP32 D5/D18/D19/D23 are spare. |
+| J7 | XH 5-pin, S2S sensor | 1 +3V3, 2 GND, 3 OUT (-> 1 k / 100 n -> ESP32 D34), 4 SDA (I2C-A), 5 SCL (I2C-A) - AS5600 or pot; this is also the only I2C-A expansion (J16 was removed) |
+| J8 | XH 4-pin, dome encoder | 1 B, 2 A, 3 GND, 4 +5V - same order as v9.15 DOME_ENC; do not reorder |
+| J9 | XH 3-pin, hall | 1 +3V3, 2 GND, 3 SIG (RP2350 GP13, 10 k pull-up) |
+| J10 | XH 3-pin, body NeoPixel | 1 +5V_LED, 2 GND, 3 DATA (GP14 -> 74AHCT125 -> 330 R) |
+| J11 | XH 2-pin, slip ring | 1 +5V_LED (via F3 3 A polyfuse), 2 GND - body-shell lights only |
+| J13 / J14 | VH 2-pin, speakers L / R | 1 +, 2 - (BTL from the amp module via J_AMP 9-12) |
+| J15 | XH 2-pin, E-stop loop | 1 LOOP (ESP32 VP/GPIO36, R28 10 k pull-up to 3V3), 2 GND - normally-closed loop; open = GPIO36 high. Enforced in firmware: rev A has NO hardware MOTOR_EN gate. |
+| J17 | SH 4-pin Qwiic, I2C-B (RP2350) | 1 GND, 2 +3V3, 3 SDA (GP26), 4 SCL (GP27) |
+| J_AMP | 2x7 male | see the module-socket section |
+| J_U1A / J_U1B | 1x15 sockets | J_U1A 1-15: EN, VP(ESTOP_SENSE), VN, D34(S2S_POS), D35(VBAT_SENSE), D32(FLY_PWM), D33(FLY_INA), D25(S2S_PWM), D26(S2S_INA), D27(S2S_INB), D14(FLY_INB), D12, D13(I2C_A_SDA), GND, VIN(+5V_LOGIC). J_U1B 1-15: D23, D22(LINK_RP_TX), TX0, RX0, D21(LINK_ESP_TX), D19, D18, D5, TX2(DRIVE_INB), RX2(DRIVE_INA), D4(DRIVE_PWM), D2, D15(I2C_A_SCL), GND, 3V3(NC) |
+| J_U2A / J_U2B / J_U2C | 1x9 / 1x9 / 1x5 sockets | J_U2A: 5V(RP_5V), GND, 3V3(NC), GP29, GP28(V5_SENSE), GP27(I2C_B_SCL), GP26(I2C_B_SDA), GP15(DF_BUSY), GP14(NEO_3V3). J_U2B: GP0(LINK_RP_TX), GP1(LINK_ESP_TX), GP2(AMP_SHDN), GP3, GP4(DF_TX_RP), GP5(DF_RX_RP), GP6(SERVO_L), GP7(SERVO_R), GP8(DOME_PWM). J_U2C: GP9(DOME_INA), GP10(DOME_INB), GP11(ENC_A_3V3), GP12(ENC_B_3V3), GP13(HALL) |
+| U3 | DFPlayer 2x8 | 1 VCC(+5V_LOGIC), 2 RX(DF_RX_MOD via R1 1 k from GP4), 3 TX(-> GP5), 4 DAC_R, 5 DAC_L (1 uF coupled to J_AMP INR/INL), 7/10 GND, 16 BUSY(GP15); SPK1/SPK2, IO1/2, ADKEY, USB pins NC |
+
+J2/J3 are NOT keyed. Mark pin 1 on both ends of each 2x5 ribbon before the first plug-in: a reversed ribbon
+puts 3V3 on the driver's GND pin and GND on its VCC pin (3V3 shorted to GND through the driver board).
+
+Rev A has no test points and no reset switch: probe the socket / connector pins above, and reset the
+MCUs with their own module buttons (DevKit EN, Zero RESET/BOOT) or by cycling the pack.
+
+## Who assembles what
+
+**JLCPCB (every line in `hardware/fab/compact-20260823/bom_jlcpcb.csv`, all on the top side):** R1-R3, R5-R9, R12-R25, R28-R30, R33; C1-C12, C26-C29; D1, D2, D4, D6; Q1; L1; F3, F4; U5 (AMS1117-3.3), U6 (SN74AHCT125PWR), U7 (74LVC245APW); J17 (SH SMD); and the through-hole parts J1 XT60, F1 holder, J2/J3 2x5, J4/J5 1x3, J6-J11 and J15 JST-XH, J13/J14 JST-VH, J_AMP 2x7, sockets J_U1A/J_U1B/J_U2A/J_U2B/J_U2C. The README lets the fab leave the THT connectors for the customer - check the delivered boards.
+
+**Customer:** U1 ESP32 DevKitC 30-pin (into sockets J_U1A/J_U1B), U2 RP2350-Zero (into sockets J_U2A/J_U2B/J_U2C), U3 DFPlayer Mini (solder, or your own 1x8 sockets), PS1 D24V50F5 and PS2 D24V25F6 (soldered direct into their 5-pin rows), MAX9744 amp module + harness to J_AMP, F1 10 A fuse, all cables (XT60 female pack lead, 2x5 ribbons, servo leads, JST leads, speaker leads).
+
+**Not on rev A:** on-board MAX9744 QFN (rev B idea - the module on J_AMP does the job), test points, reset switch, MOTOR_EN gate (the E-stop on J15 is firmware-enforced) - probe the connector/socket pins listed in the first-power-up section.
+
+## Polarity / orientation checks before the first power-up
+
+- J1: silk "+" = square pad = BAT+; the XT60 housing's moulded "+" must be on that side. Check the pack lead's XT60 female with a meter against its own + marking.
+- PS1 / PS2: square pad = EN; the row reads EN VIN GND GND OUT left-to-right on the silk and on the module. PS1 OUT -> +5V_LOGIC, PS2 OUT -> +6V_SERVO.
+- C1 (220 u/25 V, VIN), C2 (470 u/10 V, +5V_LOGIC), C3 (1000 u/10 V, +5V_LED), C4 (470 u/16 V, +6V_SERVO), C7 (1000 u/25 V, AMP_12V): the can's stripe (negative) is on the pad opposite the silk "+".
+- D1 SMBJ15A (SMB), D2 SS14 (SMA), D6 BZT52C12 (SOD-123): cathode band = pad 1. D2 pad 1 (K) = RP_5V; D6 pad 1 (K) = VIN, pad 2 (A) = Q1 gate.
+- D4 BAT54S SOT-23: pin 1 A1 -> GND, pin 2 K2 -> +3V3, pin 3 common -> VBAT_SENSE.
+- Q1 Si7461DP PowerPAK SO-8: big tab (pad 5) = DRAIN = BAT_F (fuse side); pads 1-3 = SOURCE = VIN; pad 4 = GATE (to D6/R33).
+- U5 AMS1117-3.3 SOT-223: pin 1 GND, pin 2 + tab VOUT (+3V3), pin 3 VIN (+5V_LOGIC). Acceptable alt: AP7361C-33ER-13 (SOT-223R). Do NOT fit AP7361C-33E-13 (IN/GND/OUT - wrong for this board).
+- U7 74LVC245 (dome encoder level shifter): pin 1 DIR must be **HIGH (+3V3)** for A->B (encoder 5 V on A1/A2, RP2350 on B1/B2); the r7 gerbers jumper pin 1 to pin 20 (VCC) and tie A3-A8 to GND. Meter check: pin 1 reads +3V3, not 0 Ω to GND. Boards from the **r6** gerbers have pin 1 on GND - see the rework step in the first power-up.
+- J_AMP: pin 1 (square) = VDD12; pin 13 Vi2c must read 3.3 V.
+- U1 DevKit: 30-pin, antenna end toward the silk keep-out / H3, USB end toward J2/J3. U2 Zero: 5-pin end row into J_U2C (toward the axle), USB-C toward the board's top edge. U3 DFPlayer: pin 1 VCC, SD slot toward the tail.
+- J2/J3: pin 1 (square) = VCC 3V3 of channel A; odd pins = A, even = B; bare unshrouded headers, so mark pin 1 on both ribbon ends. J4/J5: pin 1 SIG, 2 +6 V, 3 GND (standard servo lead order, signal wire at pin 1).
+
+## First power-up
+
+Do this on ONE board, modules OUT of their sockets, DFPlayer and amp module not yet connected, fuse OUT.
+
+1. **Visual:** every item in the polarity list above; no solder bridges on U5/U6/U7 (0.65 mm pitch), Q1, D4; all five Pololu pins and both GND pins wetted.
+2. **r6-gerber boards only - U7 DIR rework:** before fitting modules, cut the GND thermal spoke into U7 pin 1 and solder-bridge pin 1 to pin 20 (VCC). Verify with a meter: pin 1 must read +3V3, not 0 Ω to GND. (r7 boards already have this; skip.)
+3. **Cold checks (pack disconnected):** ohms to GND from VIN, +5V_LOGIC, +5V_LED, +6V_SERVO, +3V3, RP_5V, AMP_12V - none should read a dead short (electrolytics will charge the meter; wait for the reading to climb). BAT+ (J1 pin 1 / F1 pad 1) to F1 pad 2: open (no fuse).
+4. **Pack on, fuse out:** XT60 in. F1 pad 1 = pack voltage (9-12.6 V); F1 pad 2, VIN, and every rail = 0 V. If anything downstream is live, stop - the holder/footprint is bridged.
+5. **Fuse in (10 A low-profile mini), no modules:** watch for heat/smell for 10 s. Then:
+   - VIN (C1 +, PS1 pad 2) ~= pack voltage (Q1 fully enhanced via R33; the RPP drop is tens of mV). Q1 tab vs pads 1-3 should differ by only that drop. If VIN is ~0.5-0.7 V below the pack the FET is not turning on (check D6 orientation / R33).
+   - +5V_LOGIC = 5.0 V at PS1 pad 5, J_U1A pin 15 (DevKit VIN socket), J6 pin 1, J8 pin 4, U3 pin 1.
+   - +5V_LED = 5.0 V at J11 pin 1 / J10 pin 1 (through polyfuse F3).
+   - +6V_SERVO = 6.0 V at PS2 pad 5 and J4/J5 pin 2.
+   - +3V3 = 3.3 V at J7 pin 1, J9 pin 1, J17 pin 2, J2/J3 pins 1-2, J_AMP pin 13, U7 pin 1 (DIR) and pin 20.
+   - RP_5V at J_U2A pin 1 ~= +5V_LOGIC minus the SS14 drop (~0.3 V).
+   - AMP_12V at J_AMP pin 1 ~= VIN (through F4 and L1).
+   Any rail wrong -> XT60 out, fuse out, fix before going further.
+6. **Power off, fit modules:** XT60 out (fuse can stay). Seat the ESP32 DevKit (antenna end toward H3) and the RP2350-Zero (5-pin edge into J_U2C); solder/seat the DFPlayer with an SD card; leave the amp harness off for now.
+7. **Power on again:** re-check +5V_LOGIC, +3V3, RP_5V under load; both module power LEDs on; ESP32 and Zero enumerate over their own USB (with the pack connected, see the back-feed note). Firmware: **v10 firmware is not written yet** - the v9 system is what runs today. Use a bare pin-toggle / serial-echo sketch for bring-up and take the port assignments from `docs/pcb-v10/README.md` (and the J_U1A/J_U1B/J_U2x socket rows above).
+8. **Then peripherals, one at a time:** servos on J4/J5 (6 V rail), IMU GY-BMI160 on J6 (I2C-A, address 0x68/0x69) and AS5600 on J7 (0x36), dome encoder on J8 - spin the dome by hand and confirm GP11 (ENC_A_3V3) and GP12 (ENC_B_3V3) toggle at U7 pins 18/17 and at the J_U2C socket, hall J9, NeoPixels J10/J11 (watch F3 current), E-stop loop J15 (open = GPIO36 pulled to 3.3 V; firmware-enforced, no hardware gate on rev A), amp module on J_AMP + speakers on J13/J14, motor ribbons on J2/J3 last (pin 1 marked on both ends; the drivers are powered from the pack, not the board).
