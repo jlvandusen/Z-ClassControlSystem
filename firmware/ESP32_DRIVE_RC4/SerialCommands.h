@@ -144,7 +144,7 @@ inline void handleSerialCommand(const String &cmd) {
     float amp = rest.toFloat();
     long dur = (sp > 0) ? rest.substring(sp + 1).toInt() : 2000;
     if (!driveEnabled) {
-      Serial.println(F("[EXP] Enable drive first (CIRCLE on drive controller) — rig experiments need it."));
+      Serial.println(F("[EXP] Enable drive first (tap PS on the drive controller) — rig experiments need it."));
     } else if (amp == 0 || fabsf(amp) > (driveAxis ? 255 : 600) || dur < 100 || dur > 10000) {
       Serial.println(driveAxis ? F("[EXP] Usage: step drive <pwm -255..255> <ms 100..10000>")
                                : F("[EXP] Usage: step s2s <counts -600..600> <ms 100..10000>"));
@@ -157,7 +157,7 @@ inline void handleSerialCommand(const String &cmd) {
     rest.trim();
     float amp = rest.length() ? rest.toFloat() : (driveAxis ? 60.0f : 150.0f);
     if (!driveEnabled) {
-      Serial.println(F("[EXP] Enable drive first (CIRCLE on drive controller) — rig experiments need it."));
+      Serial.println(F("[EXP] Enable drive first (tap PS on the drive controller) — rig experiments need it."));
     } else if (amp == 0 || fabsf(amp) > (driveAxis ? 150 : 500)) {
       Serial.println(driveAxis ? F("[EXP] Usage: autotune drive [amp -150..150 PWM]")
                                : F("[EXP] Usage: autotune s2s [amp -500..500 counts]"));

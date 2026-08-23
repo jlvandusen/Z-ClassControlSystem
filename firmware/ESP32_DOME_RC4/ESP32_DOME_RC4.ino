@@ -1,4 +1,20 @@
 
+// ============================================================
+//  ESP32_DOME_RC4 — dome node: 5 NeoPixel groups + ESP-NOW to the drive,
+//  and (RC4.4) the USB<->ESP-NOW console bridge used by 'bb8 monitor ball'.
+//
+//  Builds on the STOCK esp32:esp32 core (3.x). NOT the Bluepad32 core: it
+//  boots BTstack for sketches that never use BT, which starved this radio
+//  into 89-94 % ESP-NOW loss and made WiFi.setSleep(false) an abort().
+//  ESP-NOW callback signatures are version-guarded for core 2.x / 3.x.
+//
+//  RC4.4  stock core + WiFi.setSleep(false) (98/98 delivery); console
+//         tunnel (TunnelCmd/TunnelOut, retry on NACK, keepalive).
+//  RC4.5  lights per the reference look: PSI white speech-pulse while a
+//         track plays (isplaying via drive), blue scrolling logic bars
+//         (LOGIC_PIXELS), solid blue HP, eye unchanged. RED/BLUE/IDLE
+//         anims painted on change (the old per-loop clear fought the PSI).
+// ============================================================
 #include <Adafruit_NeoPixel.h>
 #include <esp_now.h>
 #include <WiFi.h>
@@ -19,6 +35,7 @@ Preferences prefs;
 #define battPin    A13 // GPIO35
 
 #define NUM_PIXELS 1
+#define LOGIC_PIXELS 4   // RC4.5: pixels per logic bar (scrolling blue) - set to the real count
 #define BRIGHTNESS 64
 
 #define WIFI_CHANNEL 11
@@ -51,8 +68,8 @@ struct_message incoming;
 struct_message outgoing;
 
 Adafruit_NeoPixel PSI(NUM_PIXELS, psiPIN, NEO_GRB + NEO_KHZ800);
-Adafruit_NeoPixel sLOGIC(NUM_PIXELS, sLogicPIN, NEO_GRB + NEO_KHZ800);
-Adafruit_NeoPixel lLOGIC(NUM_PIXELS, lLogicPIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel sLOGIC(LOGIC_PIXELS, sLogicPIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel lLOGIC(LOGIC_PIXELS, lLogicPIN, NEO_GRB + NEO_KHZ800);
 Adafruit_NeoPixel HP(NUM_PIXELS, hpPIN, NEO_RGB + NEO_KHZ800);
 Adafruit_NeoPixel EYE(NUM_PIXELS, eyePIN, NEO_GRB + NEO_KHZ800);
 
@@ -175,7 +192,7 @@ void setup() {
   }
 
   PSI.begin(); sLOGIC.begin(); lLOGIC.begin(); HP.begin(); EYE.begin();
-  PSI.setBrightness(BRIGHTNESS);
+  PSI.setBrightness(255);   // RC4.5: PSI at full - matches the boot-feedback green the user liked
   sLOGIC.setBrightness(BRIGHTNESS);
   lLOGIC.setBrightness(BRIGHTNESS);
   HP.setBrightness(BRIGHTNESS);
@@ -323,53 +340,117 @@ void checkSerialCommand() {
 void updateAnimations() {
   unsigned long currentMillis = millis();
 
-  // Flicker
-  // if (shouldFlicker && currentMillis <= flickerEndTime) {
-    
-if (incoming.psi != 0) {
-  PSI.setPixelColor(0, PSI.Color(0, 0, random(100, 255)));
-  PSI.show();
-} else if (shouldFlicker && currentMillis <= flickerEndTime) {
-    PSI.setPixelColor(0, PSI.Color(0, 0, random(100, 255)));
-    PSI.show();
-  } else if (shouldFlicker) {
-    shouldFlicker = false;
-    PSI.clear(); PSI.show();
+  // ---------------- PSI (RC4.5, per the reference video) ----------------
+  // While a sound plays: WHITE, easing slowly up and down (0.6-1.2 s ramps,
+  // short holds) with occasional fast flicker bursts in between. Not a
+  // loop-rate shimmer, not a cylon sweep. PSI is OWNED here; the RED/BLUE/
+  // RAINBOW pad anims paint it only when idle (and only on change).
+  {
+    static uint8_t  phase = 0;            // 0 up, 1 hold, 2 down, 3 dark, 4 flicker
+    static float    level = 0;
+    static uint16_t rampMs = 900;
+    static unsigned long phaseAt = 0, tickAt = 0, flickAt = 0;
+    static bool     flickOn = false, wasTalking = false;
+
+    bool talking = (incoming.psi != 0) || (shouldFlicker && currentMillis <= flickerEndTime);
+    if (talking) {
+      wasTalking = true;
+      if (currentMillis - tickAt >= 20) {           // 50 Hz easing tick
+        tickAt = currentMillis;
+        float step = 255.0f * 20.0f / rampMs;
+        switch (phase) {
+          case 0:  // ramp up
+            level += step;
+            if (level >= 255) { level = 255; phase = 1; phaseAt = currentMillis + random(80, 250); }
+            break;
+          case 1:  // bright hold -> sometimes a flicker burst
+            if ((long)(currentMillis - phaseAt) >= 0) {
+              if (random(0, 100) < 60) { phase = 4; phaseAt = currentMillis + random(250, 600); flickAt = 0; }
+              else { phase = 2; rampMs = random(220, 500); }
+            }
+            break;
+          case 2:  // ramp down
+            level -= step;
+            if (level <= 0) { level = 0; phase = 3; phaseAt = currentMillis + random(60, 200); }
+            break;
+          case 3:  // dark hold
+            if ((long)(currentMillis - phaseAt) >= 0) { phase = 0; rampMs = random(220, 500); }
+            break;
+          case 4:  // fast flicker burst, then ease down
+            if ((long)(currentMillis - flickAt) >= 0) {
+              flickOn = !flickOn;
+              level = flickOn ? 255 : 0;
+              flickAt = currentMillis + random(40, 90);
+            }
+            if ((long)(currentMillis - phaseAt) >= 0) { phase = 2; level = 255; rampMs = random(220, 500); }
+            break;
+        }
+        uint8_t v = (uint8_t)level;
+        PSI.setPixelColor(0, PSI.Color(v, v, v));   // WHITE
+        PSI.show();
+      }
+    } else {
+      if (wasTalking) {                              // clean exit once
+        wasTalking = false;
+        shouldFlicker = false;
+        phase = 0; level = 0;
+        PSI.clear(); PSI.show();
+      }
+      // idle: pad anims may own the PSI (painted on change only)
+      static AnimState shown = (AnimState)255;
+      if (currentAnim != shown) {
+        shown = currentAnim;
+        switch (currentAnim) {
+          case RED:  PSI.setPixelColor(0, PSI.Color(255, 0, 0)); PSI.show(); break;
+          case BLUE: PSI.setPixelColor(0, PSI.Color(0, 0, 255)); PSI.show(); break;
+          case RAINBOW: break;                       // handleAnimation cycles it
+          default:   PSI.clear(); PSI.show(); break;
+        }
+      }
+      if (currentAnim == RAINBOW) handleAnimation();
+    }
   }
 
-  // Eye update
+  // ---------------- Eye (unchanged: red while running) ----------------
   if (currentMillis - lastEyeUpdate > random(3000, 10000)) {
     EYE.setPixelColor(0, EYE.Color(random(50, 255), 0, 0));
     EYE.show();
     lastEyeUpdate = currentMillis;
   }
 
-  // Logic update
-  if (currentMillis - lastLogicUpdate > random(3000, 10000)) {
-    uint32_t colors[] = {
-      sLOGIC.Color(255, 255, 0),
-      sLOGIC.Color(255, 0, 0),
-      sLOGIC.Color(255, 255, 255)
-    };
-    uint8_t idx = random(0, 3);
-    sLOGIC.setPixelColor(0, colors[idx]);
-    lLOGIC.setPixelColor(0, colors[idx]);
-    sLOGIC.show(); lLOGIC.show();
-    lastLogicUpdate = currentMillis;
+  // ---------------- Logic bars (RC4.5): slow BLUE scroll ----------------
+  // A blue comet drifting along the bar (head bright, tail fading) - a calm
+  // scroll, NOT a KITT/cylon bounce. Both bars run the same pattern offset.
+  {
+    static unsigned long scrollAt = 0;
+    static uint8_t head = 0;
+    if (currentMillis - scrollAt >= 160) {
+      scrollAt = currentMillis;
+      head = (head + 1) % LOGIC_PIXELS;
+      for (uint8_t i = 0; i < LOGIC_PIXELS; i++) {
+        uint8_t d = (uint8_t)((head - i + LOGIC_PIXELS) % LOGIC_PIXELS);  // 0 = head
+        uint8_t b = (d == 0) ? 255 : (d == 1 ? 90 : (d == 2 ? 25 : 0));
+        sLOGIC.setPixelColor(i, sLOGIC.Color(0, 0, b));
+        lLOGIC.setPixelColor((i + LOGIC_PIXELS / 2) % LOGIC_PIXELS, lLOGIC.Color(0, 0, b));
+      }
+      sLOGIC.show(); lLOGIC.show();
+    }
   }
 
-  HP.setPixelColor(0, HP.Color(128, 128, 128));
-  HP.show();
+  // ---------------- HP: solid blue (say the word for red) ----------------
+  {
+    static bool hpPainted = false;
+    if (!hpPainted) { hpPainted = true; HP.setPixelColor(0, HP.Color(0, 0, 255)); HP.show(); }
+  }
 }
 
 void handleAnimation() {
-  switch(currentAnim) {
-    case RAINBOW: rainbowCycle(); break;
-    case RED: PSI.setPixelColor(0, PSI.Color(255, 0, 0)); PSI.show(); break;
-    case BLUE: PSI.setPixelColor(0, PSI.Color(0, 0, 255)); PSI.show(); break;
-    default: PSI.clear(); PSI.show(); break;
-  }
+  // RC4.5: only the rainbow needs a per-loop service now; RED/BLUE/IDLE are
+  // painted on change inside updateAnimations() (the old version cleared the
+  // PSI every loop pass and fought the talking flicker).
+  if (currentAnim == RAINBOW) rainbowCycle();
 }
+
 
 void rainbowCycle() {
   static uint16_t hue = 0;

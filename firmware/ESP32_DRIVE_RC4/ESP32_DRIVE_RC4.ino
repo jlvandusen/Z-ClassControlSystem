@@ -51,6 +51,22 @@
 //      PREFER_WIFI = dome lights beat your controllers), WiFi TX
 //      power 11dBm (was 19.5), and ESP-NOW traffic cut from a
 //      continuous retry storm to change-driven + 1Hz heartbeat.
+//
+//  RC4.3 (2026-08-22) audio + controls
+//   - PS is the only drive enable (tap) / force-disable (hold 2 s);
+//     CIRCLE = sound 28. Pad connect -> track 1, pad loss -> track 100,
+//     boot-cal done -> track 6 (pref sndcal, 0 = silent). pref snd* and
+//     pref swing persist in NVS. Link control codes 125/126/127 (tracks
+//     1..119). Integrating button debounce (45 ms), sounds only from a
+//     connected+armed pad, randomSeed(esp_random()).
+//  RC4.4 (2026-08-22) wireless console tunnel
+//   - TeeSerial wraps Serial: console mirrored to the dome as TunnelOut
+//     packets while armed; TunnelCmd lines from the dome are injected
+//     into the normal parser. esp_now_set_wake_window(65535) so the
+//     dome's packets are heard despite BT-mandated modem sleep.
+//  RC4.5 (2026-08-23) dome motion lean
+//   - send32u4.drivePwm = slewed commanded throttle, for the body's
+//     'tilt lean' (dome tilts against the travel direction).
 // ============================================================
 
 #include <Arduino.h>
@@ -1080,6 +1096,8 @@ void serviceEspNow() {
 
 // ------------------- IMU / dome display values -------------------
 inline void updateSendTiltValues() {
+  // RC4.5: commanded (slewed, pre-balance) drive PWM for the dome motion-lean
+  sendTo32u4.drivePwm = (int8_t)constrain(drivePwmState * (127.0f / 255.0f), -127.0f, 127.0f);
   // mpuDeadzone shapes only what the 32u4 uses for dome tilt display
   sendTo32u4.pitch = applyDeadzoneFloat(mpudata.pitch + cfg.pitchOffset, cfg.mpuDeadzone);
   sendTo32u4.roll = applyDeadzoneFloat(mpudata.roll + cfg.rollOffset, cfg.mpuDeadzone);

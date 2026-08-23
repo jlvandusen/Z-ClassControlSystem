@@ -34,6 +34,7 @@ struct send32u4 {
   int8_t  leftStickX;
   int8_t  leftStickY;
   int8_t  soundcmd;
+  int8_t  drivePwm;   // RC4.5: slewed commanded drive PWM, -127..127 (+ = forward) — body uses it for the dome motion-lean
   float   pitch;
   float   roll;
   uint8_t functionnumber;

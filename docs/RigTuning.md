@@ -99,3 +99,4 @@ bb8 monitor ball          # "ball" target = dome's USB port, bridges to the DRIV
 | Date | Board builds | S2S | Drive | Notes |
 |---|---|---|---|---|
 | 2026-08-22 | drive 22 / dome 5 / body 11 / imu 2 | **Kp 10 Ki 2 Kd 1**, swing 40 — at-rest verified, steer-return retest pending | Kp 12 **Ki 0** Kd 0.5 (rig); sign unverified | wireless bridge live; pad idle-stick read jx/jy −127 once after reconnect — watch |
+| 2026-08-23 | drive 24 / dome 12 / body 13 / imu 2 | unchanged (steer-return retest still pending) | unchanged; sign unverified | dome motion lean -8 + tilt blend live, invX=1 saved; servos need their own 6 V rail (5 V feed too weak); dome lights reworked (white PSI speech-pulse, blue scrolling logic) |

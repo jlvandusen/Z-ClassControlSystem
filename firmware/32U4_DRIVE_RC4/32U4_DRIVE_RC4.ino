@@ -22,6 +22,15 @@
 //   7. Dome spin motor PWM is slew-limited (no clunk on reversals).
 //   8. Watchdog timeout now actually 2 s (comment said 2 s, code
 //      had 5 s).
+//
+//  RC4.2  tilt params runtime-tunable + EEPROM ('tilt ...'), audio
+//         diagnostics (audio status/scan/stop, vol).
+//  RC4.3  audio scan waits for BUSY idle (no phantom "present" tracks);
+//         plays tracks 1..119; control codes 125/126/127.
+//  RC4.5  'tilt lean <deg>': dome tilts AGAINST the travel direction
+//         from the drive's commanded PWM (keeps the magnet-riding dome on
+//         top of the shell); tilt stick now ADDS to autoBalance leveling
+//         instead of being locked out by it. Flash: 95 %.
 // ============================================================
 
 #include <Arduino.h>
@@ -54,8 +63,13 @@ struct TiltParams {
   float    slew;     // deg/s slew limit
   uint8_t  invertX;  // flip roll -> tilt
   uint8_t  invertY;  // flip pitch -> tilt
+  float    lean;     // RC4.5: dome lean (deg) at full commanded throttle,
+                     // OPPOSITE the direction of travel - keeps the magnet-
+                     // riding dome perched on top of the shell under
+                     // acceleration. Signed; flip the sign if it leans the
+                     // wrong way on your servo geometry.
 };
-const uint16_t TILT_MAGIC = 0x7E12;
+const uint16_t TILT_MAGIC = 0x7E13;   // bumped for the new field (old EEPROM -> defaults)
 TiltParams tilt;
 float lastTiltX = 0, lastTiltY = 0;       // for telemetry
 bool  bodyTelemetry = false;
@@ -127,6 +141,7 @@ typedef struct {
   bool autoBalance;
   bool domeFunction;
   int8_t DomeSpin, leftStickX, leftStickY, soundcmd;
+  int8_t drivePwm;   // RC4.5: commanded drive PWM -127..127 (+ = forward)
   float pitch, roll;
   uint8_t functionnumber;
   uint16_t checksum;
@@ -278,10 +293,12 @@ void tiltDefaults() {
   tilt.magic = TILT_MAGIC;
   tilt.gain = 1.0f; tilt.alpha = 0.35f; tilt.slew = 220.0f;
   tilt.invertX = 0; tilt.invertY = 0;
+  tilt.lean = -8.0f;   // negative = lean AGAINST the motion (hold the dome on top)
 }
 void tiltLoad() {
   EEPROM.get(0, tilt);
-  if (tilt.magic != TILT_MAGIC || isnan(tilt.gain) || tilt.alpha <= 0 || tilt.alpha > 1 || tilt.slew < 10) {
+  if (tilt.magic != TILT_MAGIC || isnan(tilt.gain) || tilt.alpha <= 0 || tilt.alpha > 1 || tilt.slew < 10 ||
+      isnan(tilt.lean) || fabs(tilt.lean) > 45.0f) {
     tiltDefaults();
     Serial.println(F("[TILT] defaults (no saved params)"));
   }
@@ -292,7 +309,8 @@ void tiltShow() {
   Serial.print(F(" alpha=")); Serial.print(tilt.alpha, 2);
   Serial.print(F(" slew=")); Serial.print(tilt.slew, 0);
   Serial.print(F(" invX=")); Serial.print(tilt.invertX);
-  Serial.print(F(" invY=")); Serial.println(tilt.invertY);
+  Serial.print(F(" invY=")); Serial.print(tilt.invertY);
+  Serial.print(F(" lean=")); Serial.println(tilt.lean, 1);
 }
 
 // ------------------- SETUP -------------------
@@ -525,11 +543,21 @@ void updateTiltTargets() {
         bool ry = REVERSE_AUTO_BALANCE ^ (tilt.invertY != 0);
         tiltX = rx ? -tiltX : tiltX;
         tiltY = ry ? tiltY : -tiltY;
-    } else {
-        // RC4: continuous deadband rescale (was jump at threshold 20)
-        tiltX = stickToTilt(incoming.leftStickX, 12);
-        tiltY = stickToTilt(incoming.leftStickY, 12);
     }
+
+    // RC4.5: the dome stick is ALWAYS live - a manual offset ADDED to the
+    // stabilization instead of being locked out by it (was if/else: turning
+    // autoBalance on made the tilt stick dead). Final servo clamps bound
+    // the sum. RC4 deadband rescale unchanged.
+    tiltX += stickToTilt(incoming.leftStickX, 12);
+    tiltY += stickToTilt(incoming.leftStickY, 12);
+
+    // RC4.5: motion lean - tilt the dome mount AGAINST the direction of
+    // travel so the magnet-riding dome stays on top of the shell instead of
+    // being carried over the nose under acceleration. Driven by the drive's
+    // commanded (slewed) PWM: ramps smoothly, slightly leads the motion.
+    // 'tilt lean <deg>' tunes magnitude and sign.
+    tiltY += (incoming.drivePwm / 127.0f) * tilt.lean;
 
     float l, r;
     if (REVERSE_LEFT_SERVO) {
@@ -752,6 +780,7 @@ void handleSerialCommands() {
         Serial.println(F("  tilt alpha <0.05-1>   smoothing (higher = snappier, default 0.35)"));
         Serial.println(F("  tilt slew <deg/s>     slew limit (default 220)"));
         Serial.println(F("  tilt invert x|y       flip an axis"));
+  Serial.println(F("  tilt lean <deg>       dome lean vs motion at full throttle (default -8 = against travel)"));
         Serial.println(F("  tilt save | tilt reset"));
         Serial.println(F("  audio status          DFPlayer/SD state, file counts, volume"));
         Serial.println(F("  audio scan [max]      muted scan: which MP3/00NN.mp3 exist (default 1-100)"));
@@ -768,6 +797,14 @@ void handleSerialCommands() {
     else if (cmd.startsWith("tilt alpha")) {
         float v = cmd.substring(10).toFloat();
         if (v >= 0.05f && v <= 1.0f) { tilt.alpha = v; tiltShow(); } else Serial.println(F("[TILT] alpha 0.05-1.0"));
+    }
+    else if (cmd.startsWith("tilt lean")) {
+      float v = cmd.substring(9).toFloat();
+      if (fabs(v) <= 45.0f) {
+        tilt.lean = v;
+        Serial.print(F("[TILT] lean=")); Serial.print(tilt.lean, 1);
+        Serial.println(F(" deg at full throttle ('tilt save' to persist)"));
+      } else Serial.println(F("[TILT] lean must be -45..45"));
     }
     else if (cmd.startsWith("tilt slew")) {
         float v = cmd.substring(9).toFloat();

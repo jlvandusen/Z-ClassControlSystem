@@ -245,6 +245,8 @@ window in the same C# app (see §7).
 
 ## 7. Way forward (recommended order)
 
+> **Status 2026-08-23:** 1 done (RC4 field-tested, bench-tuned — see `docs/RigTuning.md`); 2 half done (S2S polarity verified, pitch sign still open); 3 done differently (live tuner + telemetry over USB *and* over ESP-NOW via the dome bridge); 4 superseded (`bb8 update --flash` + the wireless console remove most panel-off flashing; OTA still open); 5 partly (sequence numbers on sounds; tunnel packets have their own checksums). Per-version detail: `docs/CHANGELOG.md`.
+
 1. **Flash RC4 + field-test** the tuning guide above. Expect: controllers reconnect
    fast, no stutter with the dome off, smooth dome tilt, tunable balance.
 2. **Verify S2S polarity + gyro signs on the bench** (both have invert switches in

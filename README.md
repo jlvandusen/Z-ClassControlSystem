@@ -9,6 +9,13 @@ gains, cascaded S2S position loop, servo easing on the dome tilt, non-blocking
 ESP-NOW with BT-coexistence fixes, and a dozen safety/correctness repairs.
 Full write-up: [`docs/BB8_RC4_Review_and_Fixes.md`](docs/BB8_RC4_Review_and_Fixes.md).
 
+**RC4.5 (2026-08-23) — what it does now** (history in [`docs/CHANGELOG.md`](docs/CHANGELOG.md)):
+- **Wireless console**: the dome on USB bridges `bb8` to the drive over ESP-NOW — tune and capture telemetry with the shell closed (`bb8 monitor ball`).
+- **Self-updating tooling**: `bb8 update` / every `upload` pulls new firmware from GitHub first; `bb8 update --flash` reflashes only boards that are behind.
+- **Audio cues**: startup on pad connect, shutdown on pad loss, state-aware enable/disable, boot-cal chirp — all `pref`-tunable and persisted; glitch-proof button debounce.
+- **Dome**: white speech-pulsing PSI, blue scrolling logic bars; built on the stock esp32 core (the Bluepad32 core's BT stack was killing the ESP-NOW link).
+- **Dome tilt**: leveling + stick + throttle-proportional motion lean (`tilt lean`) all blend; S2S tuned (Kp 10 / Ki 2 / Kd 1, swing 40) and the method documented in [`docs/RigTuning.md`](docs/RigTuning.md).
+
 ## The fleet
 
 | Target | Board | Sketch | FQBN |
@@ -16,18 +23,22 @@ Full write-up: [`docs/BB8_RC4_Review_and_Fixes.md`](docs/BB8_RC4_Review_and_Fixe
 | `drive` | ESP32 HUZZAH32 Feather | `firmware/ESP32_DRIVE_RC4` | `esp32-bluepad32:esp32:featheresp32` |
 | `body`  | Feather 32u4 | `firmware/32U4_DRIVE_RC4` | `adafruit:avr:feather32u4` |
 | `imu`   | Trinket M0 + MPU6050 | `firmware/TrinketM0_MPU_RC4` | `adafruit:samd:adafruit_trinket_m0` |
-| `dome`  | ESP32 HUZZAH32 Feather | `firmware/ESP32_DOME_RC4` | `esp32-bluepad32:esp32:featheresp32` |
+| `dome`  | ESP32 HUZZAH32 Feather | `firmware/ESP32_DOME_RC4` | `esp32:esp32:featheresp32` (stock core, 3.x) |
+| `ball`  | *(the dome's USB port)* | — | drive console via the dome's ESP-NOW bridge — `bb8 monitor ball` |
 
 > **This repo's `firmware/` folder is the canonical source.** The sketches are
 > plain Arduino-IDE-compatible folders — open them in the IDE from here if you
 > like. RC3 originals are kept alongside for reference and rollback (point
 > `targets.json` at the `_RC3` sketch and `bb8 upload`).
 >
-> The two ESP32 sketches must build on the **Bluepad32** core (2.x-based);
-> esp32 core 3.x changed the ESP-NOW callback API.
+> The **drive** builds on the **Bluepad32** core (it hosts the BT gamepads).
+> The **dome** builds on the **stock `esp32:esp32` core (3.x)** since RC4.4 — the
+> Bluepad32 core boots a Bluetooth stack the dome never uses, which starved its
+> radio into ~90 % ESP-NOW loss; the 3.x ESP-NOW callback signatures are
+> version-guarded in the sketch.
 
 **Prereqs:** [arduino-cli](https://arduino.github.io/arduino-cli/) on PATH with
-cores `esp32-bluepad32:esp32`, `adafruit:avr`, `adafruit:samd` installed, plus
+cores `esp32-bluepad32:esp32` (drive), `esp32:esp32` ≥ 3.3 (dome), `adafruit:avr`, `adafruit:samd` installed, plus
 the sketch libraries (SerialTransfer, DFRobotDFPlayerMini, Adafruit MPU6050,
 Kalman, Adafruit NeoPixel, Servo). [.NET SDK 10+] to build the CLI.
 
@@ -43,6 +54,8 @@ bb8 deploy drive       # build + upload + open monitor
 bb8 identify           # probe every port, read boot banners
 bb8 update             # pull new firmware / tooling from GitHub
 bb8 update --flash     # ...and reflash every plugged-in board that is behind its sketch
+bb8 monitor ball       # drive console THROUGH the dome over ESP-NOW (shell closed)
+bb8 tune s2s --port COMx   # live tuner — works through the bridge too (COMx = dome)
 ```
 
 ### Staying current with GitHub

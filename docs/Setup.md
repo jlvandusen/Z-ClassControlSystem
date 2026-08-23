@@ -1,9 +1,12 @@
 
 
 ---
+> **Superseded notes below.** Current behaviour lives in `docs/Runbook.md` (controls §6, console §5,
+> lights §15, wireless bridge §16) and `docs/CHANGELOG.md`. In particular: since RC4.3 **PS** is the
+> only drive enable/disable (tap) + force-disable (hold 2 s); CIRCLE is a plain sound button.
+
 ## Updates (2026-08-20 evening)
-- **Drive Enable is now CIRCLE on the drive controller** (PS still works as backup;
-  some controllers don't report the PS button through Bluepad32). Silent-mode
+- ~~Drive Enable is now CIRCLE on the drive controller~~ (reverted in RC4.3 — PS only). Silent-mode
   sound moved to **L1+CIRCLE**.
 - **`version` command on every board**; the 32u4 and Trinket also print their
   banner the moment a monitor attaches, and `bb8 monitor` auto-asks each board
