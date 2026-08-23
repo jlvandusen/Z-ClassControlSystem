@@ -21,9 +21,16 @@ ROT_FIX = [
     (r"^SOT-223", 180),                   # U5 AMS1117 — verified 2026-08-23 ("counter 2x")
     (r"^TSSOP-", 270),                    # U6, U7 — table value; James turned them clockwise in the viewer (amount to confirm)
     (r"^PowerPAK_SO-8_Single", 270),      # Q1 — table value; turned clockwise in the viewer (amount to confirm)
-    (r"^SOT-23", -90),                    # D4 BAT54S — table says -90; James used 180 on r6 preview -> REVIEW
+    (r"^SOT-23", -90),                    # generic table value for SOT-23 — overridden per part below (D4)
     (r"^CP_Elec_8x10|^CP_Elec_10x10", 180),  # electrolytics (only in full scope)
 ]
+# Per-part overrides keyed by LCSC number: JLC's model orientation belongs to the PART, not the footprint.
+# Verified in JLC's placement preview by James, 2026-08-23 (r7 machine-only upload, every part at 0 in the CPL):
+#   U6 C36365 TSSOP-14 +270 (1 click CW) . U7 C6082 TSSOP-20 +270 . Q1 C553968 PowerPAK +270 . U5 C6186 SOT-223 +180 (2 clicks)
+#   D2 C2480 SS14 0 . J17 C160404 JST-SH 0 . D4 below.
+ROT_FIX_PART = {
+    "C47546": 180,   # D4 BAT54S: JLC's model stands vertical with pins 1-2 on the RIGHT -> 180 (2 clicks), NOT the table's -90
+}
 # footprints a hobby iron handles easily: leave these out of the "fine" scope
 EASY_SMD = ("CP_Elec_", "D_SMB", "D_SMA", "D_SOD-123", "Fuse_1812", "Fuse_1206", "L_1206", "C_1206", "SOT-223")
 
@@ -81,9 +88,10 @@ def main():
             else: cx, cy = bb.GetCenter().x, bb.GetCenter().y
             rot = fp.GetOrientation().AsDegrees()
             fpn = str(fp.GetFPID().GetLibItemName())
-            for pat, off in ROT_FIX:
-                if re.search(pat, fpn):
-                    rot = (rot + (-off if fp.IsFlipped() else off)) % 360.0; break
+            off = ROT_FIX_PART.get(lcsc.get(r, ("", ""))[1])
+            if off is None:
+                off = next((o for pat, o in ROT_FIX if re.search(pat, fpn)), 0)
+            rot = (rot + (-off if fp.IsFlipped() else off)) % 360.0
             w.writerow([r, f"{(cx-ao.x)/1e6:.3f}mm", f"{(ao.y-cy)/1e6:.3f}mm", "Bottom" if fp.IsFlipped() else "Top", f"{rot:.1f}"]); n+=1
     # BOM grouped by (comment, footprint) — JLC side and customer side
     groups={}; hand={}
