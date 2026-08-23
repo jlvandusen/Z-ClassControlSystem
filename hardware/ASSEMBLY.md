@@ -58,7 +58,7 @@ DFPlayer (if soldered) is a desolder job, so check those modules on the bench be
 - [x] DevKit is the **30-pin** ESP32 DevKitC only (J_U1A/J_U1B rows 25.4 mm apart). A 38-pin DevKit is wider and will not fit.
 - [ ] Bosses (Ø6 x 5 mm, M3 heat-set insert) at the five M3 plated holes H1 (-42, 24), H2 (-42, -24), H3 (27, 37), H4 (27, -37), H5 (70, 0) board frame - casing coordinates and the tall-part/vent map are in `hardware/mechanical/compact-cover/cover_layout.md`. Cover budget is ~14 mm above the board in the teardrop zone: J1 XT60 (15.5 mm + mating plug) needs a cover cut-out, and F1 needs a low-profile APS/ATT mini fuse (a standard mini ATM fuse is ~16 mm) or a window.
 - [x] LCSC numbers filled (`hardware/bom/lcsc_map.csv`, `bom_jlcpcb.csv`); U1/U2/U3/PS1/PS2 marked DNP in README_PCBWAY.txt
-- [ ] Order at JLCPCB (compact rev A, `ZDrive_v10_compact_JLCPCB_r7.zip`, PCBA of every line in `bom_jlcpcb.csv`). Record here: package revision that went to production (r6 = U7 rework needed / r7), quantity, order date.
+- [x] **Ordered 2026-08-23, JLCPCB order W2026082400040087** — 5 pcs, **r7 gerbers** (`ZDrive_v10_compact_GERBERS_r7_machine-only.zip`, so the U7 DIR fix is on the boards — no rework), **machine-only PCBA scope** (`compact-20260823/machine-only/` BOM 15 lines / CPL 44 parts: Q1, U5, U6, U7, D2, D4, J17, C5/C6 and all 0603 R/C). Standard PCBA tier. PCB $41.59 + PCBA $86.44 + shipping $46.54 + customs $44.83 + tax $14.01 = **$233.41**. Everything else is hand-fitted from `hardware/bom/v10_order_remaining.csv`.
 - [ ] Parts you supply: ESP32 DevKitC 30-pin x2, RP2350-Zero, DFPlayer Mini DFR0299 (+ 2x 1x8 female headers if socketing it), Pololu D24V50F5 (#2851) and **D24V25F6 (#2852)** with a 1x5 0.1 in male header strip each, MAX9744 amp module + 2x7 harness, GY-BMI160 breakout (I2C), AS5600 board (or pot), 10 A **low-profile mini** blade fuse for F1, XT60 female for the pack lead, 2x 2x5 IDC ribbons for J2/J3, JST-XH/VH crimped leads.
 
 A first revision usually needs one spin: fit modules to ONE board first and take it through the
@@ -131,6 +131,8 @@ MCUs with their own module buttons (DevKit EN, Zero RESET/BOOT) or by cycling th
 ## Who assembles what
 
 **JLCPCB (every line in `hardware/fab/compact-20260823/bom_jlcpcb.csv`, all on the top side):** R1-R3, R5-R9, R12-R25, R28-R30, R33; C1-C12, C26-C29; D1, D2, D4, D6; Q1; L1; F3, F4; U5 (AMS1117-3.3), U6 (SN74AHCT125PWR), U7 (74LVC245APW); J17 (SH SMD); and the through-hole parts J1 XT60, F1 holder, J2/J3 2x5, J4/J5 1x3, J6-J11 and J15 JST-XH, J13/J14 JST-VH, J_AMP 2x7, sockets J_U1A/J_U1B/J_U2A/J_U2B/J_U2C. The README lets the fab leave the THT connectors for the customer - check the delivered boards.
+
+**As actually ordered (machine-only scope, order W2026082400040087):** JLCPCB places only Q1, U5, U6, U7, D2, D4, J17, C5/C6 and the 0603 R/C. **You solder** the through-hole parts (J1, F1, J2–J5, J6–J11, J13–J15, J_AMP, the five sockets) and the easy SMD parts (C1–C4, C7, D1, D6, F3, F4, L1) — shopping list with LCSC numbers and quantities in `hardware/bom/v10_order_remaining.csv`.
 
 **Customer:** U1 ESP32 DevKitC 30-pin (into sockets J_U1A/J_U1B), U2 RP2350-Zero (into sockets J_U2A/J_U2B/J_U2C), U3 DFPlayer Mini (solder, or your own 1x8 sockets), PS1 D24V50F5 and PS2 D24V25F6 (soldered direct into their 5-pin rows), MAX9744 amp module + harness to J_AMP, F1 10 A fuse, all cables (XT60 female pack lead, 2x5 ribbons, servo leads, JST leads, speaker leads).
 
