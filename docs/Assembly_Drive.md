@@ -43,7 +43,7 @@ goBILDA mounts `1302-0032-1000` and `1400-0032-0032`
 
 ## 2. Sub-assembly B — Drive gear train
 
-**Parts:** `Motor Gear (26T)`, `Drive Gear (47T)` + drive motor **[not modeled]**
+**Parts:** `Motor Gear (26T)`, `Drive Gear (47T)`, ROBOTZONE planetary gearmotor, chain sprockets (from §1's list)
 
 1. Press/pin the **26T motor gear** onto the **ROBOTZONE planetary gearmotor**
    shaft (`1311 Thru-Hole Sonic Hub, 6 mm D-bore` is in the parts library for
@@ -72,7 +72,7 @@ tilt without power, which is why the droid doesn't flop when disabled)
 2. Place the **16T spur** per the model **[VERIFY** its role — idler between
    stages or the pot-gear takeoff**]**.
 3. Mesh, backlash, then swing the gantry lock-to-lock by hand — note the worm
-   stage will resist back-driving; drive it from the motor side to check.'
+   stage will resist back-driving; drive it from the motor side to check.
 
 ## 4. Sub-assembly D — Swing arms + position feedback
 
