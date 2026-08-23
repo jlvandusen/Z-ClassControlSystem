@@ -4,7 +4,7 @@ finish.py — post-route finishing for the mainboard, run with KiCad's python:
   import routed SES -> +5V plane vias (keepout+copper aware) -> GND stitching
   vias (F/B pours <-> In1 plane) -> refill -> report remaining opens.
 
-  & "<kicad>/bin/python.exe" tools/hw/finish.py hardware/kicad/mainboard.kicad_pcb hardware/kicad/out/mainboard.ses
+  & "<kicad>/bin/python.exe" tools/hw/finish.py hardware/kicad/extended/mainboard.kicad_pcb hardware/kicad/extended/out/mainboard.ses
 """
 import sys, math, pcbnew
 FMM = pcbnew.FromMM

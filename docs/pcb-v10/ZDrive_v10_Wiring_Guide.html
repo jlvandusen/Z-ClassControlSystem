@@ -1,0 +1,554 @@
+<title>Z-Drive v10 Wiring Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F2F4F1; --bg-2:#FFFFFF; --bg-3:#E7EBE6; --ink:#1A2420; --ink-2:#5C6B64; --line:#CBD3CE;
+  --green:#2E7D5B; --green-soft:#DDEFE5; --gold:#B8862B; --gold-soft:#F4E7C8;
+  --w-vp:#D23F31; --w-gnd:#2B3035; --w-sig:#2F6FD6; --w-sda:#C98A13; --w-scl:#2F8F4E; --w-ana:#7E4FC4; --w-aud:#1E8A8A; --w-open:#AEB8B2;
+  --warn-bg:#FBEFD9; --warn-ink:#7A4B00; --danger-bg:#FBE3E0; --danger-ink:#8A1F14;
+  --pad:#D9B25A; --pad-ring:#8A6A1E;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131A17; --bg-2:#1B2420; --bg-3:#22302A; --ink:#E6ECE8; --ink-2:#98A8A0; --line:#34433C;
+    --green:#5FBF92; --green-soft:#1E3A2E; --gold:#E0B04A; --gold-soft:#3D3118;
+    --w-vp:#FF6B5E; --w-gnd:#B9C0C6; --w-sig:#6FA3FF; --w-sda:#F0B94A; --w-scl:#67C98A; --w-ana:#B48CFF; --w-aud:#5AC8C8; --w-open:#4E5B55;
+    --warn-bg:#3A2E12; --warn-ink:#F3D08A; --danger-bg:#42201C; --danger-ink:#FFB3A8;
+    --pad:#E0B04A; --pad-ring:#7A5C18;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131A17; --bg-2:#1B2420; --bg-3:#22302A; --ink:#E6ECE8; --ink-2:#98A8A0; --line:#34433C;
+  --green:#5FBF92; --green-soft:#1E3A2E; --gold:#E0B04A; --gold-soft:#3D3118;
+  --w-vp:#FF6B5E; --w-gnd:#B9C0C6; --w-sig:#6FA3FF; --w-sda:#F0B94A; --w-scl:#67C98A; --w-ana:#B48CFF; --w-aud:#5AC8C8; --w-open:#4E5B55;
+  --warn-bg:#3A2E12; --warn-ink:#F3D08A; --danger-bg:#42201C; --danger-ink:#FFB3A8;
+  --pad:#E0B04A; --pad-ring:#7A5C18;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:var(--green);text-decoration-thickness:1px;text-underline-offset:2px}
+a:focus-visible,button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:.92em}
+h1,h2,h3{font-family:"Barlow Condensed","Arial Narrow",sans-serif;text-wrap:balance;margin:0;line-height:1.05}
+h1{font-size:clamp(2.6rem,6vw,4.4rem);font-weight:700;letter-spacing:.005em}
+h2{font-size:2rem;font-weight:600;letter-spacing:.01em;text-transform:uppercase}
+h3{font-size:1.55rem;font-weight:600}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2)}
+p{max-width:68ch;margin:0}
+.page{display:grid;grid-template-columns:220px minmax(0,1fr);gap:48px;max-width:1180px;margin:0 auto;padding:40px 28px 96px}
+@media (max-width:900px){.page{grid-template-columns:1fr;gap:24px;padding:24px 16px 64px}}
+nav.rail{position:sticky;top:24px;align-self:start;display:flex;flex-direction:column;gap:4px;font-size:.88rem}
+nav.rail .eyebrow{margin-bottom:8px}
+nav.rail a{color:var(--ink);text-decoration:none;padding:4px 8px;border-left:2px solid transparent}
+nav.rail a:hover{border-left-color:var(--gold);background:var(--bg-3)}
+nav.rail .grp{margin-top:10px;font-family:"Barlow Condensed",sans-serif;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);font-size:.8rem;padding-left:8px}
+@media (max-width:900px){nav.rail{position:static;flex-direction:row;flex-wrap:wrap;gap:6px}nav.rail .grp{width:100%;margin-top:4px}}
+header.hero{display:grid;gap:14px;padding-bottom:28px;border-bottom:1px solid var(--line);margin-bottom:36px}
+header.hero .lede{font-size:1.12rem;color:var(--ink-2);max-width:62ch}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.chip{font-family:"IBM Plex Mono",monospace;font-size:.76rem;padding:4px 9px;border:1px solid var(--line);border-radius:3px;background:var(--bg-2)}
+.chip b{color:var(--green);font-weight:600}
+section{margin-bottom:56px}
+section>h2{margin-bottom:6px;color:var(--green)}
+section>.eyebrow{margin-bottom:22px}
+.callout{display:grid;gap:10px;padding:16px 18px;border-radius:6px;background:var(--gold-soft);border:1px solid color-mix(in srgb,var(--gold) 40%,transparent);max-width:none}
+.callout.danger{background:var(--danger-bg);border-color:color-mix(in srgb,var(--danger-ink) 35%,transparent)}
+.callout h3{font-size:1.3rem}
+.callout ul{margin:0;padding-left:20px;display:grid;gap:6px;max-width:75ch}
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+.rule{background:var(--bg-2);border:1px solid var(--line);border-radius:6px;padding:14px 16px;display:grid;gap:6px}
+.rule .k{font-family:"Barlow Condensed",sans-serif;font-weight:600;font-size:1.15rem}
+.rule p{font-size:.92rem;color:var(--ink-2)}
+figure{margin:0;display:grid;gap:10px}
+figure svg{max-width:100%;height:auto;display:block}
+figcaption{font-size:.88rem;color:var(--ink-2);max-width:75ch}
+.figwrap{overflow-x:auto;background:var(--bg-2);border:1px solid var(--line);border-radius:6px;padding:14px}
+.card{background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:22px 24px;margin-bottom:22px;display:grid;gap:18px;scroll-margin-top:16px}
+.card-head{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:baseline}
+.card-head .ref{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:2rem;color:var(--green);letter-spacing:.01em;min-width:3.2ch}
+.card-head .t{display:grid;gap:3px}
+.card-head .sub{font-size:.9rem;color:var(--ink-2)}
+.card-head .sub b{color:var(--ink);font-weight:500}
+.diag{overflow-x:auto}
+.diag svg{display:block;max-width:100%;height:auto}
+.pins{width:100%;border-collapse:collapse;font-size:.88rem;font-variant-numeric:tabular-nums}
+.pins th{text-align:left;font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);padding:6px 8px;border-bottom:1px solid var(--line)}
+.pins td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.pins td.n{font-family:"IBM Plex Mono",monospace;color:var(--gold);font-weight:600;width:2.5ch}
+.pins td.net{font-family:"IBM Plex Mono",monospace;font-size:.84rem}
+.pins td.dev{font-weight:500}
+.pins tr.open td{color:var(--ink-2)}
+.pins tr.open td.dev{font-weight:400}
+.tablewrap{overflow-x:auto}
+.notes{display:grid;gap:8px;font-size:.92rem}
+.notes .got{display:grid;grid-template-columns:auto 1fr;gap:10px;padding:10px 12px;border-radius:5px;background:var(--warn-bg);color:var(--warn-ink)}
+.notes .got.bad{background:var(--danger-bg);color:var(--danger-ink)}
+.notes .got .tag{font-family:"Barlow Condensed",sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.06em;font-size:.8rem;padding-top:2px}
+.notes .ok{display:grid;grid-template-columns:auto 1fr;gap:10px;padding:8px 12px;border-radius:5px;background:var(--green-soft)}
+.notes .ok .tag{font-family:"Barlow Condensed",sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.06em;font-size:.8rem;color:var(--green);padding-top:2px}
+.notes p{max-width:none}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.8rem;color:var(--ink-2);align-items:center}
+.legend i{display:inline-block;width:22px;height:4px;border-radius:2px;vertical-align:middle;margin-right:6px}
+.buy{width:100%;border-collapse:collapse;font-size:.9rem}
+.buy th{text-align:left;font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);padding:8px;border-bottom:1px solid var(--line)}
+.buy td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.buy td.r{font-family:"Barlow Condensed",sans-serif;font-weight:700;color:var(--green);font-size:1.1rem;white-space:nowrap}
+.fits{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.fit{background:var(--bg-2);border:1px solid var(--line);border-radius:6px;padding:12px 14px;display:grid;gap:4px;font-size:.9rem}
+.fit .h{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.fit .h b{font-family:"Barlow Condensed",sans-serif;font-size:1.15rem;font-weight:600}
+.pill{font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border-radius:3px;white-space:nowrap}
+.pill.same{background:var(--green-soft);color:var(--green)}
+.pill.chg{background:var(--warn-bg);color:var(--warn-ink)}
+.pill.new{background:var(--bg-3);color:var(--ink-2)}
+.fit p{font-size:.86rem;color:var(--ink-2)}
+/* SVG semantic classes (inline SVG inherits page CSS) */
+.w-vp{stroke:var(--w-vp)} .w-gnd{stroke:var(--w-gnd)} .w-sig{stroke:var(--w-sig)} .w-sda{stroke:var(--w-sda)} .w-scl{stroke:var(--w-scl)} .w-ana{stroke:var(--w-ana)} .w-aud{stroke:var(--w-aud)}
+.lbl-vp{fill:var(--w-vp)} .lbl-gnd{fill:var(--w-gnd)} .lbl-sig{fill:var(--w-sig)} .lbl-sda{fill:var(--w-sda)} .lbl-scl{fill:var(--w-scl)} .lbl-ana{fill:var(--w-ana)} .lbl-aud{fill:var(--w-aud)}
+.pad{fill:var(--pad);stroke:var(--pad-ring);stroke-width:1}
+.pad-open{fill:none;stroke:var(--w-open);stroke-width:1;stroke-dasharray:2 2}
+.shell{fill:var(--bg-3);stroke:var(--line);stroke-width:1}
+.devshell{fill:var(--green-soft);stroke:var(--green);stroke-width:1}
+.t{fill:var(--ink);font-family:"IBM Plex Mono",monospace;font-size:11px}
+.t2{fill:var(--ink-2);font-family:"IBM Plex Mono",monospace;font-size:10px}
+.tb{fill:var(--ink);font-family:"Barlow Condensed",sans-serif;font-size:14px;font-weight:600;letter-spacing:.03em;text-transform:uppercase}
+.tbg{fill:var(--green);font-family:"Barlow Condensed",sans-serif;font-size:14px;font-weight:600;letter-spacing:.03em;text-transform:uppercase}
+.topen{fill:var(--w-open);font-family:"IBM Plex Mono",monospace;font-size:10px}
+.mcu{fill:var(--bg-2);stroke:var(--ink);stroke-width:1.2}
+.blk{fill:var(--bg-3);stroke:var(--line);stroke-width:1}
+.pwr{fill:var(--gold-soft);stroke:var(--gold);stroke-width:1}
+.conn{fill:var(--green-soft);stroke:var(--green);stroke-width:1}
+.ar{stroke:currentColor;fill:none;stroke-width:1.3}
+.ar-p{stroke:var(--w-vp);fill:none;stroke-width:2}
+.ar-5{stroke:var(--gold);fill:none;stroke-width:2}
+.ar-s{stroke:var(--ink-2);fill:none;stroke-width:1.2}
+.ts{fill:var(--ink-2);font-family:"IBM Plex Mono",monospace;font-size:9.5px}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+</style>
+
+<div class="page">
+<nav class="rail" aria-label="Connectors">
+  <div class="eyebrow">Index</div>
+  <a href="#rules">Before you plug anything in</a>
+  <a href="#map">System map</a>
+  <div class="grp">Power</div>
+  <a href="#J1">J1 · Battery</a><a href="#PS1">PS1 · 5 V buck</a><a href="#PS2">PS2 · 6 V buck</a><a href="#J11">J11 · Slip ring</a>
+  <div class="grp">Motion</div>
+  <a href="#J2">J2 · Drive + S2S</a><a href="#J3">J3 · Flywheel + Dome</a><a href="#J4">J4 / J5 · Servos</a><a href="#J8">J8 · Dome encoder</a><a href="#J9">J9 · Hall</a><a href="#J7">J7 · S2S sensor</a>
+  <div class="grp">Sensing</div>
+  <a href="#J6">J6 · IMU</a><a href="#J15">J15 · E-stop</a>
+  <div class="grp">Lights &amp; sound</div>
+  <a href="#J10">J10 · NeoPixel</a><a href="#U3">U3 · DFPlayer</a><a href="#JAMP">J_AMP · Amp</a><a href="#J13">J13 / J14 · Speakers</a>
+  <div class="grp">Expansion</div>
+  <a href="#J17">J17 · I²C</a>
+  <div class="grp">Reference</div>
+  <a href="#buy">What to buy</a><a href="#v9">From v9.15</a>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="eyebrow">Z-Class control system · mainboard v10.0 · rev A</div>
+  <h1>Z-Drive v10 Wiring Guide</h1>
+  <p class="lede">Every connector on the board, drawn pin-for-pin against the real part that plugs into it. Board-side pins are taken straight from the design netlist; device-side pins were checked against the vendor's own drawings.</p>
+  <div class="chips">
+    <span class="chip">Input <b>12 V</b> 3S4P Li-ion · 9–12.6 V</span>
+    <span class="chip">Rails <b>+5V</b> · <b>+6V</b> servo · <b>+3V3</b></span>
+    <span class="chip">MCUs <b>ESP32</b> balance · <b>RP2350</b> body</span>
+    <span class="chip">Pin 1 = <b>square pad</b></span>
+  </div>
+</header>
+
+<section id="rules">
+  <h2>Before you plug anything in</h2>
+  <div class="eyebrow">Four things that cost boards</div>
+  <div class="rules">
+    <div class="rule"><div class="k">Pin 1 is the square pad</div><p>Every header on the board marks pin 1 with a square pad; the tables here number from it. The 2×5 motor headers and the 3‑pin servo headers are unshrouded — they <em>will</em> go on backwards if you let them.</p></div>
+    <div class="rule"><div class="k">Servo rail is 6.0 V</div><p>J4/J5 centre pin is the PS2 rail at 6.0 V — the one voltage both jumbo servos accept: Hitec HS‑805BB (4.8–6.0 V) and JX PDI‑HV2060MG (6.0–8.4 V). Either plugs in.</p></div>
+    <div class="rule"><div class="k">Motor current never touches this board</div><p>The two DFR0601 drivers take battery power on their own P+/P− terminals straight from the pack. The board only feeds their 3.3 V logic over the ribbon. J1 feeds the bucks and the amp, behind a 10 A fuse.</p></div>
+    <div class="rule"><div class="k">Power off to connect</div><p>Seat and unseat every connector with the XT60 unplugged. The RP2350 and ESP32 GPIOs are 3.3 V and not forgiving of a 5 V or 6 V pin landing on them during a mis‑plug.</p></div>
+  </div>
+</section>
+
+<section id="map">
+  <h2>System map</h2>
+  <div class="eyebrow">Power tree and which MCU owns which connector</div>
+  <figure>
+    <div class="figwrap">
+    <svg viewBox="0 0 960 520" role="img" aria-label="Power flows from the XT60 through a fuse and reverse-polarity FET to VIN, which feeds the 5 V buck, the 6 V servo buck and the amp. The ESP32 owns the drive, S2S and flywheel motor channels, the IMU, the S2S sensor and the E-stop; the RP2350 owns the dome channel, servos, encoder, hall, NeoPixels, DFPlayer and amp control." style="min-width:760px">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker>
+        <marker id="ahp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:var(--w-vp)"/></marker>
+        <marker id="ah5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:var(--gold)"/></marker>
+      </defs>
+      <!-- power column -->
+      <rect class="pwr" x="20" y="30" width="110" height="44" rx="4"/><text class="tb" x="75" y="49" text-anchor="middle">J1 · XT60</text><text class="ts" x="75" y="65" text-anchor="middle">12 V pack 9–12.6 V</text>
+      <path class="ar-p" d="M130 52 H170" marker-end="url(#ahp)"/>
+      <rect class="blk" x="172" y="36" width="58" height="32" rx="3"/><text class="t2" x="201" y="56" text-anchor="middle">F1 10 A</text>
+      <path class="ar-p" d="M230 52 H268" marker-end="url(#ahp)"/>
+      <rect class="blk" x="270" y="36" width="64" height="32" rx="3"/><text class="t2" x="302" y="51" text-anchor="middle">Q1 RPP</text><text class="ts" x="302" y="62" text-anchor="middle">+ D1 TVS</text>
+      <path class="ar-p" d="M334 52 H372" marker-end="url(#ahp)"/>
+      <rect class="pwr" x="374" y="30" width="70" height="44" rx="4"/><text class="tb" x="409" y="49" text-anchor="middle">VIN</text><text class="ts" x="409" y="65" text-anchor="middle">9–12.6 V</text>
+      <!-- VIN fan-out -->
+      <path class="ar-p" d="M444 44 H500 V112 H530" marker-end="url(#ahp)"/>
+      <path class="ar-p" d="M444 52 H500 V186 H530" marker-end="url(#ahp)"/>
+      <path class="ar-p" d="M444 60 H500 V258 H530" marker-end="url(#ahp)"/>
+      <rect class="pwr" x="532" y="94" width="120" height="38" rx="4"/><text class="tb" x="592" y="111" text-anchor="middle">PS1 D24V50F5</text><text class="ts" x="592" y="125" text-anchor="middle">→ +5V 5 A</text>
+      <rect class="pwr" x="532" y="168" width="120" height="38" rx="4"/><text class="tb" x="592" y="185" text-anchor="middle">PS2 D24V25F6</text><text class="ts" x="592" y="199" text-anchor="middle">→ +6V servo 2.5 A</text>
+      <rect class="blk" x="532" y="240" width="120" height="38" rx="4"/><text class="tb" x="592" y="257" text-anchor="middle">F4 3 A · L1</text><text class="ts" x="592" y="271" text-anchor="middle">→ AMP 12 V</text>
+      <!-- 5V fan-out -->
+      <path class="ar-5" d="M652 105 H700 V60 H740" marker-end="url(#ah5)"/>
+      <path class="ar-5" d="M652 113 H700 V113 H740" marker-end="url(#ah5)"/>
+      <path class="ar-5" d="M652 121 H700 V152 H740" marker-end="url(#ah5)"/>
+      <rect class="blk" x="742" y="44" width="190" height="32" rx="3"/><text class="t2" x="837" y="64" text-anchor="middle">ESP32 · RP2350 (D2) · DFPlayer</text>
+      <rect class="blk" x="742" y="97" width="190" height="32" rx="3"/><text class="t2" x="837" y="117" text-anchor="middle">U5 LDO → +3V3 (sensors, drivers)</text>
+      <rect class="conn" x="742" y="136" width="190" height="32" rx="3"/><text class="t2" x="837" y="156" text-anchor="middle">F3 3 A → +5V_LED · J10 · J11</text>
+      <path class="ar-5" d="M652 187 H740" marker-end="url(#ah5)"/>
+      <rect class="conn" x="742" y="171" width="190" height="32" rx="3"/><text class="t2" x="837" y="191" text-anchor="middle">J4 · J5 servo centre pins</text>
+      <path class="ar-5" d="M652 259 H740" marker-end="url(#ah5)"/>
+      <rect class="conn" x="742" y="243" width="190" height="32" rx="3"/><text class="t2" x="837" y="263" text-anchor="middle">J_AMP pin 1 (MAX9744 VDD)</text>
+      <!-- MCUs -->
+      <rect class="mcu" x="60" y="330" width="200" height="150" rx="6"/><text class="tb" x="160" y="352" text-anchor="middle">ESP32 DevKit · U1</text><text class="ts" x="160" y="366" text-anchor="middle">balance loop · 100 Hz</text>
+      <rect class="mcu" x="520" y="330" width="200" height="150" rx="6"/><text class="tb" x="620" y="352" text-anchor="middle">RP2350-Zero · U2</text><text class="ts" x="620" y="366" text-anchor="middle">body: dome, servos, lights, sound</text>
+      <path class="ar-s" d="M260 400 H518" marker-start="url(#ah)" marker-end="url(#ah)" style="color:var(--ink-2)"/><text class="ts" x="389" y="394" text-anchor="middle">UART link 921600</text>
+      <!-- ESP32 connectors -->
+      <text class="t2" x="160" y="390" text-anchor="middle">J2 ch A DRIVE · J2 ch B S2S</text>
+      <text class="t2" x="160" y="406" text-anchor="middle">J3 ch A FLYWHEEL</text>
+      <text class="t2" x="160" y="422" text-anchor="middle">J6 IMU (I²C‑A) · J7 S2S sensor</text>
+      <text class="t2" x="160" y="438" text-anchor="middle">J15 E‑stop · VBAT sense</text>
+      <!-- RP2350 connectors -->
+      <text class="t2" x="620" y="390" text-anchor="middle">J3 ch B DOME · J4 / J5 servos</text>
+      <text class="t2" x="620" y="406" text-anchor="middle">J8 encoder · J9 hall · J10 NeoPixel</text>
+      <text class="t2" x="620" y="422" text-anchor="middle">U3 DFPlayer (UART1) · J_AMP (I²C‑B)</text>
+      <text class="t2" x="620" y="438" text-anchor="middle">J17 I²C expansion</text>
+      <!-- note -->
+      <text class="ts" x="60" y="505">Motor power: pack → DFR0601 P+/P− directly. Not through this board.</text>
+    </svg>
+    </div>
+    <figcaption>One fused 12 V input. The 5 V buck feeds both MCUs, the DFPlayer, the 3.3 V LDO and (through its own polyfuse) the lights; the 6 V buck feeds only the servo headers; the amp takes fused 12 V. Each connector belongs to exactly one MCU — the J3 ribbon is the one place both MCUs share a header.</figcaption>
+  </figure>
+</section>
+
+<div class="legend" style="margin-bottom:18px"><span><i style="background:var(--w-vp)"></i>V+</span><span><i style="background:var(--w-gnd)"></i>GND</span><span><i style="background:var(--w-sig)"></i>logic / PWM</span><span><i style="background:var(--w-sda)"></i>SDA</span><span><i style="background:var(--w-scl)"></i>SCL</span><span><i style="background:var(--w-ana)"></i>analog</span><span><i style="background:var(--w-aud)"></i>audio</span><span>· dashed pads = leave open</span></div>
+
+<section id="power"><h2>Power</h2><div class="eyebrow">J1 · PS1 · PS2 · J11</div><div id="cards-power"></div></section>
+<section id="motion"><h2>Motion</h2><div class="eyebrow">J2 · J3 · J4 / J5 · J8 · J9 · J7</div><div id="cards-motion"></div></section>
+<section id="sensing"><h2>Sensing</h2><div class="eyebrow">J6 · J15</div><div id="cards-sensing"></div></section>
+<section id="av"><h2>Lights &amp; sound</h2><div class="eyebrow">J10 · U3 · J_AMP · J13 / J14</div><div id="cards-av"></div></section>
+<section id="exp"><h2>Expansion</h2><div class="eyebrow">J17</div><div id="cards-exp"></div></section>
+
+<section id="buy">
+  <h2>What to buy</h2>
+  <div class="eyebrow">The parts that plug into the board</div>
+  <div class="tablewrap"><table class="buy">
+    <thead><tr><th>Plugs into</th><th>Part</th><th>Where</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td class="r">J6</td><td>GY‑BMI160 breakout (purple, 12‑pin)</td><td>Amazon / AliExpress, ~$5 — buy 2–3, clone QC varies</td><td>4 wires: VIN · GND · SCL · SDA. Adequate for a 100 Hz balance loop; the pricier ICM‑42688 buys nothing you can feel here.</td></tr>
+      <tr><td class="r">J7</td><td>AS5600 magnetic encoder module — the <b>3.3 V</b> type</td><td>Amazon / AliExpress</td><td>Plus a 6 × 2.5 mm diametric magnet. Some modules are "3–5 V" with an LDO that starves at 3.3 V — avoid those. A 10 k pot still works on the same header.</td></tr>
+      <tr><td class="r">J8</td><td>NeveRest Classic 60 encoder cable (am‑2992) — the one you have</td><td>AndyMark</td><td>Plugs in unchanged; J8 keeps the v9.15 order.</td></tr>
+      <tr><td class="r">J9</td><td>Your existing 3‑pin hall switch (US5881 / A3144 class)</td><td>—</td><td>Runs at 3.3 V here as it did on v9.15. If buying new, a TI DRV5023 is rated for 3.3 V with the same lead order.</td></tr>
+      <tr><td class="r">J2 / J3</td><td>2× DFRobot DFR0601 dual 12 A motor driver + 2× 10‑way IDC ribbon</td><td>DFRobot</td><td>Ribbon is straight‑through, red stripe to pin 1 at both ends.</td></tr>
+      <tr><td class="r">J4 / J5</td><td>Hitec HS‑805BB jumbo (4.8–6 V, 24 kg·cm) — or JX PDI‑HV2060MG jumbo (6–8.4 V) as the alternate</td><td>Hitec / Amazon</td><td>Same ¼‑scale case, same lead. The rail is 6.0 V so both work.</td></tr>
+      <tr><td class="r">PS1</td><td>Pololu D24V50F5 (5 V 5 A)</td><td>Pololu #2851</td><td>Solders straight in: EN · VIN · GND · GND · OUT.</td></tr>
+      <tr><td class="r">PS2</td><td>Pololu D24V25F6 (6 V 2.5 A)</td><td>Pololu #2852</td><td>Same 5‑pin row as PS1. Not the D24V22Fx — different pinout.</td></tr>
+      <tr><td class="r">J_AMP</td><td>Adafruit MAX9744 20 W stereo amp</td><td>Adafruit #1752</td><td>Hand‑made 14‑wire harness; speakers come off its terminal blocks.</td></tr>
+      <tr><td class="r">U3</td><td>DFPlayer Mini (DFR0299) + micro‑SD</td><td>DFRobot / Amazon</td><td>Socketed; SD slot faces the tail.</td></tr>
+      <tr><td class="r">J10 / J11</td><td>WS2812B strips; 5 V slip ring ≥ 3 A per ring (or two rings paralleled); J11 is an XH 2‑pin</td><td>—</td><td>+5V_LED is fused at 3 A ≈ 50 pixels full white.</td></tr>
+      <tr><td class="r">J1</td><td>XT60 <b>female</b> on the pack lead</td><td>—</td><td>Board carries the male (pins); pack carries the female (sockets) so live contacts are shielded.</td></tr>
+      <tr><td class="r">J17</td><td>Any Qwiic / STEMMA QT cable</td><td>SparkFun / Adafruit</td><td>RP2350 bus. Amp is at 0x4B — avoid that address.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="v9">
+  <h2>From v9.15</h2>
+  <div class="eyebrow">Which of your existing cables still fit</div>
+  <div class="fits">
+    <div class="fit"><div class="h"><b>Dome encoder → J8</b><span class="pill same">Same</span></div><p>B · A · GND · 5V, identical to DOME_ENC. Plug the old cable in.</p></div>
+    <div class="fit"><div class="h"><b>Hall → J9</b><span class="pill same">Same</span></div><p>3V3 · GND · SIG as before.</p></div>
+    <div class="fit"><div class="h"><b>Body NeoPixel → J10</b><span class="pill same">Same</span></div><p>5V · GND · DATA as before.</p></div>
+    <div class="fit"><div class="h"><b>Motor ribbons → J2 / J3</b><span class="pill chg">Regrouped</span></div><p>Same 2×5 format and row order. But J2 = Drive + S2S, J3 = Flywheel + Dome — connect each driver to the right header.</p></div>
+    <div class="fit"><div class="h"><b>IMU → J6</b><span class="pill chg">Same plug, new device</span></div><p>Same 4‑pin order (VCC GND · · ). The far end now goes to a BMI160 over I²C instead of the Trinket over UART — re‑terminate that end.</p></div>
+    <div class="fit"><div class="h"><b>Servos → J4 / J5</b><span class="pill chg">Split</span></div><p>Was one 2×3 block. Now two 1×3 headers, still 6 V — your HS‑805BBs plug straight on.</p></div>
+    <div class="fit"><div class="h"><b>S2S pot → J7</b><span class="pill chg">5‑pin now</span></div><p>Pot still works on pins 1–3 (3V3 GND OUT). Pins 4–5 add I²C for the AS5600.</p></div>
+    <div class="fit"><div class="h"><b>5V_IN / 6V_IN screw terminals</b><span class="pill new">Gone</span></div><p>The bucks are on the board now. One XT60 in.</p></div>
+    <div class="fit"><div class="h"><b>AUDIO_OUT / AUDIO_AUX</b><span class="pill new">Replaced</span></div><p>DFPlayer feeds the MAX9744 on‑board; speakers leave on J13/J14.</p></div>
+    <div class="fit"><div class="h"><b>Slip ring J11 · E‑stop J15 · I²C J17</b><span class="pill new">New</span></div><p>No v9.15 equivalent.</p></div>
+  </div>
+</section>
+</main>
+</div>
+
+<script>
+// ---------- data: board side is exported from hardware/netlist/mainboard.py; device side from vendor drawings ----------
+const K = { vp:'vp', gnd:'gnd', sig:'sig', sda:'sda', scl:'scl', ana:'ana', aud:'aud' };
+const CARDS = [
+ { id:'J1', grp:'power', ref:'J1', title:'Battery input', sub:'XT60PW‑M (male, right‑angle) · the only power input',
+   board:[[1,'+','BAT+',K.vp],[2,'−','GND',K.gnd]],
+   device:{name:'Pack lead · XT60 female', pins:['+  (red)','−  (black)']},
+   wires:[[1,0,'BAT+ → F1 10 A → Q1 → VIN'],[2,1,'GND']],
+   rows:[[1,'+','BAT+','XT60 + (red)','12 V 3S4P pack, 9.0–12.6 V. Through F1 (10 A) and Q1 (reverse‑polarity FET) to VIN.'],[2,'−','GND','XT60 − (black)','']],
+   notes:[['ok','Keyed','The XT housing only mates one way. Board = male pins, pack = female sockets. The silk “+” by pin 1 must agree with the “+” moulded into the housing.'],['got','Not for motors','The DFR0601 drivers take battery power on their own terminals. This input feeds the bucks and the amp only — that is why a 10 A fuse is enough.']] },
+ { id:'PS1', grp:'power', ref:'PS1', title:'5 V buck · Pololu D24V50F5', sub:'Plug‑in module, 5 pins in a row · makes +5V for both MCUs, DFPlayer, LDO and lights',
+   board:[[1,'EN','(open)',null],[2,'VIN','VIN',K.vp],[3,'GND','GND',K.gnd],[4,'GND','GND',K.gnd],[5,'OUT','+5V_LOGIC',K.vp]],
+   device:{name:'D24V50F5 pin row (component side up)', pins:['EN','VIN','GND','GND','OUT']},
+   wires:[[2,1,'VIN 9–12.6 V'],[3,2,'GND'],[4,3,'GND'],[5,4,'+5V 5 A']], straight:true,
+   rows:[[1,'EN','—','EN','Leave open. The module has its own 100 k pull‑up = enabled.'],[2,'VIN','VIN','VIN','Input 6–38 V.'],[3,'GND','GND','GND','Both GND pins are bonded on the module — solder both.'],[4,'GND','GND','GND',''],[5,'OUT','+5V_LOGIC','OUT','5 V, up to 5 A.']],
+   notes:[['ok','Solders straight in','The board pad row matches the module’s EN · VIN · GND · GND · OUT at 0.1″. Pin 1 (EN) is the square pad.']] },
+ { id:'PS2', grp:'power', ref:'PS2', title:'6 V servo buck · Pololu D24V25F6', sub:'Plug‑in module · feeds only the J4 / J5 servo centre pins',
+   board:[[1,'EN','(open)',null],[2,'VIN','VIN',K.vp],[3,'GND','GND',K.gnd],[4,'GND','GND',K.gnd],[5,'OUT','+6V_SERVO',K.vp]],
+   device:{name:'D24V25F6 pin row (component side up)', pins:['EN','VIN','GND','GND','OUT']},
+   wires:[[2,1,'VIN'],[3,2,'GND'],[4,3,'GND'],[5,4,'+6.0 V 2.5 A']], straight:true,
+   rows:[[1,'EN','—','EN','Leave open.'],[2,'VIN','VIN','VIN','Input 7–38 V.'],[3,'GND','GND','GND',''],[4,'GND','GND','GND',''],[5,'OUT','+6V_SERVO','OUT','6.0 V for the dome‑tilt servos.']],
+   notes:[['ok','Right part','D24V25F6 = Pololu #2852. Same EN·VIN·GND·GND·OUT row as PS1. The newer D24V22Fx family has a DIFFERENT pin order (PG·EN·VIN·GND·VOUT) — don’t substitute without re‑pinning.'],['got','Stall headroom','Two jumbo servos hitting a stop together can ask for more than 2.5 A for a moment; C4 (470 µF) rides it out as it did on v9.15. If tilt ever browns out, the 5 A D24V50F6 drops into the same row.']] },
+ { id:'J11', grp:'power', ref:'J11', title:'Slip ring · body‑shell lights', sub:'JST‑XH 2‑pin · +5V_LED and GND out through the ring — same family as J8 / J9 / J10',
+   board:[[1,'5V_LED','+5V_LED',K.vp],[2,'GND','GND',K.gnd]],
+   device:{name:'Slip ring (two rings used)', pins:['ring → shell +5V','ring → shell GND']},
+   wires:[[1,0,'+5V_LED (F3 3 A polyfuse)'],[2,1,'GND']],
+   rows:[[1,'5V_LED','+5V_LED','+5V ring','Same fused rail as J10. ~50 pixels full‑white on 3 A.'],[2,'GND','GND','GND ring','']],
+   notes:[['got','Ring current','Small capsule rings are often 2 A per ring. If yours is, parallel two rings for +5V and two for GND in the harness. Label the rings at both ends before wiring.'],['ok','Nothing else on the ring','The pack charges through its own lead out the axle — the ring carries only the lights.']] },
+
+ { id:'J2', grp:'motion', ref:'J2', title:'Motor driver A · Drive + S2S', sub:'2×5 male header, 10‑way IDC ribbon → DFRobot DFR0601 · channel 1 = DRIVE, channel 2 = S2S (both ESP32)',
+   board:[[1,'VCC','+3V3',K.vp],[2,'VCC','+3V3',K.vp],[3,'PWM1','DRIVE_PWM',K.sig],[4,'PWM2','S2S_PWM',K.sig],[5,'INA1','DRIVE_INA',K.sig],[6,'INA2','S2S_INA',K.sig],[7,'INB1','DRIVE_INB',K.sig],[8,'INB2','S2S_INB',K.sig],[9,'GND','GND',K.gnd],[10,'GND','GND',K.gnd]],
+   device:{name:'DFR0601 logic header (ribbon position)', pins:['1 VCC','6 VCC','2 PWM1','7 PWM2','3 INA1','8 INA2','4 INB1','9 INB2','5 GND','X GND']},
+   chan:{A:{name:'DRIVE', mcu:'ESP32 D4 / D16 / D17'}, B:{name:'S2S', mcu:'ESP32 D25 / D26 / D27'}}, dev2x5:{rowA:['1 VCC','2 PWM1','3 INA1','4 INB1','5 GND'], rowB:['6 VCC','7 PWM2','8 INA2','9 INB2','X GND']},
+   wires:[],
+   rows:[[1,'VCC','+3V3','1 VCC','Driver logic supply from the board’s 3.3 V LDO.'],[3,'PWM1','DRIVE_PWM','2 PWM1','ESP32 D4 · 20 kHz'],[5,'INA1','DRIVE_INA','3 INA1','ESP32 D16'],[7,'INB1','DRIVE_INB','4 INB1','ESP32 D17'],[9,'GND','GND','5 GND',''],[2,'VCC','+3V3','6 VCC',''],[4,'PWM2','S2S_PWM','7 PWM2','ESP32 D25'],[6,'INA2','S2S_INA','8 INA2','ESP32 D26'],[8,'INB2','S2S_INB','9 INB2','ESP32 D27'],[10,'GND','GND','X GND','Silk on the driver prints “X” for pin 10.']],
+   notes:[['ok','Straight ribbon','Odd board pins are one column, even the other — exactly how IDC numbers a 2×5. A plain 10‑way ribbon with the red stripe on pin 1 at both ends lands every wire. M1 terminals = Drive motor, M2 = S2S worm motor. P+/P− = pack, direct.'],['got','bad','Unshrouded','Reversed 180° puts 3V3 on the driver’s GND pins. Mark pin 1 on both ends with paint. Never reverse a motor at speed — ramp PWM to 0 first (DFRobot warning).']] },
+ { id:'J3', grp:'motion', ref:'J3', title:'Motor driver B · Flywheel + Dome', sub:'2×5 male header, 10‑way IDC ribbon → second DFR0601 · channel 1 = FLYWHEEL (ESP32), channel 2 = DOME spin (RP2350)',
+   board:[[1,'VCC','+3V3',K.vp],[2,'VCC','+3V3',K.vp],[3,'PWM1','FLY_PWM',K.sig],[4,'PWM2','DOME_PWM',K.sig],[5,'INA1','FLY_INA',K.sig],[6,'INA2','DOME_INA',K.sig],[7,'INB1','FLY_INB',K.sig],[8,'INB2','DOME_INB',K.sig],[9,'GND','GND',K.gnd],[10,'GND','GND',K.gnd]],
+   device:{name:'DFR0601 logic header (ribbon position)', pins:['1 VCC','6 VCC','2 PWM1','7 PWM2','3 INA1','8 INA2','4 INB1','9 INB2','5 GND','X GND']},
+   chan:{A:{name:'FLYWHEEL', mcu:'ESP32 D32 / D33 / D14'}, B:{name:'DOME', mcu:'RP2350 GP8 / GP9 / GP10'}}, dev2x5:{rowA:['1 VCC','2 PWM1','3 INA1','4 INB1','5 GND'], rowB:['6 VCC','7 PWM2','8 INA2','9 INB2','X GND']},
+   wires:[],
+   rows:[[1,'VCC','+3V3','1 VCC',''],[3,'PWM1','FLY_PWM','2 PWM1','ESP32 D32'],[5,'INA1','FLY_INA','3 INA1','ESP32 D33'],[7,'INB1','FLY_INB','4 INB1','ESP32 D14'],[9,'GND','GND','5 GND',''],[2,'VCC','+3V3','6 VCC',''],[4,'PWM2','DOME_PWM','7 PWM2','RP2350 GP8'],[6,'INA2','DOME_INA','8 INA2','RP2350 GP9'],[8,'INB2','DOME_INB','9 INB2','RP2350 GP10'],[10,'GND','GND','X GND','']],
+   notes:[['ok','Two MCUs, one ribbon','Channel 1 is the ESP32’s flywheel, channel 2 is the RP2350’s dome spin (NeveRest). M1 = flywheel motor, M2 = dome motor.'],['got','Regrouped from v9.15','v9.15 paired S2S + Dome on one driver and Drive + Flywheel on the other. v10 pairs Drive + S2S (J2) and Flywheel + Dome (J3). Same ribbon format — just connect the right driver to the right header.']] },
+ { id:'J4', grp:'motion', ref:'J4 / J5', title:'Dome‑tilt servos L / R', sub:'1×3 male headers · SIG · +6 V · GND — standard servo lead order; Hitec HS‑805BB or JX PDI‑HV2060MG (both jumbo)',
+   board:[[1,'SIG','SERVO_L / R',K.sig],[2,'+','+6V_SERVO',K.vp],[3,'GND','GND',K.gnd]],
+   device:{name:'Hitec HS‑805BB (4.8–6 V) or JX PDI‑HV2060MG (6–8.4 V) · JR/Futaba lead', pins:['signal (white / yellow — lightest)','+  (red, always centre)','−  (black / brown — darkest)']},
+   wires:[[1,0,'SERVO_L · RP2350 GP6   (J5: SERVO_R · GP7)'],[2,1,'+6.0 V'],[3,2,'GND']], straight:true,
+   rows:[[1,'SIG','SERVO_L (J4) / SERVO_R (J5)','signal — lightest wire','RP2350 GP6 / GP7, 50 Hz pulse, 3.3 V logic'],[2,'+','+6V_SERVO','red — centre','6.0 V from PS2 — in spec for both the HS‑805BB and the HV2060MG.'],[3,'GND','GND','dark wire','']],
+   notes:[['ok','Lightest wire to the square pad','Futaba, JR and Hitec all put red in the centre; signal is the lightest colour, ground the darkest. Plug so the light wire is on pin 1.'],['got','Old Airtronics / Sanwa leads','They have + and − swapped relative to Futaba/JR — re‑pin before use. The HV2060MG gives ~45 kg·cm at 6 V (vs 62 at 7.4) — still double the Hitec’s 24.']] },
+ { id:'J8', grp:'motion', ref:'J8', title:'Dome encoder', sub:'JST‑XH 4‑pin · B · A · GND · 5V — identical to the v9.15 DOME_ENC header',
+   board:[[1,'B','ENC_B_5V',K.sig],[2,'A','ENC_A_5V',K.sig],[3,'GND','GND',K.gnd],[4,'5V','+5V_LOGIC',K.vp]],
+   device:{name:'NeveRest encoder cable (am‑2992, encoder end)', pins:['RED · VCC','BLACK · GND','YELLOW · channel A','GREEN · channel B']},
+   wires:[[1,3,'B → U7 shifter → RP2350 GP12'],[2,2,'A → U7 shifter → GP11'],[3,1,'GND'],[4,0,'+5V']],
+   rows:[[1,'B','ENC_B_5V','GREEN (B)','5 V quadrature in → 74LVC245 → 3.3 V → RP2350 GP12'],[2,'A','ENC_A_5V','YELLOW (A)','→ RP2350 GP11'],[3,'GND','GND','BLACK','' ],[4,'5V','+5V_LOGIC','RED (VCC)','Encoder runs at 5 V; A/B are level‑shifted on the board.']],
+   notes:[['ok','Your existing cable fits','The encoder’s XH order VCC · GND · A · B is J8’s B · A · GND · 5V read from the other end — a straight XH‑to‑XH lead lands every wire, which is why it worked on v9.15.'],['got','Buzz it first','Before power: RED must be on pin 4 and BLACK on pin 3. Yellow = A / green = B is community convention — if swapped, only the count direction flips (fix in firmware).']] },
+ { id:'J9', grp:'motion', ref:'J9', title:'Dome home · hall sensor', sub:'JST‑XH 3‑pin · 3V3 · GND · SIG — same as v9.15 HALL',
+   board:[[1,'3V3','+3V3',K.vp],[2,'GND','GND',K.gnd],[3,'SIG','HALL',K.sig]],
+   device:{name:'3‑pin hall switch (branded face toward you, leads down)', pins:['1 VDD','2 GND','3 OUT (open‑collector)']},
+   wires:[[1,0,'+3.3 V'],[2,1,'GND'],[3,2,'HALL → RP2350 GP13 (10 k pull‑up on board)']], straight:true,
+   rows:[[1,'3V3','+3V3','1 VDD','3.3 V supply, as on v9.15.'],[2,'GND','GND','2 GND',''],[3,'SIG','HALL','3 OUT','Pulls to 0 V when a SOUTH pole faces the branded side. Idles high via R9 10 k.']],
+   notes:[['ok','Same lead order everywhere','US5881, US1881, A3141–A3144 and DRV5023 all use VDD · GND · OUT viewed from the branded face.'],['got','3.3 V is slightly under spec for US5881 / A3144','They ran that way on v9.15 and work in practice. If you buy new, TI DRV5023 / DRV5032 are rated for 3.3 V. Don’t use a latching type (US1881) or a linear SS49E — GP13 is a digital input.']] },
+ { id:'J7', grp:'motion', ref:'J7', title:'S2S tilt sensor · AS5600 (or pot)', sub:'JST‑XH 5‑pin · 3V3 · GND · OUT · SDA · SCL — analog OUT for the 100 Hz loop, I²C to program it',
+   board:[[1,'3V3','+3V3',K.vp],[2,'GND','GND',K.gnd],[3,'OUT','S2S_OUT',K.ana],[4,'SDA','I2C_A_SDA',K.sda],[5,'SCL','I2C_A_SCL',K.scl]],
+   device:{name:'AS5600 module (3.3 V type)', pins:['VCC','OUT','GND','DIR — strap to GND on the module','SCL','SDA','GPO — leave open']},
+   wires:[[1,0,'+3.3 V'],[2,2,'GND'],[3,1,'analog 0–3.3 V → R2 1 k → ESP32 D34'],[4,5,'SDA · ESP32 D13'],[5,4,'SCL · ESP32 D15']],
+   rows:[[1,'3V3','+3V3','VCC','Use the 3.3 V‑only module (no on‑board LDO).'],[2,'GND','GND','GND',''],[3,'OUT','S2S_OUT','OUT','Ratiometric analog. Firmware programs ZPOS/MPOS so the tilt swing spans 0–3.3 V. ESP32 D34 (ADC).'],[4,'SDA','I2C_A_SDA','SDA','Address 0x36. Shared bus with the IMU on J6.'],[5,'SCL','I2C_A_SCL','SCL','']],
+   notes:[['got','DIR must not float','Tie DIR to the module’s GND pad (angle increases clockwise seen from the magnet) or to VCC for the reverse. Pick whichever makes counts rise toward right‑tilt, or flip REVERSE_S2S in firmware.'],['ok','Pot fallback','A 10 k pot still works: ends to pins 1 and 2, wiper to pin 3, pins 4–5 unused. Magnet for the AS5600: 6 × 2.5 mm diametric, centred ±0.25 mm, 0.5–3 mm gap.']] },
+
+ { id:'J6', grp:'sensing', ref:'J6', title:'IMU · GY‑BMI160 over I²C', sub:'JST‑XH 4‑pin · 5V · GND · SCL · SDA — same order as the v9.15 MPU connector',
+   board:[[1,'5V','+5V_LOGIC',K.vp],[2,'GND','GND',K.gnd],[3,'SCL','I2C_A_SCL',K.scl],[4,'SDA','I2C_A_SDA',K.sda]],
+   device:{name:'GY‑BMI160 (7‑pin column; 5‑pin column unused)', pins:['VIN','3V3 — open','GND','SCL','SDA','CS — open','SA0 — open'], extra:['OCS · INT2 · INT1 · SCX · SDX — all open']},
+   wires:[[1,0,'+5 V → breakout LDO'],[2,2,'GND'],[3,3,'SCL · ESP32 D15'],[4,4,'SDA · ESP32 D13']],
+   rows:[[1,'5V','+5V_LOGIC','VIN','The breakout’s own regulator makes 3.3 V. Do not also feed the 3V3 pin.'],[2,'GND','GND','GND',''],[3,'SCL','I2C_A_SCL','SCL','3.3 V logic (breakout pull‑ups). ESP32 D15.'],[4,'SDA','I2C_A_SDA','SDA','ESP32 D13. Bus shared with the AS5600 (0x36).']],
+   notes:[['ok','I²C mode, no straps','CS and SA0 left open put the chip in I²C at 0x69 (firmware probes 0x68/0x69). A ~0.4 ms read per sample is nothing against a 10 ms control tick. Leave the 5‑pin column (OCS/INT/SCX/SDX) unconnected — it is the secondary interface, not SPI.'],['got','Mount it rigid, note the X arrow','Bolt the breakout by its two holes to a stiff sled in the frame slot, as close to the pitch axis as you can; a 90° rotation is fine — tell me which way the chip’s X arrow points and the firmware mounting matrix absorbs it. Hot‑glue or tie down the cable ends.']] },
+ { id:'J15', grp:'sensing', ref:'J15', title:'E‑stop loop', sub:'JST‑XH 2‑pin · normally‑closed loop · open = stop',
+   board:[[1,'LOOP','ESTOP_SENSE',K.sig],[2,'GND','GND',K.gnd]],
+   device:{name:'N.C. switch or shorting plug', pins:['switch contact','switch contact']},
+   wires:[[1,0,'ESTOP_SENSE · ESP32 VP (10 k pull‑up)'],[2,1,'GND']], straight:true,
+   rows:[[1,'LOOP','ESTOP_SENSE','contact','ESP32 VP / GPIO36. Closed loop = 0 V = run; open = 3.3 V = stop.'],[2,'GND','GND','contact','']],
+   notes:[['got','Needs a plug to run','With nothing in J15 the loop is open and the firmware holds the motors off. Fit a shorting plug if no switch is installed.']] },
+
+ { id:'J10', grp:'av', ref:'J10', title:'Body NeoPixel strip', sub:'JST‑XH 3‑pin · 5V · GND · DATA — true 5 V data (level‑shifted on board)',
+   board:[[1,'5V','+5V_LED',K.vp],[2,'GND','GND',K.gnd],[3,'DATA','NEO_OUT',K.sig]],
+   device:{name:'WS2812B strip — input end', pins:['+5V','GND','DIN / DI']},
+   wires:[[1,0,'+5V_LED (F3 3 A)'],[2,1,'GND'],[3,2,'DATA 5 V · RP2350 GP14 → 74AHCT125 → 330 Ω']], straight:true,
+   rows:[[1,'5V','+5V_LED','+5V','Fused 3 A rail with 1000 µF. ≈ 50 pixels at full white; inject power separately beyond that.'],[2,'GND','GND','GND',''],[3,'DATA','NEO_OUT','DIN','Connect at the strip end marked DI/DIN (arrows point away from the plug). The 330 Ω is already on the board.']],
+   notes:[['got','Trust the pads, not the colours','Pigtail colours vary by vendor. Read the strip silkscreen: 5V / GND / DI.']] },
+ { id:'U3', grp:'av', ref:'U3', title:'DFPlayer Mini', sub:'Socketed module · RP2350 UART1 · DAC out to the amp · SD slot faces the tail',
+   board:[[1,'VCC','+5V_LOGIC',K.vp],[2,'RX','DF_RX_MOD',K.sig],[3,'TX','DF_RX_RP',K.sig],[4,'DAC_R','DF_DAC_R',K.aud],[5,'DAC_L','DF_DAC_L',K.aud],[7,'GND','GND',K.gnd],[16,'BUSY','DF_BUSY',K.sig]],
+   device:{name:'Where each pin goes', pins:['PS1 +5V','RP2350 GP4 TX (via R1 1 k)','RP2350 GP5 RX','C27 1 µF → J_AMP INR','C26 1 µF → J_AMP INL','GND','RP2350 GP15 (LOW while playing)']},
+   wires:[[1,0,'+5 V'],[2,1,'UART 9600'],[3,2,'UART'],[4,3,'line R'],[5,4,'line L'],[7,5,'GND'],[16,6,'BUSY']], straight:true,
+   rows:[[1,'VCC','+5V_LOGIC','—','Module VCC.'],[2,'RX','DF_RX_MOD','RP2350 GP4','1 k series (DFRobot’s recommendation).'],[3,'TX','DF_RX_RP','RP2350 GP5',''],[4,'DAC_R','DF_DAC_R','amp INR','AC‑coupled line level.'],[5,'DAC_L','DF_DAC_L','amp INL',''],[7,'GND','GND','GND','Pin 10 GND also tied.'],[16,'BUSY','DF_BUSY','RP2350 GP15','Tells firmware when a clip ends.']],
+   notes:[['ok','Just plug it in','It is a socket — no wiring. Pins 6/8 (SPK), 9/11 (IO), 12/13 (ADKEY), 14/15 (USB) are unconnected; the amp does the speaker driving now.']] },
+ { id:'JAMP', grp:'av', ref:'J_AMP', title:'Amp module · Adafruit MAX9744', sub:'2×7 male header → hand‑made harness to the module’s 14‑pin header and its terminal blocks',
+   board:[[1,'VDD12','AMP_12V',K.vp],[2,'GND','GND',K.gnd],[3,'INL','AMP_INL',K.aud],[4,'INR','AMP_INR',K.aud],[5,'AGND','GND',K.gnd],[6,'SDA','I2C_B_SDA',K.sda],[7,'SCL','I2C_B_SCL',K.scl],[8,'SHDN','AMP_SHDN',K.sig],[9,'OUTL+','SPK_L+',K.aud],[10,'OUTL−','SPK_L−',K.aud],[11,'OUTR+','SPK_R+',K.aud],[12,'OUTR−','SPK_R−',K.aud],[13,'VI2C','+3V3',K.vp],[14,'GND','GND',K.gnd]],
+   device:{name:'MAX9744 breakout header (L→R) + terminal blocks', pins:['1 RIN','2 LIN','3 AGND','4 SDA','5 SCL','6 Vi2c','7 SHDN','8 MUTE — open','9 SYNCO — open','10 SYNC — open','11 AD1 — open','12 AD2 — open','13 GND','14 VDD','PWR + / − block','LEFT spk + / −','RIGHT spk + / −']},
+   wires:[[1,13,'12 V fused (F4, L1, 1000 µF)'],[2,12,'GND'],[3,1,'line L'],[4,0,'line R'],[5,2,'AGND'],[6,3,'SDA · RP2350 GP26'],[7,4,'SCL · GP27'],[8,6,'SHDN · GP2 (low = mute)'],[9,15,'L +'],[10,15,'L −'],[11,16,'R +'],[12,16,'R −'],[13,5,'Vi2c = 3.3 V']],
+   rows:[[1,'VDD12','AMP_12V','14 VDD (or PWR + block)','12 V, 3 A fuse. Using the block keeps the module’s own reverse protection.'],[2,'GND','GND','13 GND / PWR −',''],[3,'INL','AMP_INL','2 LIN','Line level from DFPlayer DAC_L.'],[4,'INR','AMP_INR','1 RIN',''],[5,'AGND','GND','3 AGND','Inputs are referenced to AGND.'],[6,'SDA','I2C_B_SDA','4 SDA','RP2350 bus, amp at 0x4B.'],[7,'SCL','I2C_B_SCL','5 SCL',''],[8,'SHDN','AMP_SHDN','7 SHDN','Active‑low. RP2350 GP2 held low at boot = no pop.'],[9,'OUTL+','SPK_L+','LEFT block +','From the module’s terminal block back to the board → J13.'],[10,'OUTL−','SPK_L−','LEFT block −',''],[11,'OUTR+','SPK_R+','RIGHT block +','→ J14'],[12,'OUTR−','SPK_R−','RIGHT block −',''],[13,'VI2C','+3V3','6 Vi2c','REQUIRED: reference for the module’s I²C level shifter. Without it volume control is dead.'],[14,'GND','GND','—','Spare ground.']],
+   notes:[['got','bad','Vi2c is not optional','The module’s SDA/SCL pass through BSS138 shifters whose gates sit on Vi2c. Tie it to 3.3 V (pin 13) or the amp never hears the RP2350.'],['ok','Speaker outputs','Only on the module’s screw terminals, not its header. Either bring them back to J_AMP 9–12 so they leave on J13/J14, or run speakers straight off the module and leave J13/J14 empty. The two “+” terminals are the OUTER ones on the module.'],['got','Keep the Analog jumper open','Closing it switches to pot volume and disables I²C. Rev‑1 boards have the L/R silk on the input block swapped — use the header labels.']] },
+ { id:'J13', grp:'av', ref:'J13 / J14', title:'Speakers L / R', sub:'JST‑VH 2‑pin · bridge‑tied outputs · 4–8 Ω',
+   board:[[1,'+','SPK_L+ / SPK_R+',K.aud],[2,'−','SPK_L− / SPK_R−',K.aud]],
+   device:{name:'Speaker', pins:['+','−']},
+   wires:[[1,0,'BTL + (from J_AMP 9 / 11)'],[2,1,'BTL − (from J_AMP 10 / 12)']], straight:true,
+   rows:[[1,'+','SPK_L+ (J13) / SPK_R+ (J14)','speaker +','Up to ~12 V swing.'],[2,'−','SPK_L− / SPK_R−','speaker −','']],
+   notes:[['got','bad','Never ground a speaker wire','Bridge‑tied: both wires swing. Touching either to chassis or GND shorts the amp. Keep L and R polarity the same so they stay in phase.']] },
+
+ { id:'J17', grp:'exp', ref:'J17', title:'I²C expansion · RP2350 bus', sub:'JST‑SH 4‑pin (1.0 mm) · Qwiic / STEMMA QT order · GND · 3V3 · SDA · SCL',
+   board:[[1,'GND','GND',K.gnd],[2,'3V3','+3V3',K.vp],[3,'SDA','I2C_B_SDA',K.sda],[4,'SCL','I2C_B_SCL',K.scl]],
+   device:{name:'Qwiic / STEMMA QT cable', pins:['GND (black)','3V3 (red)','SDA (blue)','SCL (yellow)']},
+   wires:[[1,0,'GND'],[2,1,'+3.3 V'],[3,2,'SDA · RP2350 GP26'],[4,3,'SCL · GP27']], straight:true,
+   rows:[[1,'GND','GND','GND',''],[2,'3V3','+3V3','3V3','3.3 V only.'],[3,'SDA','I2C_B_SDA','SDA','4.7 k pull‑ups on board. Amp already at 0x4B.'],[4,'SCL','I2C_B_SCL','SCL','']],
+   notes:[['ok','Standard cable','Any Qwiic/STEMMA QT lead plugs straight in. The ESP32’s own bus is reachable on J7 pins 4/5 if you ever need it.']] },
+];
+
+// ---------- renderer ----------
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+// 2x5 IDC header drawn as it sits on the board: two rows of five, row A = odd pins, row B = even pins.
+// Board rows map straight across the ribbon to the driver's two channel rows.
+function diagram2x5(c){
+  const W = 760, H = 250, pitch = 30;
+  const bx0 = 46, dx0 = 470, rowA = 78, rowB = 150;
+  const A = c.board.filter(p=>p[0]%2===1), B = c.board.filter(p=>p[0]%2===0);
+  const chan = c.chan; // {A:{name, mcu}, B:{name, mcu}}
+  const dev = c.dev2x5; // {rowA:[5 labels], rowB:[5 labels], nameA, nameB}
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(c.ref)}: board 2 by 5 header, row A is ${esc(chan.A.name)} and row B is ${esc(chan.B.name)}, ribbon straight across to the DFR0601 channel 1 and channel 2 rows">`;
+  s += `<rect class="shell" x="${bx0-30}" y="${rowA-50}" width="${pitch*5+40}" height="${rowB-rowA+88}" rx="5"/>`;
+  s += `<text class="tb" x="${bx0-20}" y="${rowA-32}">${esc(c.ref)} · board 2×5</text>`;
+  s += `<rect class="devshell" x="${dx0-30}" y="${rowA-50}" width="${pitch*5+72}" height="${rowB-rowA+88}" rx="5"/>`;
+  s += `<text class="tbg" x="${dx0-20}" y="${rowA-32}">DFR0601 logic header</text>`;
+  const row = (pins, y, x0, isBoard, first) => {
+    pins.forEach((p,i)=>{ const x = x0 + i*pitch; const name = isBoard ? p[1] : p; const num = isBoard ? p[0] : null;
+      const sq = isBoard ? (p[0]===1) : (first && i===0);
+      s += sq ? `<rect class="pad" x="${x-7}" y="${y-7}" width="14" height="14" rx="1.5"/>` : `<circle class="pad" cx="${x}" cy="${y}" r="7"/>`;
+      if (num!==null) s += `<text class="t" x="${x}" y="${y-12}" text-anchor="middle" style="fill:var(--gold);font-weight:600;font-size:10px">${num}</text>`;
+      s += `<text class="t2" x="${x}" y="${y+22}" text-anchor="middle" style="font-size:9.5px">${esc(name)}</text>`;
+    });
+  };
+  row(A, rowA, bx0, true); row(B, rowB, bx0, true);
+  row(dev.rowA, rowA, dx0, false, true); row(dev.rowB, rowB, dx0, false, false);
+  // ribbon: two bands, row to row
+  const x1 = bx0 + pitch*5 + 8, x2 = dx0 - 30;
+  const band = (y, kind, label, sub) => {
+    s += `<path class="w-${kind}" d="M${x1} ${y} H${x2}" stroke-width="10" stroke-linecap="butt" opacity=".22"/>`;
+    s += `<path class="w-${kind}" d="M${x1} ${y} H${x2}" stroke-width="2" />`;
+    s += `<text class="lbl-${kind}" x="${(x1+x2)/2}" y="${y-9}" text-anchor="middle" style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase">${esc(label)}</text>`;
+    s += `<text class="t2" x="${(x1+x2)/2}" y="${y+18}" text-anchor="middle" style="font-size:9.5px">${esc(sub)}</text>`;
+  };
+  band(rowA, 'sig', `row A · ${chan.A.name}`, `${chan.A.mcu} → channel 1 (M1)`);
+  band(rowB, 'ana', `row B · ${chan.B.name}`, `${chan.B.mcu} → channel 2 (M2)`);
+  s += `<text class="ts" x="${bx0-20}" y="${rowB+52}">odd pins 1·3·5·7·9 = row A · even pins 2·4·6·8·10 = row B · red stripe on pin 1 at both ends</text>`;
+  s += `<text class="ts" x="${dx0-20}" y="${rowB+52}">P+ / P− and M1 / M2 screw terminals: pack and motors, not this board</text>`;
+  return s + `</svg>`;
+}
+// DFPlayer Mini as it sits in its socket: 2 x 8, pin 1 bottom-left, SD card ejects to the right (tail).
+function diagramDFPlayer(c){
+  const W = 760, H = 300, pitch = 40, x0 = 160, yTop = 100, yBot = 200;
+  const top = [[16,'BUSY','RP2350 GP15',K.sig],[15,'USB−',null],[14,'USB+',null],[13,'ADKEY2',null],[12,'ADKEY1',null],[11,'IO2',null],[10,'GND','GND',K.gnd],[9,'IO1',null]];
+  const bot = [[1,'VCC','+5V',K.vp],[2,'RX','GP4 TX via 1 k',K.sig],[3,'TX','GP5 RX',K.sig],[4,'DAC_R','→ amp INR',K.aud],[5,'DAC_L','→ amp INL',K.aud],[6,'SPK2',null],[7,'GND','GND',K.gnd],[8,'SPK1',null]];
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="DFPlayer Mini module top view: pins 16 to 9 across the top, 1 to 8 across the bottom, SD card slot in the middle ejecting to the right. Connected pins: VCC, RX, TX, DAC_R, DAC_L, two GND and BUSY.">`;
+  s += `<rect class="devshell" x="${x0-30}" y="${yTop-30}" width="${pitch*8+20}" height="${yBot-yTop+60}" rx="4"/>`;
+  s += `<text class="tbg" x="${x0-20}" y="${yTop-14}">U3 · DFPlayer Mini (top view, as socketed)</text>`;
+  // SD housing + card eject arrow
+  s += `<rect class="shell" x="${x0+40}" y="${yTop+28}" width="${pitch*5}" height="${yBot-yTop-56}" rx="3"/>`;
+  s += `<text class="t2" x="${x0+40+pitch*2.5}" y="${(yTop+yBot)/2+4}" text-anchor="middle" style="font-size:11px;font-weight:600">micro‑SD  ▸▸  ejects toward the tail</text>`;
+  const drawRow = (row, y, labelAbove) => row.forEach((p,i)=>{ const x = x0 + i*pitch; const open = p[2]===null; const sq = p[0]===1;
+    s += open ? `<circle class="pad-open" cx="${x}" cy="${y}" r="7"/>` : (sq ? `<rect class="pad" x="${x-7}" y="${y-7}" width="14" height="14" rx="1.5"/>` : `<circle class="pad" cx="${x}" cy="${y}" r="7"/>`);
+    s += `<text class="t" x="${x}" y="${labelAbove? y-13 : y+18}" text-anchor="middle" style="fill:var(--gold);font-weight:600;font-size:10px">${p[0]}</text>`;
+    s += `<text class="${open?'topen':'t2'}" x="${x}" y="${labelAbove? y-26 : y+31}" text-anchor="middle" style="font-size:9.5px">${esc(p[1])}</text>`;
+    if (!open) { const ly = labelAbove ? y-44 : y+48; s += `<path class="w-${p[3]}" d="M${x} ${labelAbove?y-9:y+9} V${labelAbove?ly+6:ly-8}" stroke-width="2"/>`;
+      s += `<text class="lbl-${p[3]}" x="${x}" y="${labelAbove?ly:ly+2}" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600">${esc(p[2])}</text>`; }
+  });
+  drawRow(top, yTop, true); drawRow(bot, yBot, false);
+  s += `<text class="ts" x="${x0-20}" y="${H-10}">Dashed = not connected on this board. Pins 6/8 (SPK) unused — the MAX9744 drives the speakers.</text>`;
+  return s + `</svg>`;
+}
+// Adafruit MAX9744 breakout drawn as the board: 14-pin header along the bottom edge, terminal blocks along the top.
+function diagramAmp(c){
+  const W = 760, H = 400;
+  // J_AMP 2x7 on the left, two rows (row A = odd pins, row B = even)
+  const jx0 = 40, jpitch = 24, rowA = 120, rowB = 165;
+  const A = c.board.filter(p=>p[0]%2===1), B = c.board.filter(p=>p[0]%2===0);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="J_AMP 2 by 7 header on the left wired to the Adafruit MAX9744 board on the right: its 14-pin header row takes power, audio in, I2C, shutdown and Vi2c; its speaker terminal blocks feed back to the board's speaker outputs.">`;
+  s += `<rect class="shell" x="${jx0-26}" y="${rowA-48}" width="${jpitch*7+40}" height="${rowB-rowA+92}" rx="5"/>`;
+  s += `<text class="tb" x="${jx0-16}" y="${rowA-30}">J_AMP · board 2×7</text>`;
+  const jpos = {};
+  [[A,rowA],[B,rowB]].forEach(([row,y])=>row.forEach((p,i)=>{ const x = jx0 + i*jpitch; jpos[p[0]] = [x,y];
+    s += p[0]===1 ? `<rect class="pad" x="${x-6}" y="${y-6}" width="12" height="12" rx="1.5"/>` : `<circle class="pad" cx="${x}" cy="${y}" r="6"/>`;
+    s += `<text class="t" x="${x}" y="${y-10}" text-anchor="middle" style="fill:var(--gold);font-weight:600;font-size:9px">${p[0]}</text>`;
+    s += `<text class="t2" x="${x}" y="${y+22}" text-anchor="middle" transform="rotate(-55 ${x} ${y+22})" style="font-size:8.5px">${esc(p[1])}</text>`;
+  }));
+  // module body
+  const mx = 330, my = 60, mw = 410, mh = 250;
+  s += `<rect class="devshell" x="${mx}" y="${my}" width="${mw}" height="${mh}" rx="6"/>`;
+  s += `<text class="tbg" x="${mx+12}" y="${my+20}">Adafruit MAX9744 20 W amp (top view)</text>`;
+  // terminal blocks along the top edge
+  const blocks = [['PWR','+','−'],['AUDIO IN','L','GND','R'],['LEFT SPK','+','−'],['RIGHT SPK','+','−']];
+  const bpos = {}; let bxx = mx + 16; const bytop = my + 34;
+  blocks.forEach(b=>{ const n = b.length-1; const w = n*22+10; s += `<rect class="blk" x="${bxx}" y="${bytop}" width="${w}" height="40" rx="3"/>`;
+    s += `<text class="ts" x="${bxx+w/2}" y="${bytop-4}" text-anchor="middle">${b[0]}</text>`;
+    for(let i=1;i<b.length;i++){ const cx = bxx+5+ (i-1)*22 + 11; s += `<circle class="pad" cx="${cx}" cy="${bytop+20}" r="6"/><text class="t2" x="${cx}" y="${bytop+36}" text-anchor="middle" style="font-size:9px">${b[i]}</text>`; bpos[b[0]+b[i]] = [cx, bytop+14]; }
+    bxx += w + 14; });
+  // header row along the bottom edge
+  const hl = ['RIN','LIN','AGND','SDA','SCL','Vi2c','SHDN','MUTE','SYNCO','SYNC','AD1','AD2','GND','VDD'];
+  const hx0 = mx + 24, hpitch = 27, hy = my + mh - 24; const hpos = {};
+  hl.forEach((l,i)=>{ const x = hx0 + i*hpitch; hpos[l] = [x, hy-7]; const used = ['RIN','LIN','AGND','SDA','SCL','Vi2c','SHDN','GND','VDD'].includes(l);
+    s += used ? `<circle class="pad" cx="${x}" cy="${hy}" r="6"/>` : `<circle class="pad-open" cx="${x}" cy="${hy}" r="6"/>`;
+    s += `<text class="t" x="${x}" y="${hy-12}" text-anchor="middle" style="fill:var(--gold);font-size:8.5px">${i+1}</text>`;
+    s += `<text class="${used?'t2':'topen'}" x="${x}" y="${hy+24}" text-anchor="middle" transform="rotate(-55 ${x} ${hy+24})" style="font-size:9px">${l}</text>`; });
+  // wires: J_AMP pin -> target
+  const map = [[1,'VDD',K.vp],[2,'GND',K.gnd],[3,'LIN',K.aud],[4,'RIN',K.aud],[5,'AGND',K.gnd],[6,'SDA',K.sda],[7,'SCL',K.scl],[8,'SHDN',K.sig],[13,'Vi2c',K.vp],
+               [9,'LEFT SPK+',K.aud],[10,'LEFT SPK−',K.aud],[11,'RIGHT SPK+',K.aud],[12,'RIGHT SPK−',K.aud]];
+  map.forEach(([pin,tgt,kind])=>{ const [x1,y1] = jpos[pin]; const t = hpos[tgt] || bpos[tgt]; if(!t) return; const [x2,y2] = t;
+    const toHeader = !!hpos[tgt]; const c1x = x1 + 90, c2x = x2 - (toHeader? 0 : 60);
+    const d = toHeader ? `M${x1} ${y1+6} C ${c1x} ${y1+6}, ${x2} ${y2-60}, ${x2} ${y2}` : `M${x1} ${y1-6} C ${x1} ${y1-70}, ${x2-80} ${y2-30}, ${x2} ${y2}`;
+    s += `<path class="w-${kind}" d="${d}" fill="none" stroke-width="1.8" stroke-linecap="round" opacity=".9"/>`; });
+  s += `<text class="ts" x="${jx0-16}" y="${H-46}">Speaker outputs exist only on the module's screw terminals:</text>`;
+  s += `<text class="ts" x="${jx0-16}" y="${H-32}">bring them back to J_AMP 9–12 so they leave the board on J13 / J14,</text>`;
+  s += `<text class="ts" x="${jx0-16}" y="${H-18}">or run the speakers straight off the module and leave J13 / J14 empty.</text>`;
+  s += `<text class="ts" x="${mx+12}" y="${H-6}">Dashed header pins stay open · Analog jumper OPEN · AD1/AD2 open = address 0x4B</text>`;
+  return s + `</svg>`;
+}
+function diagram(c){
+  if (c.dev2x5) return diagram2x5(c);
+  if (c.id==='U3') return diagramDFPlayer(c);
+  if (c.id==='JAMP') return diagramAmp(c);
+  const pitch = 26, top = 44, bx = 150, dx = 470;
+  const nB = c.board.length, nD = c.device.pins.length + (c.device.extra?c.device.extra.length:0);
+  const H = top + Math.max(nB, nD) * pitch + 30, W = 760;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(c.ref)} ${esc(c.title)}: board pins on the left wired to ${esc(c.device.name)} on the right">`;
+  // board shell
+  s += `<rect class="shell" x="${bx-118}" y="${top-24}" width="150" height="${nB*pitch+22}" rx="5"/>`;
+  s += `<text class="tb" x="${bx-108}" y="${top-9}">${esc(c.ref)} · board</text>`;
+  // device shell
+  s += `<rect class="devshell" x="${dx-22}" y="${top-24}" width="${W-(dx-22)-12}" height="${nD*pitch+22}" rx="5"/>`;
+  s += `<text class="tbg" x="${dx-10}" y="${top-9}">${esc(c.device.name)}</text>`;
+  const by = {}, dy = {};
+  c.board.forEach((p,i)=>{ const y = top + i*pitch + 10; by[p[0]] = y;
+    const sq = i===0; const open = p[3]===null;
+    s += open ? `<rect class="pad-open" x="${bx-7}" y="${y-7}" width="14" height="14" rx="${sq?1:7}"/>`
+              : (sq ? `<rect class="pad" x="${bx-7}" y="${y-7}" width="14" height="14" rx="1.5"/>` : `<circle class="pad" cx="${bx}" cy="${y}" r="7"/>`);
+    s += `<text class="t" x="${bx-100}" y="${y+4}" style="fill:var(--gold);font-weight:600">${p[0]}</text>`;
+    s += `<text class="${open?'topen':'t'}" x="${bx-78}" y="${y+4}">${esc(p[1])}</text>`;
+    s += `<text class="t2" x="${bx+14}" y="${y+4}">${esc(p[2])}</text>`;
+  });
+  const used = new Set(c.wires.map(w=>w[1]));
+  c.device.pins.forEach((lab,i)=>{ const y = top + i*pitch + 10; dy[i] = y; const open = !used.has(i);
+    s += open ? `<circle class="pad-open" cx="${dx}" cy="${y}" r="6"/>` : `<circle class="pad" cx="${dx}" cy="${y}" r="6"/>`;
+    s += `<text class="${open?'topen':'t'}" x="${dx+14}" y="${y+4}">${esc(lab)}</text>`;
+  });
+  if (c.device.extra) c.device.extra.forEach((lab,j)=>{ const y = top + (c.device.pins.length+j)*pitch + 10; s += `<text class="topen" x="${dx-10}" y="${y+4}">${esc(lab)}</text>`; });
+  // wires: from board pad (right edge of net label area) to device pad
+  c.wires.forEach(w=>{ const p = c.board.find(b=>b[0]===w[0]); if(!p) return; const y1 = by[w[0]], y2 = dy[w[1]]; const kind = p[3]||'sig';
+    const x1 = bx + 118, x2 = dx - 8; const mx = (x1+x2)/2;
+    s += `<path class="w-${kind}" d="M${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}" fill="none" stroke-width="2.2" stroke-linecap="round"/>`;
+    const ly = (y1+y2)/2 - 4;
+    s += `<text class="lbl-${kind}" x="${mx}" y="${ly}" text-anchor="middle" style="font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:500;paint-order:stroke;stroke:var(--bg-2);stroke-width:3px;stroke-linejoin:round">${esc(w[2])}</text>`;
+  });
+  return s + `</svg>`;
+}
+function card(c){
+  const rows = c.rows.map(r=>{ const open = r[2]==='—'; return `<tr class="${open?'open':''}"><td class="n">${r[0]}</td><td>${esc(r[1])}</td><td class="net">${esc(r[2])}</td><td class="dev">${esc(r[3])}</td><td>${esc(r[4])}</td></tr>`; }).join('');
+  const notes = c.notes.map(n=>{ if(n[0]==='ok') return `<div class="ok"><span class="tag">${esc(n[1])}</span><p>${esc(n[2])}</p></div>`;
+    const bad = n[1]==='bad'; const tag = bad?n[2]:n[1]; const txt = bad?n[3]:n[2];
+    return `<div class="got ${bad?'bad':''}"><span class="tag">${esc(tag)}</span><p>${esc(txt)}</p></div>`; }).join('');
+  return `<article class="card" id="${c.id}">
+    <div class="card-head"><div class="ref">${esc(c.ref)}</div><div class="t"><h3>${esc(c.title)}</h3><div class="sub">${esc(c.sub)}</div></div></div>
+    <div class="diag">${diagram(c)}</div>
+    <div class="tablewrap"><table class="pins"><thead><tr><th>Pin</th><th>Board</th><th>Net</th><th>Device pin</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="notes">${notes}</div>
+  </article>`;
+}
+for (const c of CARDS) document.getElementById('cards-'+c.grp).insertAdjacentHTML('beforeend', card(c));
+</script>

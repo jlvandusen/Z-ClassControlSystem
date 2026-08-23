@@ -5,7 +5,7 @@ don't hand-edit the generated files until layout work starts (then the netlist b
 the .kicad_pcb the working file).
 
 ```
-py tools/hw/gen_kicad.py hardware/netlist/mainboard.py hardware/kicad/mainboard
+py tools/hw/gen_kicad.py hardware/netlist/mainboard.py hardware/kicad/extended/mainboard
 ```
 
 | File | Content |
@@ -18,3 +18,17 @@ PCB coordinates: the **axle centre is at (150, 150) mm** in KiCad; +x toward the
 netlist = down in KiCad (handled by the generator). Edge.Cuts includes the Ø 38 axle cut-out.
 Unrouted by design: placement is verified against the casing; routing is GUI work (Power netclass
 1.5 mm, Default 0.25 mm are preset in the project).
+
+## Two board variants (Aug 2026)
+
+| Folder | Outline | Use |
+|---|---|---|
+| `extended/` | teardrop 152 × 125 mm — casing extended 15 mm downward | the roomier layout; auto-placed |
+| `compact/`  | teardrop 152 × 110 mm — the original casing | hand-placed in pcbnew (James); DRC-clean |
+
+Both are generated from the **same netlist** (`hardware/netlist/mainboard.py`) and are kept in sync
+with `tools/hw/sync_parts.py <hand-placed.kicad_pcb> <freshly-generated.kicad_pcb>` — it updates
+parts/nets/footprints and never moves anything. Regenerate with
+`py tools/hw/gen_kicad.py hardware/netlist/mainboard.py hardware/kicad/<variant>/mainboard`
+(the outline is read from `<variant>/board_outline_draft.dxf`). Fab package:
+`.\tools\hw\fab_outputs.ps1 compact` (or `extended`) → `hardware/fab/<variant>-<date>/`.

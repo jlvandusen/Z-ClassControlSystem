@@ -1,0 +1,59 @@
+Ref,Qty,Value / Part,MPN,Package,Supplier,Notes
+U1,1,ESP-WROOM-32 DevKit (ELEGOO) - CUSTOMER FITS into J_U1A/J_U1B,ESP32-DevKit-V1 30-pin,plugs into 2x 1x15 sockets,Amazon B0D8T53CQ5,Drive MCU; 30-pin ONLY (38-pin is wider); antenna end toward H3
+U2,1,Waveshare RP2350-Zero - CUSTOMER FITS into J_U2A/B/C,RP2350-Zero,plugs into 2x 1x9 + 1x5 sockets,Amazon B0DYTVCF2H,Body co-processor
+U3,1,DFPlayer Mini,DFR0299,2x8 0.1in,DFRobot / AliExpress,SD MP3 source; socket
+U4,1,MAX9744 class-D amp,MAX9744ETH+,TQFN-44 7x7,Digi-Key,2x20W I2C volume; thermal pad to pour
+U5,1,3.3V 1A LDO,AMS1117-3.3,SOT-223,LCSC C6186,Pinout GND/OUT(tab)/IN as routed. Alt AP7361C-33ER-13 (SOT-223R, C3743528). NOT AP7361C-33E-13 (IN/GND/OUT - wrong for this board)
+U6,1,NeoPixel level shifter,74AHCT125PW,TSSOP-14,Digi-Key,3.3->5V WS2812 data
+U7,1,Encoder level shifter,74LVC245APW,TSSOP-20,Digi-Key,5V encoder A/B -> 3.3V (or 2x BSS138)
+PS1,1,5V 5A buck module,Pololu D24V50F5,Pololu 5-pin row EN VIN GND GND OUT,Pololu 2851,+5V_LOGIC and +5V_LED
+PS2,1,6V 2.5A buck module,Pololu D24V25F6,Pololu 5-pin row EN VIN GND GND OUT,Pololu 2852,+6V_SERVO: 6.0 V suits BOTH Hitec HS-805BB (4.8-6V) and JX PDI-HV2060MG (6-8.4V)
+Q1,1,P-FET reverse polarity (high-side RPP),SI7461DP-T1-GE3,PowerPAK SO-8,Digi-Key,"-60V 14.5mOhm -14A; pads 1-3 S=VIN, 4 G, 5 tab D=BAT_F"
+D1,1,TVS,SMBJ15A,SMB,Digi-Key,Input clamp 12V pack
+D2,1,Schottky,SS14,SMA,Digi-Key,+5V_LOGIC -> RP2350-Zero 5V (USB back-feed block); pad1 K = RP_5V
+D6,1,Zener 12V (Q1 gate clamp),BZT52C12-7-F,SOD-123,Digi-Key,VGS clamp S->G
+D4,1,BAT54S,BAT54S,SOT-23,Digi-Key,ADC clamp on VBAT_SENSE (GPIO35); pin1 A->GND pin2 K->3V3 pin3 COM->sense
+F1,1,Mini blade fuse holder + 10A ATM fuse,Keystone 3568 / 10A ATM,THT 9.9mm pitch,LCSC C5249699 / auto store,Board input (bucks + amp only; motors fed from the pack directly)
+F3,1,Polyfuse 3A,MF-MSMF300,1812,Digi-Key,+5V_LED to slip ring
+F4,1,Fuse 3A fast (amp 12V),0466003.NR,1206,Digi-Key,Littelfuse 466 series 32V
+L1,1,Ferrite bead 600R@100MHz 2.9A,BLM31KN601SN1L,1206,LCSC C668306,Amp supply (PG variant is only 1.5 A)
+C1,1,220uF 25V electrolytic,EEE-FK1E221P,SMD 8x10,Digi-Key,VIN
+C2,1,470uF 10V,EEE-FK1A471P,SMD 8x10,Digi-Key,+5V_LOGIC
+C3,1,1000uF 10V,EEE-FK1A102P,SMD 10x10,Digi-Key,+5V_LED
+C4,1,470uF 16V,EEE-FK1C471P,SMD 8x10,Digi-Key,+6V_SERVO
+C7,1,1000uF 25V,EEE-FP1E102AP,SMD 10x10.2,Digi-Key,MAX9744 supply (10mm can to match CP_Elec_10x10; verify height vs casing)
+C5-C6,2,10uF 25V X7R,GRM31CR71E106KA12L,1206,Digi-Key,Rail local (+5V_LOGIC / +3V3)
+C8-C25 + C29,19,100nF 50V X7R,CL10B104KB8NNNC,0603,Digi-Key,Decoupling; C29 = VBAT_SENSE ADC reservoir
+C26-C27,2,1uF 16V X7R,CL10B105KO8NNNC,0603,Digi-Key,Audio input coupling
+C28,1,100nF,CL10B104KB8NNNC,0603,Digi-Key,Pot / AS5600 OUT filter
+R1,1,1k 1%,RC0603FR-071KL,0603,Digi-Key,DFPlayer TX series
+R2,1,1k 1%,RC0603FR-071KL,0603,Digi-Key,Pot/AS5600 OUT series
+R3-R4,2,330R 1%,RC0603FR-07330RL,0603,Digi-Key,NeoPixel data series (body + spare)
+R5-R8,4,4.7k 1%,RC0603FR-074K7L,0603,Digi-Key,I2C pull-ups (ESP32 bus + RP2350 bus)
+R9-R11,3,10k 1%,RC0603FR-0710KL,0603,Digi-Key,Hall / encoder pull-ups
+R12-R23,12,10k 1%,RC0603FR-0710KL,0603,Digi-Key,Motor driver PWM/INA/INB pull-downs (4 ch x 3)
+R24,1,47k 1%,RC0603FR-0747KL,0603,Digi-Key,Battery sense top
+R25,1,10k 1%,RC0603FR-0710KL,0603,Digi-Key,Battery sense bottom
+R28,1,10k 1%,RC0603FR-0710KL,0603,Digi-Key,ESTOP pull-up
+R29-R30,2,10k 1%,RC0603FR-0710KL,0603,Digi-Key,+5V_LOGIC sense divider (RP2350 GP28)
+R33,1,47k 1%,RC0603FR-0747KL,0603,Digi-Key,Q1 gate pull-down
+J1,1,XT60 male PCB VERTICAL,XT60PB-M (Amass),THT 2x dia4.0 @ 7.2mm,LCSC C19268037 (alt JLC lib C9900017179),SINGLE board VCC input: 12 V 3S4P pack (9-12.6 V) -> F1 10A -> Q1 RPP -> VIN; pack lead = XT60 female
+J_AMP,1,Pin header 2x7 0.1in male,PH2-14-UA,TH,Digi-Key,MAX9744 amp module harness: 1 VDD12 2 GND 3 INL 4 INR 5 AGND 6 SDA 7 SCL 8 SHDN 9-12 SPK L+/L-/R+/R- 13 Vi2c(3V3) 14 GND
+J_U1A-J_U1B,2,Female header 1x15 2.54mm 8.5mm,B-2200S15P-A120 (Ckmtw),THT,LCSC C124408,ESP32 DevKitC sockets
+J_U2A-J_U2B,2,Female header 1x9 2.54mm 8.5mm,B-2200S09P-A120 (Ckmtw),THT,LCSC C124417,RP2350-Zero side sockets (low stock: cut a 1x15 if out)
+J_U2C,1,Female header 1x5 2.54mm 8.5mm,2.54-1*5P (BOOMELE),THT,LCSC C50950,RP2350-Zero end socket
+J2-J3,2,Pin header 2x5 0.1in male (no shroud),PH2-10-UA,TH,Digi-Key,Motor driver IDC ribbons - odd pins = channel A row (VCC PWM INA INB GND); even = channel B
+J4-J5,2,Pin header 1x3 0.1in,PH1-03-UA,TH,Digi-Key,Servos L / R (SIG +6V GND) - Hitec HS-805BB or JX PDI-HV2060MG jumbo servos
+J6,1,JST-XH 4-pin,B4B-XH-A,XH TH,Digi-Key,IMU GY-BMI160 over I2C: 1 +5V->VIN, 2 GND, 3 SCL, 4 SDA (same order as v9.15 MPU)
+J7,1,JST-XH 5-pin,B5B-XH-A,XH TH,Digi-Key,S2S sensor (3V3 GND OUT SDA SCL) - AS5600 or pot
+J8,1,JST-XH 4-pin,B4B-XH-A,XH TH,Digi-Key,Dome encoder (B A GND 5V) - same order as v9.15 DOME_ENC
+J9,1,JST-XH 3-pin,B3B-XH-A,XH TH,Digi-Key,Hall
+J10,1,JST-XH 3-pin,B3B-XH-A,XH TH,Digi-Key,Body NeoPixel (5V GND DATA)
+J11,1,JST-XH 2-pin,B2B-XH-A,XH TH,Digi-Key,Slip ring: +5V_LED / GND to body-shell NeoPixels (pack charges via its own lead - no charge path on board)
+J13-J14,2,JST-VH 2-pin,B2P-VH,VH TH,Digi-Key,Speakers L / R (BTL)
+J15,1,JST-XH 2-pin,B2B-XH-A,XH TH,Digi-Key,ESTOP loop
+J17,1,JST-SH 4-pin (Qwiic),SM04B-SRSS-TB,SH SMD,Digi-Key,I2C expansion on the RP2350 bus (ESP32 bus is on J7 pins 4/5)
+SW1,1,Tactile (RP2350 / board reset),PTS645SK50SMTR92,SMD,Digi-Key,Optional
+TP1-TP10,10,Test points,5019,SMD,Digi-Key,3V3 5V_LOGIC 5V_LED 6V VIN UART x2 MOTOR_EN
+H1-H4,4,M3 mounting holes,-,3.2mm,-,Reuse v9.15 pattern if on the deck
+PCB,1,4-layer 1oz 1.6mm FR4 (F/In1 GND/In2 +5V/B),-,-,PCBWay,teardrop ~152x125 (extended) or ~152x110 (compact)

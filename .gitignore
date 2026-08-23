@@ -19,3 +19,15 @@ hardware/kicad/*.kicad_prl
 hardware/kicad/out/
 hardware/kicad/fp-info-cache
 hardware/fab/
+
+# python
+__pycache__/
+*.pyc
+# KiCad/routing scratch
+hardware/kicad/*/out/
+hardware/kicad/*/.history/
+hardware/kicad/*/archive/
+hardware/kicad/*/*.kicad_pcb.bak
+hardware/kicad/*/*-backups/
+hardware/kicad/*/fp-info-cache
+tools/freerouting/*.jar

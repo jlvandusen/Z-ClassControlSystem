@@ -3,7 +3,7 @@
 gen_kicad.py — generate a KiCad 8+ project (schematic, PCB, project file) from a
 netlist module such as hardware/netlist/mainboard.py.
 
-  py tools/hw/gen_kicad.py hardware/netlist/mainboard.py hardware/kicad/mainboard
+  py tools/hw/gen_kicad.py hardware/netlist/mainboard.py hardware/kicad/extended/mainboard   (or .../compact/mainboard)
 
 Schematic: one generated symbol per component (rectangle + pins), connectivity by
 global labels (net names), no-connect flags on NC pins. PCB: casing outline from the
@@ -222,21 +222,34 @@ def generic_footprint(c, netnum, x, y, rot, side):
         for i in range(5):
             P.append(pad(str(i + 19), (i - 2) * 2.54, 10.16, 1.7, 1.7, pinnets.get(str(i + 19)), netnum, "circle", 1.0))
     elif fp == "ZCLASS:DFPlayer_2x8":
+        # Real DFPlayer Mini: 2x8 pins on the two LONG edges (here top & bottom),
+        # microSD housing centered BETWEEN the pin rows, card ejects from a short
+        # edge (here local +X). Pins run along X: row1 (pins 1..8) on top (-Y),
+        # row2 (pins 9..16) on bottom (+Y).
         rect(21.0, 21.0); courtyard(21.0, 21.0)
         for i in range(8):
-            yy = (i - 3.5) * 2.54
-            P.append(pad(str(i + 1), -7.62, yy, 1.7, 1.7, pinnets.get(str(i + 1)), netnum, "circle", 1.0))
-            P.append(pad(str(16 - i), 7.62, yy, 1.7, 1.7, pinnets.get(str(16 - i)), netnum, "circle", 1.0))
-        # microSD slot on the local +X short edge; the card slides OUT toward +X.
-        # Reserve ~24 mm of card-removal clearance beyond the module edge.
-        lines.append(f'    (fp_rect (start 6.0 -7.5) (end 10.5 7.5) (stroke (width 0.15) (type default)) (fill none) (layer "F.SilkS") (uuid {q(U("sd", c["ref"]))}))')
-        lines.append(f'    (fp_text user "SD >>" (at 8.2 0 0) (layer "F.SilkS") (uuid {q(U("sdt", c["ref"]))}) (effects (font (size 1.2 1.2) (thickness 0.2))))')
-        lines.append(f'    (fp_rect (start 10.5 -7.5) (end 34.5 7.5) (stroke (width 0.1) (type dash)) (fill none) (layer "Cmts.User") (uuid {q(U("sdko", c["ref"]))}))')
+            xx = (i - 3.5) * 2.54
+            # Corrected orientation (SD ejects +X): pins 1..8 on the BOTTOM (+Y) row,
+            # pins 16..9 on the TOP (-Y) row — matches the module's real top-view pinout.
+            P.append(pad(str(i + 1), xx, 7.62, 1.7, 1.7, pinnets.get(str(i + 1)), netnum, "circle", 1.0))
+            P.append(pad(str(16 - i), xx, -7.62, 1.7, 1.7, pinnets.get(str(16 - i)), netnum, "circle", 1.0))
+        # microSD housing: centered between the pin rows (local |y| < 5.5, clear of pads)
+        lines.append(f'    (fp_rect (start -9.0 -5.2) (end 9.0 5.2) (stroke (width 0.15) (type default)) (fill none) (layer "F.SilkS") (uuid {q(U("sdh", c["ref"]))}))')
+        # card slot opening on the +X short edge; card slides OUT toward +X
+        lines.append(f'    (fp_rect (start 9.0 -4.0) (end 10.6 4.0) (stroke (width 0.2) (type default)) (fill none) (layer "F.SilkS") (uuid {q(U("sds", c["ref"]))}))')
+        lines.append(f'    (fp_text user "SD CARD >>" (at 0 0 0) (layer "F.SilkS") (uuid {q(U("sdt", c["ref"]))}) (effects (font (size 1.4 1.4) (thickness 0.22))))')
+        # ~24 mm card-removal keep-out beyond the module edge (+X)
+        lines.append(f'    (fp_rect (start 10.6 -4.0) (end 34.6 4.0) (stroke (width 0.1) (type dash)) (fill none) (layer "Cmts.User") (uuid {q(U("sdko", c["ref"]))}))')
     elif fp.startswith("ZCLASS:Pololu"):
-        w, h = (25.4, 27.9) if "D24V50" in fp else (15.2, 17.8)
+        # Pololu D24V50F5 (0.7 x 0.8 in) / D24V25Fx (0.7 x 0.7 in): FIVE 0.1 in pins in one row
+        # along a short edge, 1.27 mm in from the edge, order (component side up, L->R):
+        # 1 EN, 2 VIN, 3 GND, 4 GND, 5 VOUT  (verified from Pololu pinout photos 0J5850 / 0J5779)
+        w, h = (17.8, 20.3) if "D24V50" in fp else (17.8, 17.8)
         rect(w, h); courtyard(w, h)
-        for i in range(4):
-            P.append(pad(str(i + 1), (i - 1.5) * 2.54, h/2 - 1.5, 1.7, 1.7, pinnets.get(str(i + 1)), netnum, "circle", 1.0))
+        for i in range(5):
+            P.append(pad(str(i + 1), (i - 2) * 2.54, h/2 - 1.27, 1.7, 1.7, pinnets.get(str(i + 1)), netnum,
+                         "rect" if i == 0 else "circle", 1.02))
+        lines.append(f'    (fp_text user "EN VIN GND GND OUT" (at 0 {h/2 - 3.6:.2f} 0) (layer "F.SilkS") (uuid {q(U("pol", c["ref"]))}) (effects (font (size 1.0 1.0) (thickness 0.15))))')
     elif fp in ("ZCLASS:Hdr_2x6", "ZCLASS:Hdr_2x5_shrouded"):
         cols = 6 if "2x6" in fp else 5
         w = cols * 2.54 + (6.0 if "shrouded" in fp else 0.5); h = 2 * 2.54 + (4.0 if "shrouded" in fp else 0.5)
@@ -245,15 +258,27 @@ def generic_footprint(c, netnum, x, y, rot, side):
             xx = (i - (cols - 1) / 2) * 2.54
             P.append(pad(str(2 * i + 1), xx, -1.27, 1.7, 1.7, pinnets.get(str(2 * i + 1)), netnum, "rect" if i == 0 else "circle", 1.0))
             P.append(pad(str(2 * i + 2), xx, 1.27, 1.7, 1.7, pinnets.get(str(2 * i + 2)), netnum, "circle", 1.0))
+    elif fp == "ZCLASS:XT60PB":
+        # Amass XT60PB-M vertical PCB plug (datasheet "Mounting Hole Diagram"): 2 x dia 4.00 holes,
+        # 7.20 mm pitch, housing 16.0 x 8.1 mm, soldering height 3.0 mm, 20 A / 500 V.
+        rect(16.0, 8.1); courtyard(17.0, 9.1)
+        P.append(pad("1", -3.6, 0, 5.6, 5.6, pinnets.get("1"), netnum, "rect", 4.0))
+        P.append(pad("2", 3.6, 0, 5.6, 5.6, pinnets.get("2"), netnum, "circle", 4.0))
+        lines.append(f'    (fp_text user "+" (at -3.6 -5.6 0) (layer "F.SilkS") (uuid {q(U("xtp", c["ref"]))}) (effects (font (size 1.8 1.8) (thickness 0.3))))')
+        lines.append(f'    (fp_text user "-" (at 3.6 -5.6 0) (layer "F.SilkS") (uuid {q(U("xtm", c["ref"]))}) (effects (font (size 1.8 1.8) (thickness 0.3))))')
     elif fp in ("ZCLASS:XT60PW", "ZCLASS:XT30PW"):
         pitch, d, w, h = (7.2, 2.5, 16.0, 11.0) if "60" in fp else (5.0, 2.0, 10.0, 7.5)
         rect(w, h); courtyard(w, h)
         P.append(pad("1", -pitch/2, 0, d + 1.5, d + 1.5, pinnets.get("1"), netnum, "rect", d))
         P.append(pad("2", pitch/2, 0, d + 1.5, d + 1.5, pinnets.get("2"), netnum, "circle", d))
+        # polarity on the silk: must agree with the '+' moulded into the XT housing at assembly
+        lines.append(f'    (fp_text user "+" (at {-pitch/2:.2f} {-(h/2 + 1.2):.2f} 0) (layer "F.SilkS") (uuid {q(U("xtp", c["ref"]))}) (effects (font (size 1.8 1.8) (thickness 0.3))))')
+        lines.append(f'    (fp_text user "-" (at {pitch/2:.2f} {-(h/2 + 1.2):.2f} 0) (layer "F.SilkS") (uuid {q(U("xtm", c["ref"]))}) (effects (font (size 1.8 1.8) (thickness 0.3))))')
     elif fp == "ZCLASS:Fuse_Mini_Blade":
-        rect(16.0, 8.0); courtyard(16.0, 8.0)
-        P.append(pad("1", -5.4, 0, 2.6, 2.6, pinnets.get("1"), netnum, "circle", 1.6))
-        P.append(pad("2", 5.4, 0, 2.6, 2.6, pinnets.get("2"), netnum, "circle", 1.6))
+        # Keystone 3568 mini (ATM/APM) blade fuse holder: 2 pins, 9.9 mm (0.390 in) pitch, 1.6 mm holes, body 16.0 x 6.73 mm
+        rect(16.0, 7.0); courtyard(17.0, 8.0)
+        P.append(pad("1", -4.95, 0, 2.6, 2.6, pinnets.get("1"), netnum, "circle", 1.6))
+        P.append(pad("2", 4.95, 0, 2.6, 2.6, pinnets.get("2"), netnum, "circle", 1.6))
     # ---- generic fallbacks for library footprints that aren't installed
     elif "0603" in fp:
         rect(1.6, 0.8, "F.Fab"); courtyard(2.4, 1.4)
@@ -382,11 +407,11 @@ def place_all(m, outline_pts):
     moved = []
     def area(c):
         w, h = courtyard_size(c["fp"]); return -(w * h)
-    for c in sorted(m.COMPONENTS, key=lambda c: (0 if c["kind"] == "hole" else 1, area(c))):
+    for c in sorted(m.COMPONENTS, key=lambda c: (0 if (c["kind"] == "hole" or c.get("fixed")) else 1, area(c))):
         w, h = courtyard_size(c["fp"])
         if c.get("rot", 0) in (90, 270): w, h = h, w
         x0, y0 = c["at"]
-        if c["kind"] == "hole":
+        if c["kind"] == "hole" or c.get("fixed"):
             placed.append((x0, y0, w, h)); continue
         best = None
         # spiral search: radius 0..45 mm, 1 mm rings, 16..64 angles
@@ -540,7 +565,8 @@ def write_pcb(m, outbase, outline_dxf, origin=(150.0, 150.0)):
 
 def write_project(outbase, m=None):
     NETCLASSES = getattr(m, "NETCLASSES", [("Default", 0.2, 0.3, 0.8, 0.4, [])])
-    pro = {"board": {"design_settings": {"rules": {"min_clearance": 0.15, "min_track_width": 0.2, "min_via_diameter": 0.6, "min_via_drill": 0.3, "min_copper_edge_clearance": 0.3}},
+    pro = {"board": {"design_settings": {"rules": {"min_clearance": 0.15, "min_track_width": 0.2, "min_via_diameter": 0.6, "min_via_drill": 0.3, "min_copper_edge_clearance": 0.3},
+                                          "rule_severities": {"starved_thermal": "warning", "lib_footprint_issues": "ignore", "lib_footprint_mismatch": "ignore"}},
                      "layer_presets": [], "viewports": []},
            "boards": [], "cvpcb": {"equivalence_files": []}, "libraries": {"pinned_footprint_libs": [], "pinned_symbol_libs": []},
            "meta": {"filename": os.path.basename(outbase) + ".kicad_pro", "version": 1},
