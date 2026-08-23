@@ -176,7 +176,10 @@ A(dict(ref="J8", value="Dome encoder", kind="connector", fp="Connector_JST:JST_X
        at=(82, -14), rot=0, side="F", pins=[(1,"B","ENC_B_5V"),(2,"A","ENC_A_5V"),(3,"GND","GND"),(4,"5V","+5V_LOGIC")]))
 A(dict(ref="U7", value="74LVC245A", kind="ic_generic", fp="Package_SO:TSSOP-20_4.4x6.5mm_P0.65mm",
        at=(30, -32), rot=0, side="F",
-       pins=[(1,"DIR","GND"),(2,"A1","ENC_A_5V"),(3,"A2","ENC_B_5V"),(4,"A3","NC"),(5,"A4","NC"),(6,"A5","NC"),(7,"A6","NC"),(8,"A7","NC"),(9,"A8","NC"),
+       # DIR HIGH = A->B (TI SN74LVC245A pin table). Encoder 5V sits on A1/A2, RP2350 on B1/B2, so DIR
+       # must be +3V3 — it was GND (B->A) on the first rev-A gerbers (r6); fixed in r7. Unused A3..A8
+       # are inputs when DIR=H, so they are tied to GND rather than left floating.
+       pins=[(1,"DIR","+3V3"),(2,"A1","ENC_A_5V"),(3,"A2","ENC_B_5V"),(4,"A3","GND"),(5,"A4","GND"),(6,"A5","GND"),(7,"A6","GND"),(8,"A7","GND"),(9,"A8","GND"),
              (10,"GND","GND"),(11,"B8","NC"),(12,"B7","NC"),(13,"B6","NC"),(14,"B5","NC"),(15,"B4","NC"),(16,"B3","NC"),(17,"B2","ENC_B_3V3"),(18,"B1","ENC_A_3V3"),
              (19,"OE","GND"),(20,"VCC","+3V3")]))
 A(two("C8", "100n", "cap", "Capacitor_SMD:C_0603_1608Metric", (30, -36), "+3V3", "GND"))
