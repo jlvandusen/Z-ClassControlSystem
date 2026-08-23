@@ -13,6 +13,17 @@ Socketed modules and the mounting holes are always excluded (customer fits those
 Whatever is left out is written to hand_solder_bom.csv (with LCSC numbers and the quantity for --boards boards)."""
 import sys, os, csv, re, pcbnew
 SKIP = {"U3","PS1","PS2","H1","H2","H3","H4","H5"}   # socketed modules + mounting holes
+# KiCad -> JLCPCB rotation offsets (degrees, CCW-positive like the CPL). KiCad library footprints and JLC's
+# part models do not agree on where 0 deg is; JLC's placement preview shows pin 1 as a purple dot.
+# Base values from JLCKicadTools cpl_rotations_db.csv (matthewlai); "verified" = checked in JLC's preview by James.
+ROT_FIX = [
+    (r"^PinSocket_|^PinHeader_", 90),     # verified 2026-08-23 (JLC's strip models lie along X)
+    (r"^SOT-223", 180),                   # U5 AMS1117 — verified 2026-08-23 ("counter 2x")
+    (r"^TSSOP-", 270),                    # U6, U7 — table value; James turned them clockwise in the viewer (amount to confirm)
+    (r"^PowerPAK_SO-8_Single", 270),      # Q1 — table value; turned clockwise in the viewer (amount to confirm)
+    (r"^SOT-23", -90),                    # D4 BAT54S — table says -90; James used 180 on r6 preview -> REVIEW
+    (r"^CP_Elec_8x10|^CP_Elec_10x10", 180),  # electrolytics (only in full scope)
+]
 # footprints a hobby iron handles easily: leave these out of the "fine" scope
 EASY_SMD = ("CP_Elec_", "D_SMB", "D_SMA", "D_SOD-123", "Fuse_1812", "Fuse_1206", "L_1206", "C_1206", "SOT-223")
 
@@ -70,8 +81,9 @@ def main():
             else: cx, cy = bb.GetCenter().x, bb.GetCenter().y
             rot = fp.GetOrientation().AsDegrees()
             fpn = str(fp.GetFPID().GetLibItemName())
-            if fpn.startswith(("PinSocket_", "PinHeader_")):   # JLC's header/socket models lie along X at 0 deg; KiCad's run along Y
-                rot = (rot + 90.0) % 360.0
+            for pat, off in ROT_FIX:
+                if re.search(pat, fpn):
+                    rot = (rot + (-off if fp.IsFlipped() else off)) % 360.0; break
             w.writerow([r, f"{(cx-ao.x)/1e6:.3f}mm", f"{(ao.y-cy)/1e6:.3f}mm", "Bottom" if fp.IsFlipped() else "Top", f"{rot:.1f}"]); n+=1
     # BOM grouped by (comment, footprint) — JLC side and customer side
     groups={}; hand={}
