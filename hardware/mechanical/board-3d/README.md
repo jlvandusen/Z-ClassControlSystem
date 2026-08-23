@@ -23,9 +23,10 @@ kicad-cli pcb export step --user-origin "150x150mm" --subst-models --no-dnp --fo
   -o hardware\mechanical\board-3d\v10_mainboard_compact.step hardware\kicad\compact\mainboard.kicad_pcb
 ```
 
-Heights in the STEP come from the library models: socketed modules (DevKit, RP2350-Zero, DFPlayer) and the
-Pololu bucks are **not** in the model — add ~13.6 / 13.3 / 12.5 / 9 mm bodies over J_U1x / J_U2x / U3 / PS1–PS2
-(table in `../compact-cover/cover_layout.md`). J1's mating XT60 plug adds ~20 mm above the 15.5 mm body.
+Library models give the real shapes of the sockets, headers, JSTs, XT60 body, capacitors and ICs; the envelope
+boxes stand in for what has no model. Heights above the board top: DevKit 13.5, Zero 13, DFPlayer 12.5 (socketed),
+Pololus 9, fuse 16.3 (standard mini), XT60 plug 24 + wires to 34, IDC/ribbons 14, JST-XH housings 13, VH 14,
+servo plugs 12 (table in `../compact-cover/cover_layout.md`).
 
 ## Fusion 360 workflow
 1. In your gear-casing assembly: **Insert → Insert Mesh/STEP** → pick `v10_mainboard_compact_envelopes.step`. The envelopes come in as separate bodies named `ENV_…` under each connector/socket, so you can hide them or run Interference against the casing/cover directly.
