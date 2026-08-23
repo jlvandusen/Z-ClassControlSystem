@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
 """jlc_outputs.py — JLCPCB-format CPL + BOM from a board. KiCad python.
-   python jlc_outputs.py <board.kicad_pcb> <bom.csv> <outdir>
+   python jlc_outputs.py <board.kicad_pcb> <bom.csv> <outdir> [--scope full|smd|fine] [--exclude R1,C3,...] [--boards N]
 CPL : Designator, Mid X, Mid Y, Layer, Rotation   (mm, Y up, Top/Bottom)
 BOM : Comment, Designator, Footprint, LCSC Part #  (one row per value+footprint, designators comma-joined)
-Socketed modules and the mounting holes are excluded (customer fits those)."""
+Socketed modules and the mounting holes are always excluded (customer fits those).
+
+--scope full  (default) everything JLC can place
+--scope smd   only surface-mount parts — every through-hole part is left for the customer
+--scope fine  only the parts that genuinely need a machine: fine-pitch ICs, the PowerPAK FET, SOT-23,
+              the 1 mm JST-SH, and the 0603 passives (cheap "basic" parts, tedious by hand)
+--exclude     extra refs to leave out of the JLC files (comma-separated)
+Whatever is left out is written to hand_solder_bom.csv (with LCSC numbers and the quantity for --boards boards)."""
 import sys, os, csv, re, pcbnew
 SKIP = {"U3","PS1","PS2","H1","H2","H3","H4","H5"}   # socketed modules + mounting holes
+# footprints a hobby iron handles easily: leave these out of the "fine" scope
+EASY_SMD = ("CP_Elec_", "D_SMB", "D_SMA", "D_SOD-123", "Fuse_1812", "Fuse_1206", "L_1206", "C_1206", "SOT-223")
+
 def expand(refs):
     out=[]
     for part in re.split(r"\s*\+\s*|\s*,\s*", refs.strip()):
@@ -13,8 +23,18 @@ def expand(refs):
         if m: out += [f"{m.group(1)}{i}" for i in range(int(m.group(2)), int(m.group(4))+1)]
         elif part: out.append(part)
     return out
+
+def is_tht(fp):
+    return any(p.GetAttribute() == pcbnew.PAD_ATTRIB_PTH for p in fp.Pads() if p.GetNumber() != "")
+
 def main():
-    pcb, bom, outdir = sys.argv[1], sys.argv[2], sys.argv[3]; os.makedirs(outdir, exist_ok=True)
+    args = sys.argv[1:]
+    scope = "full"; extra = set(); boards = 5
+    if "--scope" in args: scope = args[args.index("--scope")+1]
+    if "--exclude" in args: extra = set(expand(args[args.index("--exclude")+1]))
+    if "--boards" in args: boards = int(args[args.index("--boards")+1])
+    pos = [a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or not args[i-1].startswith("--"))]
+    pcb, bom, outdir = pos[0], pos[1], pos[2]; os.makedirs(outdir, exist_ok=True)
     b = pcbnew.LoadBoard(pcb)
     ao = b.GetDesignSettings().GetAuxOrigin()   # same origin as the Gerber/drill export
     mpn = {}
@@ -25,12 +45,22 @@ def main():
     for row in csv.DictReader(open(bom, encoding="utf-8")):
         for r in expand(row["Ref"]): mpn[r] = (row["Value / Part"], row["MPN"], row["Package"])
     fps = sorted(b.GetFootprints(), key=lambda f: (re.sub(r"\d+","",f.GetReference()), int(re.sub(r"\D","",f.GetReference()) or 0)))
+
+    def customer(fp):
+        """True when this part is NOT sent to JLC in the chosen scope."""
+        r = fp.GetReference(); fpn = str(fp.GetFPID().GetLibItemName())
+        if r in SKIP or r in extra: return True
+        if scope == "full": return False
+        if is_tht(fp): return True
+        if scope == "fine" and fpn.startswith(EASY_SMD): return True
+        return False
+
     # CPL
     with open(os.path.join(outdir,"cpl_jlcpcb.csv"),"w",newline="",encoding="utf-8") as f:
         w=csv.writer(f); w.writerow(["Designator","Mid X","Mid Y","Layer","Rotation"]); n=0
         for fp in fps:
             r=fp.GetReference()
-            if r in SKIP: continue
+            if customer(fp): continue
             # JLC wants the part CENTROID, not KiCad's footprint origin (which is pin 1 on library headers/sockets)
             c = fp.GetCourtyard(pcbnew.B_CrtYd if fp.IsFlipped() else pcbnew.F_CrtYd)
             bb = c.BBox() if c.OutlineCount() else None
@@ -43,8 +73,8 @@ def main():
             if fpn.startswith(("PinSocket_", "PinHeader_")):   # JLC's header/socket models lie along X at 0 deg; KiCad's run along Y
                 rot = (rot + 90.0) % 360.0
             w.writerow([r, f"{(cx-ao.x)/1e6:.3f}mm", f"{(ao.y-cy)/1e6:.3f}mm", "Bottom" if fp.IsFlipped() else "Top", f"{rot:.1f}"]); n+=1
-    # BOM grouped by (comment, footprint)
-    groups={}
+    # BOM grouped by (comment, footprint) — JLC side and customer side
+    groups={}; hand={}
     for fp in fps:
         r=fp.GetReference()
         if r in SKIP: continue
@@ -52,9 +82,16 @@ def main():
         comment = f"{val} {part}".strip() if part else val
         cnum = ""
         if r in lcsc: comment, cnum = lcsc[r]
-        key=(comment, str(fp.GetFPID().GetLibItemName()), cnum); groups.setdefault(key, []).append(r)
+        key=(comment, str(fp.GetFPID().GetLibItemName()), cnum, "THT" if is_tht(fp) else "SMT")
+        (hand if customer(fp) else groups).setdefault(key, []).append(r)
     with open(os.path.join(outdir,"bom_jlcpcb.csv"),"w",newline="",encoding="utf-8") as f:
         w=csv.writer(f); w.writerow(["Comment","Designator","Footprint","JLCPCB Part #"])
-        for (comment, fpn, cnum), refs in groups.items(): w.writerow([comment, ",".join(refs), fpn, cnum])
-    print(f"CPL: {n} placements; BOM: {len(groups)} lines  -> {outdir}")
+        for (comment, fpn, cnum, _), refs in groups.items(): w.writerow([comment, ",".join(refs), fpn, cnum])
+    if hand:
+        with open(os.path.join(outdir,"hand_solder_bom.csv"),"w",newline="",encoding="utf-8") as f:
+            w=csv.writer(f); w.writerow(["Comment","Designator","Footprint","Mount","LCSC Part #","Qty per board",f"Qty for {boards} boards (+10%)"])
+            for (comment, fpn, cnum, mount), refs in hand.items():
+                q = len(refs); w.writerow([comment, ",".join(refs), fpn, mount, cnum, q, -(-q*boards*11//10)])
+    jl = sum(len(v) for v in groups.values()); hl = sum(len(v) for v in hand.values())
+    print(f"scope={scope}: JLC places {n} parts in {len(groups)} BOM lines; customer solders {hl} parts in {len(hand)} lines  -> {outdir}")
 if __name__ == "__main__": main()
