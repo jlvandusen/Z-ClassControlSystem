@@ -150,5 +150,5 @@ dome-spin motors, 2 tilt servos, the 6-inch main bearing (`6inchBearing.step`
 in the parts library), shell + magnets, all fasteners, electronics boards.
 
 *Regenerate this tree after any Fusion revision:*
-`python tools/step_tree.py "path	o\Z-Class Drive-vX.step"` — prints part counts
+`python tools/step_tree.py "Z-Class Drive-vX.step"` — prints part counts
 and hierarchy from any ASCII STEP export.*
