@@ -91,11 +91,38 @@ $top = ($chg -split "(?m)^## ")[1]
 @"
 # Z-Class Control System v$Version
 
-## Install (fresh PC)
-1. Extract the zip anywhere (e.g. ``C:\ZClass``).
-2. PowerShell in that folder: ``.\Install-ZClass.ps1``  - installs arduino-cli + the exact cores/libraries, puts ``bb8`` on PATH, and (if git is present) links the folder to GitHub so ``bb8 update`` keeps it current.
-3. New terminal -> ``bb8 list`` -> ``bb8 upload drive`` (body / imu / dome likewise). Prebuilt binaries: ``tools\release\Flash-Prebuilt.ps1 -Target drive -Port COMx``.
-4. Read ``docs\HowToGuide.md``.
+## Install — step by step (Windows, no admin needed)
+
+**1. Download** ``ZClass-ControlSystem-Setup-v$Version.exe`` (below) and run it.
+   The installer is unsigned, so SmartScreen may say *"Windows protected your PC"* → click **More info → Run anyway**.
+
+**2. Choose the install folder.** Default ``%LOCALAPPDATA%\ZClass``. Any folder you can write to is fine — the toolchain and your builds live inside it.
+
+**3. Tick the first-run tasks:**
+   - ☑ **Install arduino-cli + board cores + libraries now** — needs internet, about 10 minutes. Required before you can compile or flash (re-runnable later from the Start menu → *Re-run toolchain setup*).
+   - ☑ **Link the install folder to GitHub** — needs ``git`` installed. Lets ``bb8 update`` pull new firmware from this repo from then on.
+   - Desktop shortcut — optional.
+
+**4. Let the PowerShell window finish.** It opens automatically after the files copy and runs what you ticked; wait for ``=== Ready ===``.
+
+**5. Open a NEW terminal** (PATH just changed) and check:
+``````
+bb8 list
+``````
+You should see the five targets (drive, dome, ball, body, imu) and any boards on USB.
+
+**6. First session**
+| Do | Command |
+|---|---|
+| pair PS3 / Nav pads | ``bb8 pair`` |
+| flash a board (compile from source + verify) | ``bb8 upload drive``  (then ``body``, ``imu``, ``dome``) |
+| flash the bundled prebuilt binaries instead | ``tools\release\Flash-Prebuilt.ps1 -Target drive -Port COM4`` |
+| watch a board / the drive through the dome | ``bb8 monitor drive`` / ``bb8 monitor ball`` |
+| read | Start menu → *How-To Guide*, or the [wiki](https://github.com/jlvandusen/Z-ClassControlSystem/wiki) |
+
+**Uninstall:** Start menu → *Z-Class Control System → Uninstall*.
+
+*Prefer no installer?* ``ZClass-ControlSystem-v$Version.zip`` is the same bundle — extract, then ``.\Install-ZClass.ps1``. The ``firmware-<board>-v$Version.zip`` assets are just the binaries.
 
 ## What's in this release
 ## $top
