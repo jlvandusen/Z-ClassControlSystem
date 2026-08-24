@@ -25,7 +25,7 @@ $Stage = Join-Path $Root "dist\stage\ZClass-ControlSystem-v$Version"
 $Zip   = Join-Path $Root "dist\ZClass-ControlSystem-v$Version.zip"
 $cfg   = Get-Content "targets.json" -Raw | ConvertFrom-Json
 $git   = (git rev-parse --short HEAD).Trim()
-if ((git status --porcelain -- firmware tools/Bb8Commander targets.json) -ne $null) { $git += "+" }
+if ($null -ne (git status --porcelain -- firmware tools/Bb8Commander targets.json)) { $git += "+" }
 
 if (-not $SkipBuild) {
   # ---- 1. stamp + compile ----
@@ -123,9 +123,20 @@ if (Test-Path $Zip) { Remove-Item $Zip -Force }
 Compress-Archive -Path $Stage -DestinationPath $Zip -CompressionLevel Optimal
 Write-Host "  $Zip  ($([math]::Round((Get-Item $Zip).Length/1MB,1)) MB)" -ForegroundColor Green
 
+# ---- 5. Setup.exe (Inno Setup, if installed) ----
+$SetupExe = Join-Path $Root "dist\ZClass-ControlSystem-Setup-v$Version.exe"
+$iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe", "$env:ProgramFiles\Inno Setup*\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($iscc) {
+  Write-Host "[5/5] Setup.exe (Inno Setup)" -ForegroundColor Yellow
+  & $iscc.FullName /Q "/DVersion=$Version" "/DStage=$Stage" "/DOut=$(Join-Path $Root 'dist')" (Join-Path $Root "tools\release\ZClass.iss")
+  if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+  Write-Host "  $SetupExe  ($([math]::Round((Get-Item $SetupExe).Length/1MB,1)) MB)" -ForegroundColor Green
+} else { Write-Host "[5/5] Inno Setup not found - no Setup.exe (zip only)" -ForegroundColor DarkYellow }
+
 if ($Publish) {
   Write-Host "publishing GitHub release v$Version" -ForegroundColor Yellow
   $assets = @($Zip)
+  if (Test-Path $SetupExe) { $assets += $SetupExe }
   foreach ($t in $cfg.targets) {
     if ($t.name -eq "ball") { continue }
     $b = Join-Path $Stage "binaries\$($t.name)"
