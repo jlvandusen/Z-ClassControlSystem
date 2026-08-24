@@ -103,7 +103,16 @@ bool Flag(string name) => args.Any(a => string.Equals(a, name, StringComparison.
 
 string? FindConfig()
 {
-    foreach (var dir in new[] { Directory.GetCurrentDirectory(), @"C:\Users\james\BB8" })
+    // Search order: BB8_HOME, the current directory (and its parents), the folder
+    // bb8.exe lives in (and its parents — a self-contained install keeps
+    // targets.json one level above bb8\), then the developer checkout.
+    var starts = new List<string>();
+    var home = Environment.GetEnvironmentVariable("BB8_HOME");
+    if (!string.IsNullOrWhiteSpace(home)) starts.Add(home);
+    starts.Add(Directory.GetCurrentDirectory());
+    starts.Add(AppContext.BaseDirectory);
+    starts.Add(@"C:\Users\james\BB8");
+    foreach (var dir in starts)
     {
         var p = Path.Combine(dir, "targets.json");
         if (File.Exists(p)) return p;

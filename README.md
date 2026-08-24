@@ -42,6 +42,14 @@ cores `esp32-bluepad32:esp32` (drive), `esp32:esp32` ≥ 3.3 (dome), `adafruit:a
 the sketch libraries (SerialTransfer, DFRobotDFPlayerMini, Adafruit MPU6050,
 Kalman, Adafruit NeoPixel, Servo). [.NET SDK 10+] to build the CLI.
 
+## Install from a release (no dev tools needed)
+
+Grab `ZClass-ControlSystem-v*.zip` from [Releases](https://github.com/jlvandusen/Z-ClassControlSystem/releases),
+extract it anywhere, run `.\Install-ZClass.ps1` — it installs arduino-cli + the exact
+cores/libraries, puts a self-contained `bb8` on your PATH, ships prebuilt binaries for
+all four boards (`toolselease\Flash-Prebuilt.ps1`), and links the folder to GitHub so
+`bb8 update` keeps it current. Cutting a release: `toolselease\make-release.ps1 -Version X.YY`.
+
 ## bb8 Commander
 
 ```powershell
