@@ -32,8 +32,8 @@ enum SoundCommand : uint16_t {
 };
 
 // ---- Random Picker ----
-static inline uint16_t pickRandom1to30() {
-  return (uint16_t)random(1, 31);
+static inline uint16_t pickRandom1to30() {   // chatter bank 1-31 (name is historical)
+  return (uint16_t)random(1, 32);
 }
 
 // RC4.6: mood banks (being populated on the SD - a roll that lands on a

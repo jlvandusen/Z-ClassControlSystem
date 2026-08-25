@@ -66,6 +66,7 @@ try
         case "pair":     return Flag("--install-driver") ? await CmdInstallPadDriver() : await CmdPair(Opt("--mac"), Opt("--port"), Flag("--list"));
         case "identify": return await CmdIdentify();
         case "update":   return await CmdUpdate(Flag("--flash"));
+        case "sounds":   return await CmdSounds(Arg(1), Flag("--flash"));
         case "help": case "-h": case "--help": PrintHelp(); return 0;
         default:
             Fail($"Unknown command '{args[0]}'."); PrintHelp(); return 1;
@@ -144,6 +145,8 @@ void PrintHelp()
           bb8 identify                            probe ports, read boot banners
           bb8 update [--flash]                    pull new firmware/tooling from GitHub; --flash also reflashes
                                                   every plugged-in board whose firmware is older than its sketch
+          bb8 sounds [E:] [--flash]               scan the DFPlayer SD, report bank coverage, regenerate the
+                                                  PSI beep-envelopes (needs ffmpeg); --flash reflashes the dome
 
         Monitor (full-screen):
           - type + Enter          send a serial command to the ACTIVE board
@@ -1172,6 +1175,161 @@ async Task<int> CmdInstallPadDriver()
     else
         Console.WriteLine("\u001b[33m[DRIVER] a pad is present but still not on libusb-win32. Unplug/replug it; if it stays on HIDClass, see the log above for pnputil's error.\u001b[0m");
     return bound || added ? 0 : 1;
+}
+
+
+// ------------------------------------------------------------------
+//  bb8 sounds — SD card inventory + PSI envelope generation
+//  Scans the DFPlayer SD (auto-detects a removable drive with \MP3, or takes
+//  a path), regenerates firmware/ESP32_DOME_RC4/PsiEnvelopes.h (ffmpeg
+//  decodes each track; 25 Hz RMS envelope, gated, peak-normalized, gamma),
+//  prints the bank/trigger coverage report, and with --flash rebuilds and
+//  reflashes the dome when the envelope set changed.
+// ------------------------------------------------------------------
+async Task<int> CmdSounds(string? source, bool flash)
+{
+    // 1. locate the MP3 folder
+    string? mp3 = null;
+    if (source is not null)
+    {
+        var p = source.TrimEnd('\\', '/');
+        if (p.Length == 2 && p[1] == ':') p += "\\";
+        if (Directory.Exists(Path.Combine(p, "MP3"))) mp3 = Path.Combine(p, "MP3");
+        else if (Directory.Exists(p) && Path.GetFileName(p).Equals("MP3", StringComparison.OrdinalIgnoreCase)) mp3 = p;
+        else { Fail($"No MP3 folder at '{source}'."); return 1; }
+    }
+    else
+    {
+        foreach (var d in DriveInfo.GetDrives())
+        {
+            try
+            {
+                if ((d.DriveType == DriveType.Removable || d.DriveType == DriveType.Fixed) &&
+                    d.IsReady && d.Name != @"C:\" && Directory.Exists(Path.Combine(d.Name, "MP3")))
+                { mp3 = Path.Combine(d.Name, "MP3"); break; }
+            }
+            catch { }
+        }
+        if (mp3 is null) { Fail("No SD card with an \\MP3 folder found. Plug the card in or pass the path: bb8 sounds E:"); return 1; }
+    }
+    Console.WriteLine($"\u001b[36m[SOUNDS] card: {mp3}\u001b[0m");
+
+    // 2. inventory
+    var tracks = new SortedDictionary<int, string>();
+    var strays = new List<string>();
+    foreach (var f in Directory.GetFiles(mp3))
+    {
+        var name = Path.GetFileName(f);
+        var m = System.Text.RegularExpressions.Regex.Match(name, @"^(\d{4})\.[Mm][Pp]3$");
+        if (m.Success) tracks[int.Parse(m.Groups[1].Value)] = f;
+        else strays.Add(name);
+    }
+    var root = Path.GetDirectoryName(mp3)!;
+    var rootMp3 = Directory.GetFiles(root, "*.mp3").Length;
+    Console.WriteLine($"[SOUNDS] {tracks.Count} tracks (4-digit) on the card");
+    if (strays.Count > 0) Console.WriteLine($"\u001b[33m[SOUNDS] ignored (bad names — DFPlayer needs NNNN.mp3): {string.Join(", ", strays)}\u001b[0m");
+    if (rootMp3 > 0) Console.WriteLine($"\u001b[33m[SOUNDS] {rootMp3} mp3 file(s) in the card ROOT — never played, delete them\u001b[0m");
+
+    // 3. bank / trigger coverage
+    void Bank(string label, int lo, int hi, string trigger)
+    {
+        var have = tracks.Keys.Where(t => t >= lo && t <= hi).ToList();
+        var missing = Enumerable.Range(lo, hi - lo + 1).Where(t => !tracks.ContainsKey(t)).ToList();
+        var miss = missing.Count == 0 ? "complete" :
+                   have.Count == 0 ? "\u001b[33mEMPTY\u001b[0m" :
+                   $"missing {string.Join(",", missing.Select(t => t.ToString("0000")))}";
+        Console.WriteLine($"  {label,-28} {have.Count,2}/{hi - lo + 1,-2}  {miss,-40}  {trigger}");
+    }
+    Console.WriteLine("[SOUNDS] bank coverage:");
+    Bank("0001-0031 chatter", 1, 31, "D-pad UP roll; fixed 3/4/5, L1 10-13, dome-pad 16-19/21-23/28; 0001 = pad connect");
+    Bank("0040-0049 excited", 40, 49, "L2 + D-pad RIGHT roll");
+    Bank("0060-0063 state cues", 60, 63, "60 bootup · 61 shutdown/pad-drop/L3 · 62 dome-mode · 63 balance");
+    Bank("0070-0074 PS blips", 70, 74, "PS enable/disable roll");
+    Bank("0075-0079 extra blips", 75, 79, "L2 + D-pad LEFT rolls 70-79");
+    Bank("0080-0089 alerts", 80, 89, "IMU-stale cutoff, experiment aborts");
+    var other = tracks.Keys.Where(t => !(t is >= 1 and <= 31 or >= 40 and <= 49 or >= 60 and <= 63
+                                       or >= 70 and <= 79 or >= 80 and <= 89)).ToList();
+    if (other.Count > 0)
+        Console.WriteLine($"  console-only (no trigger)       {string.Join(", ", other.Select(t => t.ToString("0000")))}");
+
+    // 4. regenerate envelopes (ffmpeg)
+    if (Run("ffmpeg", "-version", capture: true).rc != 0)
+    { Fail("ffmpeg not found on PATH — needed to decode the tracks (https://ffmpeg.org)."); return 1; }
+    const int STEP_MS = 40, RATE = 8000; const double GAMMA = 0.6, GATE = 0.06;
+    int win = RATE * STEP_MS / 1000;
+    var envs = new SortedDictionary<int, byte[]>();
+    foreach (var (n, file) in tracks)
+    {
+        var psi = new ProcessStartInfo("ffmpeg", $"-v error -i \"{file}\" -ac 1 -ar {RATE} -f s16le -")
+        { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        using var pr = Process.Start(psi)!;
+        using var ms = new MemoryStream();
+        pr.StandardOutput.BaseStream.CopyTo(ms);
+        pr.WaitForExit();
+        var raw = ms.ToArray();
+        int samples = raw.Length / 2;
+        var rms = new List<double>();
+        for (int i = 0; i + win <= samples; i += win)
+        {
+            double sum = 0;
+            for (int j = 0; j < win; j++) { double v = BitConverter.ToInt16(raw, (i + j) * 2); sum += v * v; }
+            rms.Add(Math.Sqrt(sum / win));
+        }
+        if (rms.Count == 0) { Console.WriteLine($"\u001b[33m  {n:0000}: decode produced no audio — skipped\u001b[0m"); continue; }
+        double peak = Math.Max(rms.Max(), 1.0);
+        var q = rms.Select(v => { var x = v / peak; if (x < GATE) x = 0; return (byte)Math.Round(255 * Math.Pow(x, GAMMA)); }).ToList();
+        while (q.Count > 0 && q[^1] == 0) q.RemoveAt(q.Count - 1);
+        envs[n] = q.ToArray();
+    }
+
+    var hdrPath = Path.Combine(RepoRootDir(), "firmware", "ESP32_DOME_RC4", "PsiEnvelopes.h");
+    var oldTracks = File.Exists(hdrPath)
+        ? System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(hdrPath), @"\{ (\d+),").Select(m => int.Parse(m.Groups[1].Value)).ToHashSet()
+        : new HashSet<int>();
+    var sb = new StringBuilder();
+    sb.Append("#pragma once\n");
+    sb.Append($"// Auto-generated by 'bb8 sounds' on {DateTime.Now:yyyy-MM-dd} - DO NOT EDIT.\n");
+    sb.Append("// 25 Hz amplitude envelopes (uint8) for every MP3/NNNN.mp3 on the SD card.\n");
+    sb.Append("// The dome plays the envelope for the track number relayed in the psi field,\n");
+    sb.Append($"// so the PSI flickers with the actual beeps. {envs.Count} tracks, {envs.Values.Sum(v => v.Length)} bytes.\n");
+    sb.Append("#include <stdint.h>\n\n");
+    sb.Append($"#define PSI_ENV_STEP_MS {STEP_MS}\n\n");
+    sb.Append("struct PsiEnv { uint8_t track; uint16_t len; const uint8_t *data; };\n\n");
+    foreach (var (n, q) in envs)
+    {
+        sb.Append($"static const uint8_t psiEnv_{n}[] = {{");
+        for (int i = 0; i < q.Length; i++) { if (i % 24 == 0) sb.Append("\n  "); sb.Append(q[i]).Append(','); }
+        sb.Append("\n};\n");
+    }
+    sb.Append("\nstatic const PsiEnv PSI_ENVS[] = {\n");
+    foreach (var (n, q) in envs) sb.Append($"  {{ {n}, {q.Length}, psiEnv_{n} }},\n");
+    sb.Append("};\n");
+    sb.Append($"static const uint8_t PSI_ENV_COUNT = {envs.Count};\n\n");
+    sb.Append("static inline const PsiEnv* psiEnvFor(uint8_t track) {\n");
+    sb.Append("  for (uint8_t i = 0; i < PSI_ENV_COUNT; i++)\n");
+    sb.Append("    if (PSI_ENVS[i].track == track) return &PSI_ENVS[i];\n");
+    sb.Append("  return nullptr;\n}\n");
+
+    var added = envs.Keys.Where(t => !oldTracks.Contains(t)).ToList();
+    var removed = oldTracks.Where(t => !envs.ContainsKey(t)).OrderBy(t => t).ToList();
+    bool changed = added.Count > 0 || removed.Count > 0 || !File.Exists(hdrPath) || File.ReadAllText(hdrPath) != sb.ToString();
+    if (changed)
+    {
+        File.WriteAllText(hdrPath, sb.ToString());
+        Console.WriteLine($"\u001b[32m[SOUNDS] PsiEnvelopes.h regenerated: {envs.Count} tracks" +
+            (added.Count > 0 ? $", +{string.Join(",", added.Select(t => t.ToString("0000")))}" : "") +
+            (removed.Count > 0 ? $", -{string.Join(",", removed.Select(t => t.ToString("0000")))}" : "") + "\u001b[0m");
+    }
+    else Console.WriteLine("[SOUNDS] envelopes already match the card — nothing to do.");
+
+    if (flash && changed)
+    {
+        Console.WriteLine("[SOUNDS] flashing the dome with the new envelopes...");
+        return await CmdUpload("dome", null);
+    }
+    if (flash) Console.WriteLine("[SOUNDS] no changes — dome not reflashed.");
+    else if (changed) Console.WriteLine("[SOUNDS] flash it in with: bb8 upload dome   (or rerun with --flash)");
+    return 0;
 }
 
 // ------------------------------------------------------------------
