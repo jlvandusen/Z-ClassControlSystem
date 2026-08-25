@@ -66,6 +66,7 @@ inline void abortExperiment(const char* why) {
   brakeDrive();
   brakeS2S();
   Serial.printf("[EXP] Aborted: %s\n", why);
+  sendSoundCommand(Coms32u4, sendTo32u4, pickRandomAlert());   // RC4.6: audible alert (bank 80-89)
 }
 
 inline void startStepExperiment(bool driveAxis, float amp, unsigned long durMs) {

@@ -245,11 +245,11 @@ float maxJoyDrivePwm = 255.0f;                  // joystick drive authority
 
 // RC4.1: state-feedback tracks, runtime-configurable ('pref sndon/sndoff')
 // in case a track file is missing from the SD card
-int soundDriveOn = 60;
-int soundDriveOff = 60;   // user pref: same track both ways ("pref sndoff 61" when 0061.mp3 exists)
-int soundShutdown = 100;  // RC4.3: DRIVE controller disconnect detected -> MP3/0100.mp3 (shutdown clip)
+int soundDriveOn = 0;     // RC4.6: 0 = random quick blip 70-74 on ENABLE ('pref sndon <n>' pins a track)
+int soundDriveOff = 0;    // RC4.6: 0 = random quick blip 70-74 on DISABLE
+int soundShutdown = 61;   // RC4.6: DRIVE controller disconnect -> 0061 "shutdown" (0100 is the same clip)
 int soundConnect = 1;     // RC4.3: a controller lands in the DRIVE slot -> MP3/0001.mp3 (startup)
-int soundBootCal = 6;     // RC4.3: boot calibration complete ("I'm level") -> MP3/0006.mp3; 0 = silent (pref sndcal)
+int soundBootCal = 60;    // RC4.6: boot complete -> 0060 "bootup" (fires at boot-cal done); 0 = silent (pref sndcal)
 
 // ------------------- PWM CONFIG -------------------
 const int PWM_FREQ = 20000;
@@ -908,6 +908,7 @@ void runControl(float dt) {
     drivePID.reset();
     s2sPID.reset();
     Serial.println(F("[SAFETY] IMU stale — autoBalance disabled"));
+    sendSoundCommand(Coms32u4, sendTo32u4, pickRandomAlert());   // RC4.6: audible alert (bank 80-89)
   }
 
   // Special modes (same precedence as RC3)
@@ -1026,7 +1027,22 @@ bool espnowDirty = false;
 void handleDomeAndBodyLights() {
   static struct_messagedome lastQueued;
 
-  domeData.psi = recFrom32u4.isplaying ? 1 : 0;
+  // RC4.6: relay WHICH track is playing (not just a flag) so the dome can
+  // flicker the PSI to that track's actual amplitude envelope. The playing
+  // track = the last sound command sent within a few seconds of BUSY rising;
+  // anything else (console 'play', stale) = 255 -> dome uses its generic
+  // speech cadence. 0 = not playing.
+  {
+    static uint8_t playingTrack = 0;
+    bool busy = recFrom32u4.isplaying;
+    bool recentCmd = (lastSoundCmd != SOUND_NONE && lastSoundCmd < 120 &&
+                      millis() - lastSoundTriggerMs < 4000);
+    if (!busy)                    playingTrack = 0;
+    else if (playingTrack == 0)   playingTrack = recentCmd ? (uint8_t)lastSoundCmd : 255;
+    else if (recentCmd && millis() - lastSoundTriggerMs < 300)
+                                  playingTrack = (uint8_t)lastSoundCmd;   // new sound interrupted the old
+    domeData.psi = playingTrack;
+  }
 
   // RC4: while tuning, cross/dpad belong to the tuner — no light anims
   if (pidTuneMode) domeData.anim = 0;
@@ -1209,11 +1225,12 @@ void toggleDriveEnabled() {
     drivePID.reset();
     s2sPID.reset();
   }
-  // RC4.1: STATE-AWARE feedback — you can hear which state you ended in.
-  // pref sndon / sndoff (default 60 both). Fired from the state change itself
-  // so PS tap, force-disable and controller-loss all sound consistent.
-  sendSoundCommand(Coms32u4, sendTo32u4,
-                   driveEnabled ? soundDriveOn : soundDriveOff);
+  // RC4.6: PS toggle acknowledgement = random quick blip (70-74), unless a
+  // fixed track is pinned via pref sndon/sndoff.
+  {
+    int t = driveEnabled ? soundDriveOn : soundDriveOff;
+    sendSoundCommand(Coms32u4, sendTo32u4, t > 0 ? (uint16_t)t : pickRandomPress());
+  }
 }
 
 void handleControllerCombos() {
@@ -1242,7 +1259,8 @@ void handleControllerCombos() {
           autoBalance = false;
           domeFunctionEnabled = false;
           Serial.println(F("[TOGGLE] Drive FORCE-DISABLED (PS held 2s)"));
-          sendSoundCommand(Coms32u4, sendTo32u4, soundDriveOff);   // state feedback; the shutdown clip plays when the pad drops
+          sendSoundCommand(Coms32u4, sendTo32u4,
+                           soundDriveOff > 0 ? (uint16_t)soundDriveOff : pickRandomPress());
         }
       }
     } else {

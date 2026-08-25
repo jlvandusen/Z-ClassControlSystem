@@ -101,11 +101,11 @@ inline void printHelpMenu() {
   Serial.println(F("pref swing <float>    - Set S2S swing limit in deg (default 70)"));
   Serial.println(F("pref lean <float>     - Max joystick drive authority in PWM (default 255)"));
   Serial.println(F("pref innerkp <float>  - S2S position-loop Kp in PWM/count (default 0.9)"));
-  Serial.println(F("pref sndon <track>    - Drive-ENABLE feedback track (default 60)"));
-  Serial.println(F("pref sndoff <track>   - Drive-DISABLE feedback track (default 60)"));
-  Serial.println(F("pref sndshut <track>  - drive-controller-disconnect track (default 100)"));
+  Serial.println(F("pref sndon <track>    - Drive-ENABLE track (0 = random blip 70-74, the default)"));
+  Serial.println(F("pref sndoff <track>   - Drive-DISABLE track (0 = random blip 70-74, the default)"));
+  Serial.println(F("pref sndshut <track>  - drive-controller-disconnect track (default 61 \"shutdown\")"));
   Serial.println(F("pref sndconn <track>  - controller-connected track (default 1)"));
-  Serial.println(F("pref sndcal <track>   - boot-calibration-complete track (default 6; 0 = silent)"));
+  Serial.println(F("pref sndcal <track>   - boot-complete track (default 60 \"bootup\"; 0 = silent)"));
   Serial.println(F("pid set drive kp|ki|kd <val>  - Drive PID (PWM per deg / deg*s / deg per s)"));
   Serial.println(F("pid set s2s kp|ki|kd <val>    - S2S outer PID (pot counts per deg ...)"));
   Serial.println(F("pid show              - Show current PID values"));
@@ -245,16 +245,18 @@ inline void handleSerialCommand(const String &cmd) {
     }
   } else if (cmd.startsWith("pref sndon ")) {
     int v = cmd.substring(11).toInt();
-    if (v >= 1 && v <= 119) {
+    if (v >= 0 && v <= 119) {
       soundDriveOn = v; saveSoundPrefs();
-      Serial.printf("[PREF] Drive-ENABLE sound set to track %d\n", v);
-    } else Serial.println(F("[PREF] Invalid track (1-119)."));
+      if (v == 0) Serial.println(F("[PREF] Drive-ENABLE sound: random blip 70-74"));
+      else Serial.printf("[PREF] Drive-ENABLE sound set to track %d\n", v);
+    } else Serial.println(F("[PREF] Invalid track (0-119; 0 = random blip)."));
   } else if (cmd.startsWith("pref sndoff ")) {
     int v = cmd.substring(12).toInt();
-    if (v >= 1 && v <= 119) {
+    if (v >= 0 && v <= 119) {
       soundDriveOff = v; saveSoundPrefs();
-      Serial.printf("[PREF] Drive-DISABLE sound set to track %d\n", v);
-    } else Serial.println(F("[PREF] Invalid track (1-119)."));
+      if (v == 0) Serial.println(F("[PREF] Drive-DISABLE sound: random blip 70-74"));
+      else Serial.printf("[PREF] Drive-DISABLE sound set to track %d\n", v);
+    } else Serial.println(F("[PREF] Invalid track (0-119; 0 = random blip)."));
   } else if (cmd.startsWith("pref sndshut ")) {
     int v = cmd.substring(13).toInt();
     if (v >= 1 && v <= 119) {

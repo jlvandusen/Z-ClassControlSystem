@@ -23,6 +23,7 @@
 
 #include <Preferences.h>
 #include "BuildStamp.h"
+#include "PsiEnvelopes.h"   // RC4.6: per-track 25 Hz amplitude envelopes (generated)
 Preferences prefs;
 
 // ---------------- CONFIG ----------------
@@ -353,6 +354,31 @@ void updateAnimations() {
     static bool     flickOn = false, wasTalking = false;
 
     bool talking = (incoming.psi != 0) || (shouldFlicker && currentMillis <= flickerEndTime);
+
+    // RC4.6: the psi field now carries the TRACK NUMBER (1..119; 255 =
+    // playing-but-unknown). If we have that track's pre-computed amplitude
+    // envelope, the PSI follows the actual beeps of the sound; otherwise
+    // fall through to the generic speech-cadence engine below.
+    static int envTrack = 0;
+    static unsigned long envStartMs = 0;
+    static uint8_t envLast = 255;
+    if (talking && incoming.psi > 0 && incoming.psi < 120) {
+      const PsiEnv *env = psiEnvFor((uint8_t)incoming.psi);
+      if (env) {
+        if (envTrack != incoming.psi) { envTrack = incoming.psi; envStartMs = currentMillis; envLast = 255; }
+        uint16_t idx = (uint16_t)((currentMillis - envStartMs) / PSI_ENV_STEP_MS);
+        uint8_t v = (idx < env->len) ? env->data[idx] : 0;   // past the end: dark
+        if (v != envLast) {
+          envLast = v;
+          PSI.setPixelColor(0, PSI.Color(v, v, v));          // WHITE, beep-synced
+          PSI.show();
+        }
+        wasTalking = true;
+        return;   // envelope owns the PSI this pass (skip the generic engine)
+      }
+    }
+    if (!talking) envTrack = 0;
+
     if (talking) {
       wasTalking = true;
       if (currentMillis - tickAt >= 20) {           // 50 Hz easing tick

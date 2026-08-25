@@ -36,6 +36,25 @@ static inline uint16_t pickRandom1to30() {
   return (uint16_t)random(1, 31);
 }
 
+// RC4.6: mood banks (being populated on the SD - a roll that lands on a
+// not-yet-added track is just silent).
+//   40-49 excited / smart-ass        70-79 button / quick-press blips
+//   80-89 errors / alerts (fired by safety events, not buttons)
+static inline uint16_t pickRandomExcited() {
+  return (uint16_t)random(40, 50);
+}
+static inline uint16_t pickRandomAlert() {
+  return (uint16_t)random(80, 90);
+}
+static inline uint16_t pickRandomButton() {
+  return (uint16_t)random(70, 80);
+}
+// PS enable/disable acknowledgement: quick blips 70-74 only (75-79 stay free
+// for the L2+LEFT roll and future use).
+static inline uint16_t pickRandomPress() {
+  return (uint16_t)random(70, 75);
+}
+
 
 // ---- Drive Controller Sound Mapping ----
 static uint16_t resolveDriveControllerSound(const ControllerState &cur) {
@@ -44,6 +63,8 @@ static uint16_t resolveDriveControllerSound(const ControllerState &cur) {
   if (cur.L2 > 50) {
     if (cur.dpadUp.pressed) return SOUND_CTRL_VOL_UP;     // L2+UP: volume +
     if (cur.dpadDown.pressed) return SOUND_CTRL_VOL_DOWN;  // L2+DOWN: volume -
+    if (cur.dpadRight.pressed) return pickRandomExcited(); // L2+RIGHT: excited/smart-ass bank (40-49)
+    if (cur.dpadLeft.pressed) return pickRandomButton();    // L2+LEFT: button/quick-press bank (70-79)
   }
 
   if (cur.L1.held) {

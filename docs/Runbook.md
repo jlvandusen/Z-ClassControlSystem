@@ -173,19 +173,19 @@ Dome-local commands: `help`, `version`, `debug` (prints every ESP-NOW packet + s
 
 | Input | Drive controller | Dome controller |
 |---|---|---|
-| **PS** tap / **PS hold 2 s** | **Drive enable toggle** / **force DISABLE** (both sound `pref sndon`/`sndoff`, 60) | dome-function toggle |
-| Drive controller **disconnects** (detected) | force-disable + shutdown clip (`pref sndshut`, **100**) — this is the "powered down" sound after a PS-hold | — |
+| **PS** tap / **PS hold 2 s** | **Drive enable toggle** / **force DISABLE** — acknowledged with a **random quick blip (70–74)**; pin a fixed track with `pref sndon`/`sndoff` | dome-function toggle |
+| Drive controller **disconnects** (detected) | force-disable + **0061 "shutdown"** (`pref sndshut`) | — |
 | Controller **connects** to the drive slot | startup clip (`pref sndconn`, **1**) | — |
 | **CIRCLE** | sound 28 (RC4.3 — no longer a drive toggle; PS is the only one) | sound 28 |
 | **CROSS** | autoBalance toggle (sound 63) | random sound |
 | Left stick | drive (Y) + steer/S2S (X). **Forward/back also leans the dome against the motion** (`tilt lean`, RC4.5) | dome tilt — **works while autoBalance is on** (RC4.5 blend: stick offset + leveling + motion lean all stack) |
 | L1 + stick X | dome spin | **flywheel** |
-| L2 | throttle boost; **L2 + D-pad UP/DOWN = volume ±** | — |
+| L2 | throttle boost; **L2 + D-pad UP/DOWN = volume ±**; **L2 + D-pad RIGHT = excited/smart-ass (40–49)**; **L2 + D-pad LEFT = button blips (70–79)** | — |
 | D-pad | sounds 1-30 random / 3 / 4 / 5; L1-shifted 10-13 | sounds 21-23; L1-shifted 16-19 |
 | L1 + CIRCLE | silent-mode toggle | — |
 | Both D-pad UP 3 s / both DOWN 3 s | save prefs / factory reset + reboot | |
 
-Feedback sounds are **state-aware**: enable plays `pref sndon`, disable plays `pref sndoff` — fired from the state change, so PS tap, force-disable and controller-loss all sound the same way. (Both default to 60; a press inside the ~1.7 s clip is ignored by the DFPlayer — same track already playing.)
+Sound cue model: **boot complete → 0060 "bootup"** (`pref sndcal`) · **PS enable/disable → random quick blip 70–74** (`pref sndon`/`sndoff`, 0 = random) · **pad drop detected → 0061 "shutdown"** (`pref sndshut`) · pad connect → 0001 (`pref sndconn`).
 
 ---
 
@@ -247,6 +247,7 @@ By eye, before/after: the dome should **lean opposite the body (stay level)**. I
 ## 9. Audio
 
 - **Boot calibration** plays `pref sndcal` (**track 6**, the "I'm level — you can enable" chirp) ~3 s after every power-up; it fires with no controller connected, once per boot. `pref sndcal 0` silences it; `pref sndcal <n>` picks another track. (This is the "random sound with nothing connected" — it's the cal-complete chirp, not noise.)
+- **Track banks** (numbering convention): **1–31** general chatter (D-pad UP rolls these) · **40–49 excited / smart-ass** (L2+D-pad RIGHT) · **50** — · **60–66** state cues (**60 bootup/enable, 61 shutdown/disable** — L3's reverse-toggle also plays 61 — 62 dome-mode, 63 autoBalance, 64/65/66 —) · **70–79 button / quick-press blips** (L2+D-pad LEFT) · **80–89 errors / alerts** (fired by safety events: IMU-stale cutoff, rig-experiment abort) · **99–106** long/specials (**1 = startup, 100 = shutdown, 6 = boot-cal chirp** live outside their banks by history).
 - Files live in `MP3/0001.mp3 … 00NN.mp3` on the DFPlayer's SD (FAT32). Tracks **1–119** are addressable from the pad/prefs (the link field is an `int8_t`; 125/126/127 are the volume±/silent control codes since RC4.3). The console `play <n>` has no limit. Card as of 2026-08-22: 1–31, 50, 60, 99–103, 105–106 — **1 = startup, 100 = shutdown**.
 - **`audio scan`** on the body console tells you exactly which numbers exist (muted, ~20 s for 1-100). A missing track now logs `[AUDIO] DFPlayer ERROR (TRACK FILE NOT FOUND on SD)` instead of failing silently.
 - Sound commands ride the 50 Hz state stream with a sequence number, repeated 5×, so the DFPlayer's SoftwareSerial interrupt-blocking (which corrupts ~1–2 link packets per command — the `CRC_ERROR`/`PAYLOAD_ERROR` lines) can't drop them. Those error lines are expected and cosmetic.
@@ -259,11 +260,11 @@ By eye, before/after: the dome should **lean opposite the body (stay level)**. I
 
 | Event | Response |
 |---|---|
-| IMU stale > 500 ms | autoBalance output cut, motors braked |
+| IMU stale > 500 ms | autoBalance output cut, motors braked, **alert sound (80–89)** |
 | Drive controller disconnects | drive force-DISABLED + shutdown clip (100); dome pad may be promoted but drive stays disabled until PS |
 | PS held 2 s | drive force-DISABLED (+ sound) |
 | No ESP32 packet to body for 2 s | servos neutral, dome motor stopped |
-| Rig experiment (`step`, `autotune`) | aborts on \|angle\| > 15°, joystick grab, mode change, 25 s timeout |
+| Rig experiment (`step`, `autotune`) | aborts on \|angle\| > 15°, joystick grab, mode change, 25 s timeout — **alert sound (80–89)** |
 | Drive disabled | PID integrators reset; re-enable starts clean |
 
 ---
