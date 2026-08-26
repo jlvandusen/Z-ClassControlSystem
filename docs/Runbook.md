@@ -44,10 +44,16 @@ docs/                       this runbook, review & fixes, setup notes
 
 ## 2. First-time setup (one laptop, once)
 
-1. Install [arduino-cli](https://arduino.github.io/arduino-cli/) and the cores: `esp32-bluepad32:esp32` (the Bluepad32 fork — the stock esp32 3.x core breaks ESP-NOW callbacks), `adafruit:avr`, `adafruit:samd`.
+> Bringing up a whole new droid / board set, not just a laptop? The start-to-finish
+> walkthrough (flash order, MAC pairing, first calibration, sign checks) is
+> [`docs/FirstTimeSetup.md`](FirstTimeSetup.md). The release installer
+> (`ZClass-ControlSystem-Setup-v*.exe` from GitHub Releases) does steps 1–3 for you.
+
+1. Install [arduino-cli](https://arduino.github.io/arduino-cli/) and the cores: `esp32-bluepad32:esp32` (drive — it hosts the BT gamepads), `esp32:esp32` 3.x (dome — stock core since RC4.4), `adafruit:avr`, `adafruit:samd`.
 2. Install the sketch libraries: SerialTransfer, DFRobotDFPlayerMini, Adafruit MPU6050 + Unified Sensor, Kalman (TKJ), Adafruit NeoPixel, Servo.
 3. Install .NET SDK 10+, then in the repo: `.\install.ps1` → builds `bin\bb8.exe`.
-4. Optional: add `C:\Users\james\BB8\bin` to PATH so it's just `bb8 …` from anywhere.
+4. Optional: add the repo's `bin\` folder to PATH so it's just `bb8 …` from anywhere.
+   The checkout can live in any folder — `targets.json` paths are relative to it.
 5. `bb8 list` → confirms targets and shows USB ports with board guesses.
 
 ---

@@ -52,6 +52,15 @@ cores/libraries, puts a self-contained `bb8` on your PATH, ships prebuilt binari
 all four boards (`tools\release\Flash-Prebuilt.ps1`), and links the folder to GitHub so
 `bb8 update` keeps it current. Cutting a release: `tools\release\make-release.ps1 -Version X.YY`.
 
+The installed (or cloned) folder is **relocatable**: `targets.json` uses relative
+`sketchRoot`/`buildRoot` paths that bb8 resolves against wherever `targets.json` lives
+(found via `BB8_HOME`, the current directory and its parents, or next to `bb8.exe`).
+
+**New droid or fresh board set?** Follow
+[`docs/FirstTimeSetup.md`](docs/FirstTimeSetup.md) — flash order, radio-MAC pairing,
+controller pairing, first calibration, and the polarity checks that must come before
+the first enable.
+
 ## bb8 Commander
 
 ```powershell

@@ -1,7 +1,8 @@
 
 
 ---
-> **Superseded notes below.** Current behaviour lives in `docs/Runbook.md` (controls §6, console §5,
+> **Superseded notes below.** First-time bring-up lives in `docs/FirstTimeSetup.md`;
+> current behaviour lives in `docs/Runbook.md` (controls §6, console §5,
 > lights §15, wireless bridge §16) and `docs/CHANGELOG.md`. In particular: since RC4.3 **PS** is the
 > only drive enable/disable (tap) + force-disable (hold 2 s); CIRCLE is a plain sound button.
 

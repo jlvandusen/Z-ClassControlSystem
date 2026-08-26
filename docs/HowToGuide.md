@@ -1,7 +1,9 @@
 # Z-Class BB-8 — Drive System How-To Guide
 
-*The friendly guide. Deep detail lives in the [Runbook](Runbook.md); tuning numbers in
-[RigTuning](RigTuning.md); version history in the [CHANGELOG](CHANGELOG.md).*
+*The friendly guide. Bringing up a **new build / fresh boards** for the first time?
+Start with [FirstTimeSetup](FirstTimeSetup.md). Deep detail lives in the
+[Runbook](Runbook.md); tuning numbers in [RigTuning](RigTuning.md); version history in
+the [CHANGELOG](CHANGELOG.md).*
 
 ---
 

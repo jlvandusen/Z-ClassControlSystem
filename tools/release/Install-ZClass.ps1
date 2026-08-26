@@ -98,12 +98,14 @@ if (-not (Test-Path (Join-Path $bb8Dir "bb8.exe"))) {
     dotnet publish (Join-Path $Root "tools\Bb8Commander") -c Release -o $bb8Dir --nologo -v quiet
   } else { throw "bb8\bb8.exe missing and no .NET SDK to build it. Use the release zip, or install .NET SDK 10." }
 }
+# targets.json ships with relative sketchRoot/buildRoot ("firmware"/"build") which bb8
+# resolves against the folder targets.json lives in - normalise any old absolute paths.
 $tj = Join-Path $Root "targets.json"
 $j = Get-Content $tj -Raw | ConvertFrom-Json
-$j.sketchRoot = (Join-Path $Root "firmware")
-$j.buildRoot  = (Join-Path $Root "build")
+$j.sketchRoot = "firmware"
+$j.buildRoot  = "build"
 $j | ConvertTo-Json -Depth 6 | Set-Content $tj -Encoding UTF8
-Write-Host "  targets.json -> sketchRoot=$($j.sketchRoot)"
+Write-Host "  targets.json -> sketchRoot=firmware, buildRoot=build (relative to $Root)"
 Set-Content (Join-Path $Root "bb8.cmd") "@echo off`r`n`"%~dp0bb8\bb8.exe`" %*" -Encoding ascii
 Add-UserPath $Root
 [Environment]::SetEnvironmentVariable("BB8_HOME", $Root, "User"); $env:BB8_HOME = $Root

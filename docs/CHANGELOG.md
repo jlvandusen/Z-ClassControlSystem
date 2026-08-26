@@ -2,6 +2,15 @@
 
 Builds = `versions.json` counters at the time; each board's banner shows `build N | date | git`.
 
+## bb8 Commander + docs — 2026-08-26 (drive 27 flashed)
+- **Portable install**: `targets.json` now ships relative `sketchRoot`/`buildRoot` (`"firmware"`/`"build"`), resolved against the folder `targets.json` lives in — the checkout/install works from any location, nothing is hard-coded. `Install-ZClass.ps1` writes relative paths too; old absolute paths still work.
+- **`docs/FirstTimeSetup.md`**: start-to-finish bring-up walkthrough for a new build / fresh board set (flash order, ESP-NOW MAC pairing via dome `setmac` + drive `domeMACAddress[]`, pad pairing, first calibration, polarity sign checks before first enable).
+
+## RC4.6 — 2026-08-25 (dome 16 · imu 2)
+- **Beep-synced PSI**: per-track 25 Hz brightness envelopes generated from the SD card's MP3s (`PsiEnvelopes.h`); the drive relays the playing track number so the dome pulses in time with the actual clip (unknown track → generic cadence).
+- **Sound banks**: chatter 1–31 (D-pad ↑ roll), excited 40s (L2+→), blips 70s (L2+←; PS toggle uses 70–74), alerts 80s (IMU-stale + experiment aborts), cues 60–63.
+- **`bb8 sounds [E:] [--flash]`**: one command scans the card, reports bank coverage, regenerates the PSI envelopes (ffmpeg), and reflashes the dome only when the card changed.
+
 ## RC4.5 — 2026-08-23 (drive 24 · body 13 · dome 12 · imu 2)
 - **Dome motion lean** (`tilt lean <deg>`, default −8): the drive sends its slewed commanded throttle; the body tilts the dome *against* the direction of travel so the magnet-riding dome stays on top of the shell. Signed, persisted.
 - **Tilt blend**: the dome stick is live while autoBalance is on (stick offset + leveling + lean all stack; was if/else).

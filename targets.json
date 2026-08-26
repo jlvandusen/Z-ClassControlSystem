@@ -1,7 +1,7 @@
 {
   "arduinoCli": "arduino-cli",
-  "sketchRoot": "C:\\Users\\james\\BB8\\firmware",
-  "buildRoot": "C:\\Users\\james\\BB8\\build",
+  "sketchRoot": "firmware",
+  "buildRoot": "build",
   "targets": [
     {
       "name": "drive",

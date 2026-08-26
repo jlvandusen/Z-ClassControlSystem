@@ -26,10 +26,22 @@ VtConsole.Enable();   // ANSI colors on classic conhost too
 var configPath = FindConfig();
 if (configPath is null)
 {
-    Fail("targets.json not found (looked in current dir and C:\\Users\\james\\BB8).");
+    Fail("targets.json not found (looked in BB8_HOME, the current dir and its parents, and next to bb8.exe).");
     return 1;
 }
 var config = JsonSerializer.Deserialize<Bb8Config>(File.ReadAllText(configPath), JsonCtx.Default.Bb8Config)!;
+
+// sketchRoot/buildRoot may be relative (or omitted): resolve against the folder
+// targets.json lives in, so the checkout/install works from any location.
+var configDir = Path.GetDirectoryName(Path.GetFullPath(configPath))!;
+config.SketchRoot = ResolveRoot(config.SketchRoot, "firmware");
+config.BuildRoot  = ResolveRoot(config.BuildRoot, "build");
+
+string ResolveRoot(string value, string fallback)
+{
+    var v = string.IsNullOrWhiteSpace(value) ? fallback : value;
+    return Path.IsPathRooted(v) ? v : Path.GetFullPath(Path.Combine(configDir, v));
+}
 
 if (args.Length == 0) { PrintHelp(); return 0; }
 
@@ -106,13 +118,12 @@ string? FindConfig()
 {
     // Search order: BB8_HOME, the current directory (and its parents), the folder
     // bb8.exe lives in (and its parents — a self-contained install keeps
-    // targets.json one level above bb8\), then the developer checkout.
+    // targets.json one level above bb8\).
     var starts = new List<string>();
     var home = Environment.GetEnvironmentVariable("BB8_HOME");
     if (!string.IsNullOrWhiteSpace(home)) starts.Add(home);
     starts.Add(Directory.GetCurrentDirectory());
     starts.Add(AppContext.BaseDirectory);
-    starts.Add(@"C:\Users\james\BB8");
     foreach (var dir in starts)
     {
         var p = Path.Combine(dir, "targets.json");
