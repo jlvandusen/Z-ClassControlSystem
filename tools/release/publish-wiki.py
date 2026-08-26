@@ -16,6 +16,7 @@ DRY = "--dry-run" in sys.argv
 
 # source doc -> wiki page name (title derived from the H1 in the file)
 PAGES = {
+    "FirstTimeSetup.md":          "First-Time-Setup",
     "HowToGuide.md":              "How-To-Guide",
     "Runbook.md":                 "Runbook",
     "RigTuning.md":               "Rig-Tuning",
@@ -81,6 +82,7 @@ itself updated from this repo.
 | Page | What it's for |
 |---|---|
 | [Installation](Installation) | Setup.exe walkthrough, first run, verifying the install |
+| [First-Time Setup](First-Time-Setup) | new build / fresh boards: flash order, radio-MAC + pad pairing, first calibration, sign checks before first enable |
 | [How-To Guide](How-To-Guide) | operate the droid: power-on, controls, sounds, tuning quick path, golden rules |
 | [Runbook](Runbook) | the deep operations reference: flashing, console commands for every board, controller mapping, calibration, tuning, audio, safety, troubleshooting, dome lights, wireless bridge |
 | [Rig Tuning](Rig-Tuning) | the measured, repeatable tuning procedure (rollers and sealed shell) |
@@ -126,6 +128,7 @@ INSTALL = f"""# Installation
    You should see the five targets and any boards on USB.
 
 ### First session
+Bringing up a **new droid or fresh board set**? Follow [First-Time Setup](First-Time-Setup) end to end. The short form:
 | Step | Command |
 |---|---|
 | pair your PS3 / Nav pads | `bb8 pair` (guided) |
@@ -162,6 +165,7 @@ Start menu → *Z-Class Control System → Uninstall* (or Settings → Apps). Re
 SIDEBAR = """**Z-Class Control System**
 - [Home](Home)
 - [Installation](Installation)
+- [First-Time Setup](First-Time-Setup)
 - [How-To Guide](How-To-Guide)
 - [Runbook](Runbook)
 - [Rig Tuning](Rig-Tuning)
