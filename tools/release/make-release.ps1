@@ -118,6 +118,7 @@ You should see the five targets (drive, dome, ball, body, imu) and any boards on
 | flash a board (compile from source + verify) | ``bb8 upload drive``  (then ``body``, ``imu``, ``dome``) |
 | flash the bundled prebuilt binaries instead | ``tools\release\Flash-Prebuilt.ps1 -Target drive -Port COM4`` |
 | watch a board / the drive through the dome | ``bb8 monitor drive`` / ``bb8 monitor ball`` |
+| **new droid / fresh boards?** | follow [First-Time Setup](https://github.com/jlvandusen/Z-ClassControlSystem/wiki/First-Time-Setup) end to end |
 | read | Start menu → *How-To Guide*, or the [wiki](https://github.com/jlvandusen/Z-ClassControlSystem/wiki) |
 
 **Uninstall:** Start menu → *Z-Class Control System → Uninstall*.
@@ -133,7 +134,7 @@ if (-not $SkipDocx) {
   try {
     $w = New-Object -ComObject Word.Application; $w.Visible = $false
     $dx = Join-Path $Stage "docs\docx"; New-Item -ItemType Directory -Force $dx | Out-Null
-    foreach ($name in @("HowToGuide", "Assembly_Drive", "RigTuning", "Runbook", "CHANGELOG")) {
+    foreach ($name in @("FirstTimeSetup", "HowToGuide", "Assembly_Drive", "RigTuning", "Runbook", "CHANGELOG")) {
       $html = Join-Path $env:TEMP "$name.html"
       python "tools\release\md2html.py" "docs\$name.md" $html "$name" | Out-Null
       $doc = $w.Documents.Open($html, $false, $true)
