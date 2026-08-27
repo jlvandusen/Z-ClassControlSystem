@@ -11,6 +11,7 @@ RC4 is a ground-up fix of the RC3 firmware after a 112-finding review
 gains, cascaded S2S position loop, servo easing on the dome tilt, non-blocking
 ESP-NOW with BT-coexistence fixes, and a dozen safety/correctness repairs.
 Full write-up: [`docs/BB8_RC4_Review_and_Fixes.md`](docs/BB8_RC4_Review_and_Fixes.md).
+![alt text](docs/images/v10_board_top.png)
 
 **RC4.5 (2026-08-23) — what it does now** (history in [`docs/CHANGELOG.md`](docs/CHANGELOG.md)):
 - **Wireless console**: the dome on USB bridges `bb8` to the drive over ESP-NOW — tune and capture telemetry with the shell closed (`bb8 monitor ball`).
