@@ -5,6 +5,8 @@ Firmware, build system, and a full serial mission-control CLI for the
 **This repo is primary for all control and software supporting that drive**; the
 hardware half — mechanics/STLs, PCB fabrication files, BOM, wiring docs — lives in
 [Z-ClassDriveSystem](https://github.com/jlvandusen/Z-ClassDriveSystem).
+
+VERSION 10 upcoming board
 ![v10 board top](docs/pcb-renders/v10_board_top.png)
 
 RC4 is a ground-up fix of the RC3 firmware after a 112-finding review
@@ -14,6 +16,9 @@ ESP-NOW with BT-coexistence fixes, and a dozen safety/correctness repairs.
 Full write-up: [`docs/BB8_RC4_Review_and_Fixes.md`](docs/BB8_RC4_Review_and_Fixes.md).
 ![v10 board top](docs/pcb-renders/v10_board_bottom.png)
 
+Version 9.15 working board
+![mainboard top render](docs/pcb-renders/render_mainboard_top.png)
+![mainboard top render](docs/pcb-renders/render_mainboard_bottom.png)
 **RC4.5 (2026-08-23) — what it does now** (history in [`docs/CHANGELOG.md`](docs/CHANGELOG.md)):
 - **Wireless console**: the dome on USB bridges `bb8` to the drive over ESP-NOW — tune and capture telemetry with the shell closed (`bb8 monitor ball`).
 - **Self-updating tooling**: `bb8 update` / every `upload` pulls new firmware from GitHub first; `bb8 update --flash` reflashes only boards that are behind.
