@@ -76,7 +76,11 @@ with an ESP32 drive brain (balance PIDs, Bluetooth gamepads), a Feather 32u4 bod
 the wireless console bridge). The `bb8` CLI builds, flashes, monitors, tunes and keeps
 itself updated from this repo.
 
-**Get it:** [Releases]({REPO}/releases) → run `ZClass-ControlSystem-Setup-v*.exe` → see [Installation](Installation).
+**Get it:** [Releases]({REPO}/releases) → run `ZClass-ControlSystem-Setup-BASIC-v*.exe` (or `-MAX-`) → see [Installation](Installation).
+
+**The hardware** — mechanics/STLs, PCB fabrication files, BOM, wiring docs — lives in
+[Z-ClassDriveSystem](https://github.com/jlvandusen/Z-ClassDriveSystem); this repo and wiki are
+primary for everything control and software.
 
 ## Start here
 | Page | What it's for |

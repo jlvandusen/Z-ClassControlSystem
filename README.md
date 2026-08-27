@@ -2,6 +2,9 @@
 
 Firmware, build system, and a full serial mission-control CLI for the
 [Z-Class BB-8 drive system](https://github.com/jlvandusen/Z-ClassDriveSystem).
+**This repo is primary for all control and software supporting that drive**; the
+hardware half — mechanics/STLs, PCB fabrication files, BOM, wiring docs — lives in
+[Z-ClassDriveSystem](https://github.com/jlvandusen/Z-ClassDriveSystem).
 
 RC4 is a ground-up fix of the RC3 firmware after a 112-finding review
 (110 confirmed against source): single 100 Hz PID control path with real-unit
