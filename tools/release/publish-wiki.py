@@ -104,23 +104,34 @@ itself updated from this repo.
 ```
 bb8 list                 boards on USB           bb8 update [--flash]     pull from GitHub (+ reflash stale boards)
 bb8 upload <board>       compile + flash + verify bb8 monitor <board|ball> console (--log x.csv)
-bb8 tune s2s|drive|dome  live closed-loop tuner  bb8 analyze x.csv        offline tuning analysis
-bb8 pair                 PS3 / Nav pad pairing   bb8 identify             who's on which port
+bb8 flash <board>        prebuilt binary, no toolchain (BASIC)             bb8 analyze x.csv        offline tuning analysis
+bb8 tune s2s|drive|dome  live closed-loop tuner  bb8 pair                 PS3 / Nav pad pairing
 ```
 """
 
 INSTALL = f"""# Installation
 
+## Which installer?
+
+| | **Setup-BASIC** | **Setup-MAX** |
+|---|---|---|
+| For | driving the droid | modifying the firmware source |
+| Flashing | prebuilt binaries, flashers bundled — `bb8 flash` / `bb8 upload` | compiles from source — `bb8 upload` |
+| Updates | latest GitHub **release** over HTTPS — no git | git fast-forward + everything BASIC does |
+| Extra setup | none | toolchain task (~1 GB, one time) + git link |
+
+Not sure? **BASIC.** Installing MAX over it later upgrades in place.
+
 ## A. The installer (recommended)
-1. Download **`ZClass-ControlSystem-Setup-v*.exe`** from [Releases]({REPO}/releases).
+1. Download **`ZClass-ControlSystem-Setup-BASIC-v*.exe`** (or `-MAX-`) from [Releases]({REPO}/releases).
 2. Run it. It's unsigned, so Windows SmartScreen may show *"Windows protected your PC"* → **More info → Run anyway**. No administrator rights are needed.
 3. Wizard:
-   - **Install folder** — default `%LOCALAPPDATA%\\ZClass`. Any user-writable folder works (the toolchain and builds live inside it).
-   - **First-run setup** tasks:
-     - ☑ *Install arduino-cli + board cores + libraries now* — needs internet, ~10 min. Required before you can compile or flash. (You can run it later from the Start menu: *Re-run toolchain setup*.)
-     - ☑ *Link the install folder to GitHub* — needs `git` on the PC. Enables `bb8 update` to pull new firmware forever.
+   - **Install folder** — default `%LOCALAPPDATA%\\ZClass`. Any user-writable folder works, and the folder is relocatable.
+   - **First-run setup** tasks (MAX only):
+     - ☑ *Install arduino-cli + board cores + libraries now* — needs internet, ~10 min. Required before you can *compile*. (You can run it later from the Start menu: *Re-run toolchain setup*.)
+     - ☑ *Link the install folder to GitHub* — needs `git` on the PC. Enables source-level `bb8 update`.
    - Optional desktop shortcut.
-4. After the files copy, a **PowerShell window** opens and runs the setup you ticked. Watch it finish (`=== Ready ===`). It downloads arduino-cli if you don't have it, installs the exact cores (`esp32-bluepad32` 4.1.0, `esp32` 3.3.7, Adafruit AVR 1.4.15 / SAMD 1.7.17) and the sketch libraries into a private config, points `targets.json` at the install folder and puts `bb8` on your PATH.
+4. MAX: after the files copy, a **PowerShell window** opens and runs the setup you ticked — watch it finish (`=== Ready ===`). It downloads arduino-cli if you don't have it, installs the exact cores (`esp32-bluepad32` 4.1.0, `esp32` 3.3.7, Adafruit AVR 1.4.15 / SAMD 1.7.17) and the sketch libraries into a private config. BASIC: there is nothing to wait for.
 5. **Open a new terminal** (PATH changes need one) and verify:
    ```
    bb8 list

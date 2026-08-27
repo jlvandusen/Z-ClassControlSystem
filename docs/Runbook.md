@@ -66,8 +66,12 @@ bb8 upload drive         # stamp → compile → flash → VERIFY banner
 bb8 upload body
 bb8 upload imu
 bb8 upload dome
+bb8 flash drive          # flash the PREBUILT release binary — no arduino-cli/cores needed
+                         # (esptool for ESP32s, native AVR109 for the 32u4, UF2 copy for the Trinket;
+                         #  'upload' falls back to this automatically when there is no toolchain)
 bb8 deploy drive         # upload + open the monitor
-bb8 update [--flash]     # pull new firmware/tooling from GitHub (--flash: reflash boards that are behind)
+bb8 update [--flash]     # git checkout: pull commits · no git: fetch the latest GitHub RELEASE over
+                         # HTTPS (bb8.exe swaps itself on the next run) · --flash: reflash stale boards
 ```
 
 What `upload` does, in order:

@@ -42,15 +42,22 @@ cores `esp32-bluepad32:esp32` (drive), `esp32:esp32` ≥ 3.3 (dome), `adafruit:a
 the sketch libraries (SerialTransfer, DFRobotDFPlayerMini, Adafruit MPU6050,
 Kalman, Adafruit NeoPixel, Servo). [.NET SDK 10+] to build the CLI.
 
-## Install from a release (no dev tools needed)
+## Install from a release — BASIC or MAX
 
-Easiest: run **`ZClass-ControlSystem-Setup-v*.exe`** from [Releases](https://github.com/jlvandusen/Z-ClassControlSystem/releases)
-— a normal Windows installer (no admin): choose a folder, tick "install toolchain" and
-"link to GitHub", done (Start-menu shortcuts + uninstaller included). Or grab the
-`ZClass-ControlSystem-v*.zip`, extract it anywhere, run `.\Install-ZClass.ps1` — it installs arduino-cli + the exact
-cores/libraries, puts a self-contained `bb8` on your PATH, ships prebuilt binaries for
-all four boards (`tools\release\Flash-Prebuilt.ps1`), and links the folder to GitHub so
-`bb8 update` keeps it current. Cutting a release: `tools\release\make-release.ps1 -Version X.YY`.
+Two installers per [release](https://github.com/jlvandusen/Z-ClassControlSystem/releases),
+both no-admin, both fully self-contained:
+
+| | **Setup-BASIC** | **Setup-MAX** |
+|---|---|---|
+| For | driving the droid | modifying the firmware |
+| Flashing | `bb8 flash <board>` — **prebuilt binaries**, flashers bundled (esptool for the ESP32s; AVR109 and UF2 spoken natively by bb8). `bb8 upload` falls back to this automatically. | `bb8 upload <board>` — compiles from source (arduino-cli + cores, ~1 GB one-time toolchain setup) |
+| Updates | `bb8 update` pulls the **latest GitHub release over HTTPS** — no git | `bb8 update` fast-forwards the git checkout — plus everything BASIC does |
+| Needs | nothing but Windows | internet for the toolchain task; `git` for the source link |
+
+Installing one over the other upgrades in place (same folder, same AppId). The zip
+asset is the same bundle without an installer: extract anywhere, `.\Install-ZClass.ps1`
+(add `-SkipToolchain -NoGit` for a BASIC-style setup). Cutting a release:
+`tools\release\make-release.ps1 -Version X.YY` — it builds both installers.
 
 The installed (or cloned) folder is **relocatable**: `targets.json` uses relative
 `sketchRoot`/`buildRoot` paths that bb8 resolves against wherever `targets.json` lives
@@ -69,6 +76,7 @@ the first enable.
 bb8 list               # targets + detected USB serial ports
 bb8 build all          # compile the whole fleet
 bb8 upload drive       # compile + flash (auto-detects the port)
+bb8 flash drive        # flash the PREBUILT release binary — no compiler, no cores, no git
 bb8 deploy drive       # build + upload + open monitor
 bb8 identify           # probe every port, read boot banners
 bb8 update             # pull new firmware / tooling from GitHub
@@ -79,15 +87,23 @@ bb8 tune s2s --port COMx   # live tuner — works through the bridge too (COMx =
 
 ### Staying current with GitHub
 
-The firmware lives in this repo, so "new firmware" is just new commits.
-Every `build` / `upload` / `deploy` (and any other command, at most once every
-4 h) does a `git fetch` first and **fast-forwards the checkout when that is
-safe** — it never touches local commits or edits (the only files it sets aside
-are the generated `versions.json` / `BuildStamp.h`, keeping the higher build
-counters). If `tools/Bb8Commander` changed, `bb8.cmd` rebuilds `bin\bb8.exe`
-and re-runs your command. Offline, it says so once and carries on with what's
-on disk. `bb8 update --flash` reads each plugged-in board's banner (`git HASH`)
-and reflashes only the boards whose sketch has commits since that hash.
+Two channels, picked automatically by whether the folder is a git checkout:
+
+- **Git checkout (MAX / dev):** every `build` / `upload` / `deploy` (and any other
+  command, at most once every 4 h) does a `git fetch` first and **fast-forwards the
+  checkout when that is safe** — it never touches local commits or edits (the only
+  files it sets aside are the generated `versions.json` / `BuildStamp.h`, keeping the
+  higher build counters). If `tools/Bb8Commander` changed, `bb8.cmd` rebuilds
+  `bin\bb8.exe` and re-runs your command. `bb8 update --flash` reads each plugged-in
+  board's banner (`git HASH`) and reflashes only the boards whose sketch has commits
+  since that hash.
+- **No git (BASIC):** `bb8 update` finds the **latest GitHub release over plain
+  HTTPS** (no git, no API key), downloads it, and applies it over the install —
+  including a new `bb8.exe`, which swaps itself in on the next run. `bb8 update
+  --flash` then compares each plugged-in board's banner build number against the
+  release's prebuilt binaries and runs `bb8 flash` on the ones that are behind.
+
+Offline, either channel says so once and carries on with what's on disk.
 Skip the check with `--no-update` or `BB8_NO_UPDATE=1`.
 
 ### The serial monitor

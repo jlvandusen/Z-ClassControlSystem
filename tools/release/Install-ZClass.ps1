@@ -106,7 +106,11 @@ $j.sketchRoot = "firmware"
 $j.buildRoot  = "build"
 $j | ConvertTo-Json -Depth 6 | Set-Content $tj -Encoding UTF8
 Write-Host "  targets.json -> sketchRoot=firmware, buildRoot=build (relative to $Root)"
-Set-Content (Join-Path $Root "bb8.cmd") "@echo off`r`n`"%~dp0bb8\bb8.exe`" %*" -Encoding ascii
+# The wrapper also swaps in bb8.exe.new (a running exe can't overwrite itself;
+# bb8's release-channel update leaves the new one beside it).
+Set-Content (Join-Path $Root "bb8.cmd") ("@echo off`r`n" +
+  "if exist `"%~dp0bb8\bb8.exe.new`" move /y `"%~dp0bb8\bb8.exe.new`" `"%~dp0bb8\bb8.exe`" >nul`r`n" +
+  "`"%~dp0bb8\bb8.exe`" %*") -Encoding ascii
 Add-UserPath $Root
 [Environment]::SetEnvironmentVariable("BB8_HOME", $Root, "User"); $env:BB8_HOME = $Root
 

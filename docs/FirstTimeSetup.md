@@ -15,16 +15,22 @@ calibrate, and make the first safe moves. Daily operation lives in the
 
 ## 1. Install the PC tooling
 
-Two roads, same result:
+Three roads, same `bb8` at the end — pick by what you'll do:
 
-**A. Release installer (no dev tools needed).** Download
-**`ZClass-ControlSystem-Setup-v*.exe`** from
+**A. Setup-BASIC (most people).** Download
+**`ZClass-ControlSystem-Setup-BASIC-v*.exe`** from
 [Releases](https://github.com/jlvandusen/Z-ClassControlSystem/releases) and run it —
-no admin needed, installs to `%LOCALAPPDATA%\ZClass` by default. Tick *install
-toolchain* (arduino-cli + the exact cores/libraries) and *link to GitHub* (so
-`bb8 update` keeps you current).
+no admin, installs to `%LOCALAPPDATA%\ZClass` by default, done in seconds.
+**No git, no Arduino toolchain, no compiling**: boards are flashed from the release's
+prebuilt binaries with bundled flashers, and `bb8 update` pulls the next release over
+HTTPS. If you never plan to edit firmware source, this is the whole story.
 
-**B. Clone the repo (dev road).** Needs [arduino-cli](https://arduino.github.io/arduino-cli/)
+**B. Setup-MAX (you'll modify the firmware).** Same installer family
+(**`...Setup-MAX-v*.exe`**), plus two first-run tasks: *install toolchain*
+(arduino-cli + the exact cores/libraries, ~1 GB one-time) and *link to GitHub* (so
+`bb8 update` pulls source commits). Installing MAX over BASIC later upgrades in place.
+
+**C. Clone the repo (dev road).** Needs [arduino-cli](https://arduino.github.io/arduino-cli/)
 and the .NET SDK 10+:
 
 ```powershell
@@ -55,6 +61,12 @@ USB chip and a never-flashed board can't identify itself by banner). For each:
 ```powershell
 bb8 upload drive --port COMx    # then: imu, body, dome
 ```
+
+On a BASIC install `bb8 upload` automatically flashes the **prebuilt release binary**
+instead of compiling (same as typing `bb8 flash`): esptool writes the ESP32s, bb8
+speaks the 32u4's AVR109 bootloader protocol itself, and the Trinket M0 gets a UF2
+file copied to its `TRINKETBOOT` drive — no toolchain involved, and the same
+banner verification decides success either way.
 
 Suggested order: **drive → imu → body → dome** (the drive is the hub — with it running
 you can watch each link come alive from one console). Wait for

@@ -45,6 +45,11 @@ string ResolveRoot(string value, string fallback)
 
 if (args.Length == 0) { PrintHelp(); return 0; }
 
+// BASIC installs have no arduino-cli: upload falls back to the prebuilt
+// binaries (bb8 flash), and port detection falls back to the registry.
+bool? hasArduinoCli = null;
+bool HasArduinoCli() => hasArduinoCli ??= Run(config.ArduinoCli, "version", capture: true).rc == 0;
+
 const int REBUILD_EXIT = 75;   // tells bb8.cmd: bb8's own source changed - rebuild bin\ and re-run this command
 var boolFlags = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     { "--raw", "--show-tlm", "--list", "--auto", "--install-driver", "--no-update", "--flash" };
@@ -63,6 +68,7 @@ try
         case "list":     return CmdList();
         case "build":    return CmdBuild(Arg(1));
         case "upload":   return await CmdUpload(Arg(1), Opt("--port"));
+        case "flash":    return await CmdFlash(Arg(1), Opt("--port"));
         case "deploy":
         {
             var t = Arg(1);
@@ -146,7 +152,9 @@ void PrintHelp()
 
           bb8 list                                targets + detected serial ports
           bb8 build <target|all>                  compile (drive|dome|body|imu)
-          bb8 upload <target> [--port COMx]       compile + flash
+          bb8 upload <target> [--port COMx]       compile + flash (no arduino-cli? falls back to 'flash')
+          bb8 flash <target> [--port COMx]        flash the PREBUILT release binary — no compiler,
+                                                  no cores, no git (esptool / AVR109 / UF2)
           bb8 deploy <target> [--port COMx]       build + upload + monitor
           bb8 monitor <targets...|COMx> [--baud n] [--log file.csv] [--raw] [--show-tlm]
           bb8 analyze <file.csv>                  tuning analysis of a logged session
@@ -170,9 +178,10 @@ void PrintHelp()
           - --raw = plain line streaming, no UI (for piping/CI)
 
         Updates:
-          build / upload / deploy always check GitHub first (other commands: at most every 4 h),
-          fast-forward this checkout when that is safe, and rebuild bb8 if its own source changed.
-          Skip with --no-update or BB8_NO_UPDATE=1.
+          build / upload / deploy always check GitHub first (other commands: at most every 4 h).
+          Git checkout: fast-forward when safe, rebuild bb8 if its own source changed.
+          No git (BASIC install): the latest GitHub RELEASE is fetched over HTTPS and applied;
+          bb8.exe swaps itself in on the next run. Skip with --no-update or BB8_NO_UPDATE=1.
 
         Examples:
           bb8 monitor drive
@@ -244,8 +253,43 @@ List<PortInfo> DetectPorts()
         catch (JsonException) { }
     }
     if (result.Count == 0)
+    {
+        // No arduino-cli (BASIC install): VID/PID from the registry instead.
+        result.AddRange(RegistryPorts());
+        var have = result.Select(r => r.Port).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var name in SerialPort.GetPortNames().Distinct())
-            result.Add(new PortInfo(name, null, null));
+            if (!have.Contains(name)) result.Add(new PortInfo(name, null, null));
+    }
+    return result;
+}
+
+// USB VID/PID for live COM ports straight from the registry — what
+// 'arduino-cli board list' would have told us, minus arduino-cli.
+List<PortInfo> RegistryPorts()
+{
+    var result = new List<PortInfo>();
+    try
+    {
+        var present = new HashSet<string>(SerialPort.GetPortNames(), StringComparer.OrdinalIgnoreCase);
+        using var usb = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Enum\USB");
+        if (usb is null) return result;
+        foreach (var devKey in usb.GetSubKeyNames())
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(devKey, @"VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})");
+            if (!m.Success) continue;
+            using var dev = usb.OpenSubKey(devKey);
+            if (dev is null) continue;
+            foreach (var inst in dev.GetSubKeyNames())
+            {
+                using var pk = dev.OpenSubKey(inst + @"\Device Parameters");
+                if (pk?.GetValue("PortName") is string port && present.Contains(port))
+                    result.Add(new PortInfo(port, m.Groups[1].Value.ToUpperInvariant(), m.Groups[2].Value.ToUpperInvariant()));
+            }
+        }
+        // stale registry entries can claim the same COM twice — first VID wins
+        result = result.GroupBy(p => p.Port, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).ToList();
+    }
+    catch (Exception) { }
     return result;
 }
 
@@ -270,6 +314,11 @@ int CmdBuild(string? name)
 
 async Task<int> CmdUpload(string? name, string? port)
 {
+    if (!HasArduinoCli())
+    {
+        Console.WriteLine("\u001b[33m[UPLOAD] arduino-cli is not installed — flashing the prebuilt release binaries instead.\u001b[0m");
+        return await CmdFlash(name, port);
+    }
     var t = ResolveTarget(name);
     // Stamp FIRST so the compile bakes this build number in (it used to stamp
     // after compiling, so every binary carried the previous build's label).
@@ -329,6 +378,164 @@ async Task<int> CmdUpload(string? name, string? port)
     return 1;
 }
 
+// ------------------------------------------------------------------
+//  FLASH — prebuilt release binaries, no arduino-cli / cores needed.
+//  binaries\<target>\flash.json (written by make-release) says how:
+//  esptool (ESP32s, bundled tools\flash\esptool.exe), avr109 (32u4,
+//  spoken natively), uf2 (Trinket M0, file copy to its boot drive).
+// ------------------------------------------------------------------
+async Task<int> CmdFlash(string? name, string? port)
+{
+    var t = ResolveTarget(name);
+    var dir = Path.Combine(RepoRootDir(), "binaries", t.Name);
+    var manifestPath = Path.Combine(dir, "flash.json");
+    if (!File.Exists(manifestPath))
+    {
+        Fail($"No prebuilt binaries for '{t.Name}' ({manifestPath} missing). They ship with releases — 'bb8 update' fetches them" +
+             (HasArduinoCli() ? $", or compile with 'bb8 upload {t.Name}'." : "."));
+        return 1;
+    }
+    FlashManifest m;
+    try { m = FlashManifest.Load(manifestPath); }
+    catch (Exception ex) { Fail($"flash.json unreadable: {ex.Message}"); return 1; }
+    foreach (var img in m.Images)
+        if (!File.Exists(Path.Combine(dir, img.File))) { Fail($"binary '{img.File}' missing from {dir}."); return 1; }
+
+    Console.WriteLine($"\u001b[36m[FLASH] {t.Name}: prebuilt build {m.Build} via {m.Method}\u001b[0m");
+    int rc;
+    switch (m.Method)
+    {
+        case "esptool":
+        {
+            port ??= await AutoPort(t);
+            if (port is null)
+            {
+                Fail($"No port for '{t.Name}' — pass --port COMx (a board still on foreign firmware can't be identified by banner).");
+                return 1;
+            }
+            var esptool = FindFlashTool("esptool.exe");
+            if (esptool is null) { Fail("esptool.exe not found (expected in tools\\flash\\ of a release install, on PATH, or in Arduino15)."); return 1; }
+            rc = PrebuiltFlash.Esp32(esptool, port, m, dir);
+            break;
+        }
+        case "avr109":
+        {
+            var boot = await FindAvrBootloaderPort(t, port);
+            if (boot is null) return 1;
+            byte[] image;
+            int len;
+            try { image = PrebuiltFlash.ParseIntelHex(Path.Combine(dir, m.Images[0].File), out len); }
+            catch (Exception ex) { Fail($"hex parse failed: {ex.Message}"); return 1; }
+            rc = PrebuiltFlash.Avr109(boot, image, len);
+            break;
+        }
+        case "uf2":
+        {
+            rc = await FlashUf2Target(t, port, m, dir);
+            break;
+        }
+        default:
+            Fail($"flash.json says method '{m.Method}' — this bb8 doesn't know it (update bb8?).");
+            return 1;
+    }
+    if (rc != 0)
+        Console.WriteLine("\u001b[33m[FLASH] the flasher reported an error — the banner decides, checking anyway.\u001b[0m");
+
+    var vport = port ?? "";
+    int running = await ReadRunningBuild(t, vport, IsNativeUsb(t) || m.Method == "uf2");
+    if (running >= 0 && (m.Build <= 0 || running == m.Build))
+    {
+        Console.WriteLine($"\u001b[32m[VERIFY] OK — {t.Name} is running build {running}.\u001b[0m");
+        return 0;
+    }
+    Fail(running < 0
+        ? $"{t.Name}: no banner after flashing — check with 'bb8 monitor {t.Name}'."
+        : $"{t.Name}: reports build {running}, expected {m.Build}.");
+    return 1;
+}
+
+// Caterina: 1200-baud touch on the CDC port, then the bootloader enumerates
+// (VID 239A PID 000C, often a different COM number) for ~8 s.
+async Task<string?> FindAvrBootloaderPort(Bb8Target t, string? port)
+{
+    string? Boot() => DetectPorts().FirstOrDefault(p =>
+        string.Equals(p.Vid, t.UsbVid, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(p.Pid, "000C", StringComparison.OrdinalIgnoreCase))?.Port;
+
+    var b = Boot();
+    if (b is not null) { Console.WriteLine($"[FLASH] bootloader already live on {b}"); return b; }
+
+    var cdc = port ?? DetectPorts().Where(p => GuessTargets(p).Contains(t.Name)).Select(p => p.Port).FirstOrDefault();
+    if (cdc is null)
+    {
+        Fail($"'{t.Name}' not found on USB. Plug it in — or double-tap its reset (LED pulses) and rerun within 8 s.");
+        return null;
+    }
+    Console.WriteLine($"[FLASH] 1200-baud touch on {cdc} — waiting for the bootloader...");
+    PrebuiltFlash.Touch1200(cdc);
+    var deadline = DateTime.Now.AddSeconds(10);
+    while (DateTime.Now < deadline)
+    {
+        b = Boot();
+        if (b is not null) { await Task.Delay(400); return b; }   // give the driver a beat
+        await Task.Delay(300);
+    }
+    Fail("bootloader never enumerated. Double-tap the board's reset (LED pulses), then rerun immediately.");
+    return null;
+}
+
+async Task<int> FlashUf2Target(Bb8Target t, string? port, FlashManifest m, string dir)
+{
+    var vol = PrebuiltFlash.FindUf2Volume(m.Volume);
+    if (vol is null)
+    {
+        var cdc = port ?? DetectPorts().Where(p => GuessTargets(p).Contains(t.Name)).Select(p => p.Port).FirstOrDefault();
+        if (cdc is null)
+        {
+            Fail($"'{t.Name}' not found on USB and no {m.Volume} drive present. Plug it in, or double-tap reset so {m.Volume} appears.");
+            return 1;
+        }
+        Console.WriteLine($"[FLASH] 1200-baud touch on {cdc} — waiting for the {m.Volume} drive...");
+        PrebuiltFlash.Touch1200(cdc);
+        var deadline = DateTime.Now.AddSeconds(15);
+        while (vol is null && DateTime.Now < deadline)
+        {
+            await Task.Delay(500);
+            vol = PrebuiltFlash.FindUf2Volume(m.Volume);
+        }
+        if (vol is null) { Fail($"{m.Volume} drive never appeared — double-tap the reset button and rerun."); return 1; }
+    }
+    var bin = File.ReadAllBytes(Path.Combine(dir, m.Images[0].File));
+    var uf2 = PrebuiltFlash.BinToUf2(bin, m.Base, m.FamilyId);
+    Console.WriteLine($"\u001b[36m[FLASH] copying {uf2.Length / 1024} KB UF2 to {vol} ({m.Volume})\u001b[0m");
+    try { File.WriteAllBytes(Path.Combine(vol, "CURRENT.UF2"), uf2); }
+    catch (IOException ex)
+    {
+        // the board reboots into the app the instant the copy completes; the
+        // vanishing drive can surface as a write error even on success
+        Console.WriteLine($"[FLASH] write ended with '{ex.Message}' — normal if the board rebooted; the banner decides.");
+    }
+    return 0;
+}
+
+// Release installs bundle esptool at tools\flash\; dev machines have it in
+// the Arduino15 core packages; PATH works too.
+string? FindFlashTool(string exe)
+{
+    var local = Path.Combine(RepoRootDir(), "tools", "flash", exe);
+    if (File.Exists(local)) return local;
+    var bare = Path.GetFileNameWithoutExtension(exe);
+    if (Run(bare, "version", capture: true).rc == 0) return bare;
+    try
+    {
+        var pkgs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Arduino15", "packages");
+        if (Directory.Exists(pkgs))
+            return Directory.EnumerateFiles(pkgs, exe, SearchOption.AllDirectories).OrderByDescending(f => f).FirstOrDefault();
+    }
+    catch (Exception) { }
+    return null;
+}
+
 // Reads "build N" from the board's banner after a flash. Waits for the USB
 // to drop and come back (native-USB boards), opens the port (the ESP32
 // auto-resets on open and prints its BOOT banner), and also asks 'version'
@@ -377,7 +584,7 @@ async Task<BannerStamp> ReadBannerStamp(Bb8Target t, string port, bool nativeUsb
         catch (Exception ex)   // port busy / re-enumerating — retry
         {
             if (Environment.GetEnvironmentVariable("BB8_DEBUG") == "1")
-                Console.WriteLine($"[90m[VERIFY] {p}: {ex.GetType().Name}: {ex.Message}[0m");
+                Console.WriteLine($"\u001b[90m[VERIFY] {p}: {ex.GetType().Name}: {ex.Message}\u001b[0m");
             await Task.Delay(700);
         }
     }
@@ -659,7 +866,7 @@ async Task<int> TuneBalance(string axis, string? portOpt, int nudgesPer, int max
     if (port is null) { Fail("No drive port found. Close any monitor and plug the drive in."); return 1; }
 
     Console.WriteLine($"""
-        [36m=== bb8 tune {axis} — live closed-loop tuner ({nudgesPer} nudge(s) per decision, max {maxCycles} cycles) ===[0m
+        \u001b[36m=== bb8 tune {axis} — live closed-loop tuner ({nudgesPer} nudge(s) per decision, max {maxCycles} cycles) ===\u001b[0m
         Droid on the ROLLERS, drive enabled (CIRCLE), autoBalance ON (CROSS).
         When prompted: nudge the top ~5 deg {(isS2s ? "SIDEWAYS" : "FORWARD")} and LET GO.
         Ctrl+C aborts (gains stay whatever was last set, not saved).
@@ -830,7 +1037,7 @@ async Task<int> TuneDome(string? portOpt, int rocksPer, int maxCycles)
     if (port is null) { Fail("No body port found. Plug the 32u4 in (and close any monitor)."); return 1; }
 
     Console.WriteLine($"""
-        [36m=== bb8 tune dome — tilt-compensation tuner ({rocksPer} rock(s) per decision, max {maxCycles} cycles) ===[0m
+        \u001b[36m=== bb8 tune dome — tilt-compensation tuner ({rocksPer} rock(s) per decision, max {maxCycles} cycles) ===\u001b[0m
         Drive enabled (CIRCLE) + autoBalance ON (CROSS) so body tilt drives the dome servos.
         When prompted: ROCK the droid side-to-side steadily, ~1 Hz, for 6 seconds.
         The dome should lean OPPOSITE the body (stay level). If it leans WITH the body, abort and
@@ -986,7 +1193,7 @@ async Task<int> CmdPair(string? macOpt, string? portOpt, bool listOnly)
     }
 
     Console.WriteLine("""
-        [36m=== bb8 pair — controller pairing wizard ===[0m
+        \u001b[36m=== bb8 pair — controller pairing wizard ===\u001b[0m
         Step 1  read the drive's Bluetooth address
         Step 2  plug a pad in over USB -> I show its MAC and ask to pair it
         Step 3  choose PRIMARY (drive) or SECONDARY (dome); the choice is saved in the drive
@@ -1124,7 +1331,7 @@ async Task<int> CmdPair(string? macOpt, string? portOpt, bool listOnly)
     }
     Console.WriteLine($"""
 
-        [32m[PAIR] done — {paired} pad(s) paired, {assigned} assignment(s) stored.[0m
+        \u001b[32m[PAIR] done — {paired} pad(s) paired, {assigned} assignment(s) stored.\u001b[0m
         Next: unplug the pads, power the drive, press PS on each pad. On the drive console,
         'bt list' shows who landed in which slot; 'bt prefer drive slot0' can re-assign live.
         """);
@@ -1143,7 +1350,7 @@ async Task<int> CmdInstallPadDriver()
     if (!File.Exists(inf)) { Fail($"driver package not found: {inf}"); return 1; }
 
     Console.WriteLine("""
-        [36m[DRIVER] Installing libusb-win32 for PS3 / Navigation controllers (VID 054C).[0m
+        \u001b[36m[DRIVER] Installing libusb-win32 for PS3 / Navigation controllers (VID 054C).\u001b[0m
         A UAC prompt will appear — accept it. Windows may also warn that it can't verify the
         publisher of the INF; choose "Install this driver software anyway".
         """);
@@ -1371,9 +1578,11 @@ async Task<int> CmdUpdate(bool flash)
     if (r.Applied && r.ToolChanged) return REBUILD_EXIT;   // bb8.cmd rebuilds, then re-runs "update [--flash] --no-update"
     if (!flash) return 0;
 
-    // Flash whatever is plugged in AND stale. Stale is judged from the board's
-    // own banner — the git hash it was built from vs. commits to its sketch
-    // since — so a board that already runs the latest source is left alone.
+    // Flash whatever is plugged in AND stale. In a git checkout, stale is
+    // judged from the banner's git hash vs. commits to its sketch since; in a
+    // release install, from the banner's build number vs. the prebuilt
+    // binaries' build. A board already current is left alone.
+    bool gitMode = Directory.Exists(Path.Combine(RepoRootDir(), ".git")) && HasArduinoCli();
     Console.WriteLine();
     int flashed = 0, failed = 0;
     foreach (var t in config.Targets)
@@ -1395,14 +1604,14 @@ async Task<int> CmdUpdate(bool flash)
             Console.WriteLine($"[FLASH] {t.Name,-6} no board answering as '{t.Name}' on {string.Join("/", candidates.Select(c => c.Port))} — skipped.");
             continue;
         }
-        var reason = StaleReason(t, found);
+        var reason = gitMode ? StaleReason(t, found) : StaleReasonRelease(t, found);
         if (reason is null)
         {
             Console.WriteLine($"\u001b[32m[FLASH] {t.Name,-6} {port}: build {found.Build} git {found.Git} — already current.\u001b[0m");
             continue;
         }
         Console.WriteLine($"\u001b[33m[FLASH] {t.Name,-6} {port}: {reason} — flashing.\u001b[0m");
-        var rc = await CmdUpload(t.Name, port);
+        var rc = gitMode ? await CmdUpload(t.Name, port) : await CmdFlash(t.Name, port);
         if (rc == 0) flashed++; else failed++;
         Console.WriteLine();
     }
@@ -1410,6 +1619,22 @@ async Task<int> CmdUpdate(bool flash)
         ? $"\u001b[32m[FLASH] done — {flashed} board{(flashed == 1 ? "" : "s")} reflashed.\u001b[0m"
         : $"\u001b[31m[FLASH] {flashed} reflashed, {failed} failed — see above.\u001b[0m");
     return failed == 0 ? 0 : 1;
+}
+
+// Release-install staleness: banner build vs. the prebuilt binaries' build.
+string? StaleReasonRelease(Bb8Target t, BannerStamp s)
+{
+    var mp = Path.Combine(RepoRootDir(), "binaries", t.Name, "flash.json");
+    if (!File.Exists(mp)) return null;                    // nothing to flash from
+    try
+    {
+        var m = FlashManifest.Load(mp);
+        if (m.Build <= 0) return null;
+        if (s.Build < 0) return $"running unstamped firmware (release has build {m.Build})";
+        if (s.Build < m.Build) return $"build {s.Build} is behind the release's build {m.Build}";
+    }
+    catch (Exception) { }
+    return null;
 }
 
 // null = the board runs the current source for its sketch; otherwise why not.
@@ -1437,10 +1662,7 @@ async Task<UpdateResult> UpdateFromGitHub(bool explicitRun)
     var none = new UpdateResult(false, false, new());
     var repo = RepoRootDir();
     if (!Directory.Exists(Path.Combine(repo, ".git")))
-    {
-        if (explicitRun) Fail("This bb8 is not running from a git checkout — nothing to update from.");
-        return none;
-    }
+        return await UpdateFromReleases(explicitRun);   // BASIC install: GitHub Releases over HTTPS, no git needed
     string G(string a) => $"-C \"{repo}\" {a}";
     void Note(string s) => Console.WriteLine(explicitRun ? s : $"\u001b[90m{s}\u001b[0m");
 
@@ -1543,6 +1765,56 @@ async Task<UpdateResult> UpdateFromGitHub(bool explicitRun)
     if (toolChanged)
         Console.WriteLine("[UPDATE] bb8 itself changed — rebuilding from source, then continuing...");
     return new UpdateResult(true, toolChanged, changedTargets);
+}
+
+// No .git: the install updates itself from GitHub Releases over HTTPS.
+// The latest tag comes from the /releases/latest redirect (no API quota),
+// the zip is extracted over the folder, and bb8.exe lands as bb8.exe.new
+// for the bb8.cmd wrapper to swap in on the next run.
+async Task<UpdateResult> UpdateFromReleases(bool explicitRun)
+{
+    var none = new UpdateResult(false, false, new());
+    var root = RepoRootDir();
+    void Note(string s) => Console.WriteLine(explicitRun ? s : $"[90m{s}[0m");
+
+    var repoUrl = config.UpdateRepo.TrimEnd('/');
+    var tag = await ReleaseUpdate.LatestTag(repoUrl);
+    if (tag is null)
+    {
+        Note("[UPDATE] GitHub releases unreachable — using what's on disk.");
+        return none;
+    }
+    try
+    {
+        Directory.CreateDirectory(config.BuildRoot);
+        File.WriteAllText(Path.Combine(config.BuildRoot, ".update-check"), DateTime.Now.ToString("s"));
+    }
+    catch (Exception) { }
+
+    var latest = ReleaseUpdate.ParseVersion(tag);
+    var localText = ReleaseUpdate.LocalVersionText(root);
+    var local = localText is null ? null : ReleaseUpdate.ParseVersion(localText);
+    if (latest is null) { Note($"[UPDATE] could not parse release tag '{tag}'."); return none; }
+    if (local is not null && local >= latest)
+    {
+        if (explicitRun) Note($"[UPDATE] v{localText} is the latest release.");
+        return none;
+    }
+
+    Console.WriteLine($"[36m[UPDATE] release {tag} is out (installed: {(localText is null ? "unknown" : $"v{localText}")}) — downloading...[0m");
+    var res = await ReleaseUpdate.Apply(repoUrl, tag, root, AppContext.BaseDirectory);
+    if (res is null)
+    {
+        Fail("release download/extract failed — try again later, or reinstall from GitHub Releases.");
+        return none;
+    }
+    Console.WriteLine($"[32m[UPDATE] {tag} applied — {res.Files} files.[0m");
+    if (res.Bb8Updated) Console.WriteLine("[UPDATE] bb8 itself was updated — it takes effect on your next bb8 command.");
+    if (res.FirmwareChanged)
+        Console.WriteLine("[33m[UPDATE] new firmware binaries — flash the boards with: bb8 update --flash   (or bb8 flash <board>)[0m");
+    try { config = JsonSerializer.Deserialize<Bb8Config>(File.ReadAllText(configPath!), JsonCtx.Default.Bb8Config)!; }
+    catch (Exception) { }
+    return new UpdateResult(true, false, new());   // never REBUILD_EXIT here: BASIC installs have no SDK
 }
 
 string Git(string arguments)
@@ -1661,15 +1933,22 @@ void WriteBuildStamp(Bb8Target t, int build)
         RedirectStandardError = capture,
         UseShellExecute = false
     };
-    using var p = Process.Start(psi)!;
-    string so = "", se = "";
-    if (capture)
+    try
     {
-        so = p.StandardOutput.ReadToEnd();
-        se = p.StandardError.ReadToEnd();
+        using var p = Process.Start(psi)!;
+        string so = "", se = "";
+        if (capture)
+        {
+            so = p.StandardOutput.ReadToEnd();
+            se = p.StandardError.ReadToEnd();
+        }
+        p.WaitForExit();
+        return (p.ExitCode, so, se);
     }
-    p.WaitForExit();
-    return (p.ExitCode, so, se);
+    catch (Exception ex)   // tool not installed (BASIC installs have no arduino-cli / git)
+    {
+        return (-127, "", ex.Message);
+    }
 }
 
 void Fail(string msg) => Console.WriteLine($"\u001b[31m[ERROR] {msg}\u001b[0m");
@@ -2150,6 +2429,7 @@ public class Bb8Config
     [JsonPropertyName("arduinoCli")] public string ArduinoCli { get; set; } = "arduino-cli";
     [JsonPropertyName("sketchRoot")] public string SketchRoot { get; set; } = "";
     [JsonPropertyName("buildRoot")] public string BuildRoot { get; set; } = "";
+    [JsonPropertyName("updateRepo")] public string UpdateRepo { get; set; } = "https://github.com/jlvandusen/Z-ClassControlSystem";
     [JsonPropertyName("targets")] public List<Bb8Target> Targets { get; set; } = new();
 }
 

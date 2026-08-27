@@ -22,18 +22,24 @@ radio bridge into the drive (§6).
 
 ## 2. One-time PC setup
 
+Easiest: the **Setup-BASIC installer** from
+[Releases](https://github.com/jlvandusen/Z-ClassControlSystem/releases) — no git, no
+Arduino toolchain; boards flash from prebuilt binaries and `bb8 update` pulls each new
+release over HTTPS. Take **Setup-MAX** instead if you'll modify the firmware source
+(it adds the arduino-cli toolchain + GitHub link). Developers can still clone:
+
 ```powershell
 git clone https://github.com/jlvandusen/Z-ClassControlSystem
 cd Z-ClassControlSystem
 .\install.ps1          # builds the bb8 CLI  (needs .NET SDK 10+, arduino-cli on PATH)
 ```
 
-Cores: `esp32-bluepad32:esp32` (drive), `esp32:esp32` 3.x (dome), `adafruit:avr` (body),
-`adafruit:samd` (imu). Pair pads once with `bb8 pair` (guided).
+Cores (MAX/clone only): `esp32-bluepad32:esp32` (drive), `esp32:esp32` 3.x (dome),
+`adafruit:avr` (body), `adafruit:samd` (imu). Pair pads once with `bb8 pair` (guided).
 
 From then on **the tooling keeps itself current**: every `bb8 upload` checks GitHub
-first and pulls new firmware; `bb8 update --flash` refreshes any plugged-in board
-that's behind.
+first and pulls new firmware (commits in a git checkout, releases otherwise);
+`bb8 update --flash` refreshes any plugged-in board that's behind.
 
 ## 3. Powering up — what you'll hear and see
 

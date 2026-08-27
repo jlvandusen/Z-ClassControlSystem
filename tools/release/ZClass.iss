@@ -14,12 +14,19 @@
 #ifndef Out
   #define Out "."
 #endif
+; Flavor: MAX = source + toolchain + git tasks (developers, ~1 GB toolchain
+; download on first run). BASIC = prebuilt firmware + bundled flashers +
+; HTTPS release updates - no git, no arduino-cli, no cores. Same AppId, so
+; installing one over the other upgrades in place.
+#ifndef Flavor
+  #define Flavor "MAX"
+#endif
 
 [Setup]
 AppId={{7B1E2B40-ZCLS-4C1E-9D3A-BB8DRIVE0101}
 AppName=Z-Class Control System
 AppVersion={#Version}
-AppVerName=Z-Class Control System v{#Version}
+AppVerName=Z-Class Control System v{#Version} ({#Flavor})
 AppPublisher=James VanDusen
 AppPublisherURL=https://github.com/jlvandusen/Z-ClassControlSystem
 AppSupportURL=https://github.com/jlvandusen/Z-ClassControlSystem/issues
@@ -30,7 +37,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir={#Out}
-OutputBaseFilename=ZClass-ControlSystem-Setup-v{#Version}
+OutputBaseFilename=ZClass-ControlSystem-Setup-{#Flavor}-v{#Version}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -45,8 +52,10 @@ InfoBeforeFile={#Stage}\RELEASE_NOTES.md
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "toolchain"; Description: "Install arduino-cli + board cores + libraries now (internet, ~10 min) - needed to compile/flash"; GroupDescription: "First-run setup:"
-Name: "gitlink";   Description: "Link the install folder to GitHub so 'bb8 update' pulls new firmware (needs git)"; GroupDescription: "First-run setup:"
+#if Flavor == "MAX"
+Name: "toolchain"; Description: "Install arduino-cli + board cores + libraries now (internet, ~10 min) - needed to compile from source"; GroupDescription: "First-run setup:"
+Name: "gitlink";   Description: "Link the install folder to GitHub so 'bb8 update' pulls source commits (needs git)"; GroupDescription: "First-run setup:"
+#endif
 Name: "desktopicon"; Description: "Desktop shortcut to the Z-Class console"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
 [Files]
@@ -57,7 +66,9 @@ Name: "{group}\Z-Class Console";        Filename: "{cmd}"; Parameters: "/k cd /d
 Name: "{group}\How-To Guide";           Filename: "{app}\docs\docx\HowToGuide.docx"
 Name: "{group}\Assembly Guide";         Filename: "{app}\docs\docx\Assembly_Drive.docx"
 Name: "{group}\Runbook";                Filename: "{app}\docs\docx\Runbook.docx"
+#if Flavor == "MAX"
 Name: "{group}\Re-run toolchain setup"; Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoExit -File ""{app}\Install-ZClass.ps1"""; WorkingDir: "{app}"
+#endif
 Name: "{group}\GitHub releases";        Filename: "https://github.com/jlvandusen/Z-ClassControlSystem/releases"
 Name: "{group}\Uninstall";              Filename: "{uninstallexe}"
 Name: "{autodesktop}\Z-Class Console";  Filename: "{cmd}"; Parameters: "/k cd /d ""{app}"""; WorkingDir: "{app}"; Tasks: desktopicon
@@ -69,10 +80,16 @@ Root: HKCU; Subkey: "Environment"; ValueType: string; ValueName: "BB8_HOME"; Val
 
 [Run]
 ; The PowerShell engine does the heavy lifting; tasks decide how much of it runs.
+#if Flavor == "MAX"
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoExit -File ""{app}\Install-ZClass.ps1"""; WorkingDir: "{app}"; Description: "Run toolchain setup (arduino-cli, cores, libraries, GitHub link)"; Flags: postinstall nowait skipifsilent; Tasks: toolchain and gitlink
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoExit -File ""{app}\Install-ZClass.ps1"" -NoGit"; WorkingDir: "{app}"; Description: "Run toolchain setup (arduino-cli, cores, libraries)"; Flags: postinstall nowait skipifsilent; Tasks: toolchain and not gitlink
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoExit -File ""{app}\Install-ZClass.ps1"" -SkipToolchain"; WorkingDir: "{app}"; Description: "Link to GitHub for bb8 update"; Flags: postinstall nowait skipifsilent; Tasks: gitlink and not toolchain
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\Install-ZClass.ps1"" -SkipToolchain -NoGit"; WorkingDir: "{app}"; Flags: runhidden waituntilterminated; Tasks: not toolchain and not gitlink
+#else
+; BASIC: wire up targets.json / bb8.cmd / PATH / BB8_HOME only. Flashing uses the
+; bundled prebuilt binaries; updates come from GitHub Releases over HTTPS.
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\Install-ZClass.ps1"" -SkipToolchain -NoGit"; WorkingDir: "{app}"; Flags: runhidden waituntilterminated
+#endif
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\build"

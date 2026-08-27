@@ -2,6 +2,12 @@
 
 Builds = `versions.json` counters at the time; each board's banner shows `build N | date | git`.
 
+## bb8 Commander — 2026-08-27 · BASIC/MAX installers, toolchain-free flashing, git-free updates
+- **`bb8 flash <target>`**: flashes the release's prebuilt binaries with **no arduino-cli, no cores, no git** — bundled `tools\flash\esptool.exe` for the ESP32s (bootloader/partitions/boot_app0/app from `binaries\<target>\flash.json`), the 32u4's Caterina **AVR109 bootloader protocol spoken natively by bb8** (1200-baud touch → block writes → banner verify), and the Trinket M0 flashed by **UF2 file copy** to its `TRINKETBOOT` drive. `bb8 upload` falls back to `flash` automatically when arduino-cli is missing; the banner stays the only judge of success.
+- **Release-channel `bb8 update`**: with no `.git`, the latest GitHub **release** is discovered from the `/releases/latest` redirect (no git, no API quota), downloaded, and applied over the install; a new `bb8.exe` lands as `bb8.exe.new` and the `bb8.cmd` wrapper swaps it in on the next run. `bb8 update --flash` compares banner build numbers against the release's `flash.json` builds and reflashes only stale boards. Verified end-to-end against the real v1.02 release.
+- **Two installers per release**: `Setup-BASIC` (prebuilt flashing + HTTPS updates — no toolchain/git tasks at all) and `Setup-MAX` (source + toolchain + git link, as before). Same AppId — installing one over the other upgrades in place. `make-release.ps1` builds both, stages esptool, and writes the per-board `flash.json` manifests.
+- Port detection no longer needs arduino-cli: USB VID/PID comes from the registry when the CLI is absent.
+
 ## bb8 Commander + docs — 2026-08-26 (drive 27 flashed)
 - **Portable install**: `targets.json` now ships relative `sketchRoot`/`buildRoot` (`"firmware"`/`"build"`), resolved against the folder `targets.json` lives in — the checkout/install works from any location, nothing is hard-coded. `Install-ZClass.ps1` writes relative paths too; old absolute paths still work.
 - **`docs/FirstTimeSetup.md`**: start-to-finish bring-up walkthrough for a new build / fresh board set (flash order, ESP-NOW MAC pairing via dome `setmac` + drive `domeMACAddress[]`, pad pairing, first calibration, polarity sign checks before first enable).

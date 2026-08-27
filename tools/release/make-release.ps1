@@ -77,12 +77,45 @@ Copy-Item "tools\release" (Join-Path $Stage "tools") -Recurse -Force
 Copy-Item "tools\step_tree.py" (Join-Path $Stage "tools")
 foreach ($f in @("targets.json", "versions.json", "README.md", "install.ps1")) { Copy-Item $f $Stage -Force }
 Copy-Item "tools\release\Install-ZClass.ps1" $Stage -Force            # installer at the root
-foreach ($t in $cfg.targets) {                                          # prebuilt binaries
+# prebuilt binaries + flash.json manifests ('bb8 flash' - flashing without the
+# toolchain: bundled esptool for the ESP32s, native AVR109 for the 32u4, UF2
+# file-copy for the Trinket M0) + the bundled esptool itself.
+$verNow = Get-Content "versions.json" -Raw | ConvertFrom-Json
+$arduino15 = Join-Path $env:LOCALAPPDATA "Arduino15\packages"
+$esptool = Get-ChildItem (Join-Path $arduino15 "esp32*\tools\esptool_py\*\esptool.exe") -ErrorAction SilentlyContinue |
+           Sort-Object FullName -Descending | Select-Object -First 1
+if ($esptool) {
+  New-Item -ItemType Directory -Force (Join-Path $Stage "tools\flash") | Out-Null
+  Copy-Item $esptool.FullName (Join-Path $Stage "tools\flash\esptool.exe") -Force
+  Write-Host "  tools\flash\esptool.exe  ($($esptool.Directory.Name))"
+} else { Write-Host "  esptool.exe not found in Arduino15 - BASIC ESP32 flashing would need it on PATH" -ForegroundColor DarkYellow }
+foreach ($t in $cfg.targets) {
   if ($t.name -eq "ball") { continue }
   $src = Join-Path $cfg.buildRoot $t.sketch
   $dst = Join-Path $Stage "binaries\$($t.name)"
   New-Item -ItemType Directory -Force $dst | Out-Null
   Get-ChildItem $src -File | Where-Object { $_.Extension -in ".bin", ".hex" } | Copy-Item -Destination $dst
+  $build = [int]$verNow.($t.name)
+  if ($t.fqbn -match ":avr:") {
+    $manifest = [ordered]@{ method = "avr109"; build = $build; file = "$($t.sketch).ino.hex" }
+  } elseif ($t.fqbn -match ":samd:") {
+    $manifest = [ordered]@{ method = "uf2"; build = $build; file = "$($t.sketch).ino.bin"
+                            base = "0x2000"; familyId = "0x68ED2B88"; volume = "TRINKETBOOT" }
+  } else {
+    $core = if ($t.fqbn -like "esp32-bluepad32*") { "esp32-bluepad32" } else { "esp32" }
+    $bootApp0 = Get-ChildItem (Join-Path $arduino15 "$core\hardware\esp32\*\tools\partitions\boot_app0.bin") -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $bootApp0) { $bootApp0 = Get-ChildItem (Join-Path $arduino15 "*\hardware\esp32\*\tools\partitions\boot_app0.bin") -ErrorAction SilentlyContinue | Select-Object -First 1 }
+    if ($bootApp0) { Copy-Item $bootApp0.FullName (Join-Path $dst "boot_app0.bin") -Force }
+    else { Write-Host "  boot_app0.bin not found for $($t.name) - its flash.json will be incomplete" -ForegroundColor DarkYellow }
+    $manifest = [ordered]@{ method = "esptool"; build = $build; baud = 921600; images = @(
+      [ordered]@{ offset = "0x1000";  file = "$($t.sketch).ino.bootloader.bin" },
+      [ordered]@{ offset = "0x8000";  file = "$($t.sketch).ino.partitions.bin" },
+      [ordered]@{ offset = "0xE000";  file = "boot_app0.bin" },
+      [ordered]@{ offset = "0x10000"; file = "$($t.sketch).ino.bin" }
+    ) }
+  }
+  $manifest | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $dst "flash.json") -Encoding ascii
+  Write-Host "  binaries\$($t.name): build $build ($($manifest.method))"
 }
 Set-Content (Join-Path $Stage "VERSION") "Z-Class Control System v$Version`nbuilt $(Get-Date -Format s) from git $git`nboards: $((Get-Content versions.json -Raw) -replace '\s+',' ')" -Encoding ascii
 # release notes = top CHANGELOG section + quick start
@@ -91,17 +124,26 @@ $top = ($chg -split "(?m)^## ")[1]
 @"
 # Z-Class Control System v$Version
 
+## Which download?
+
+| You want to… | Download |
+|---|---|
+| **Drive the droid** — flash the ready-made firmware, stay updated automatically | ``ZClass-ControlSystem-Setup-BASIC-v$Version.exe`` — **no git, no Arduino toolchain, no compiling.** Flashers are bundled; updates come straight from GitHub Releases. |
+| **Modify the firmware** — edit the source and compile it yourself | ``ZClass-ControlSystem-Setup-MAX-v$Version.exe`` — everything in BASIC **plus** the arduino-cli toolchain setup (~1 GB, one time) and the git link for source-level ``bb8 update``. |
+
+Not sure? Take **BASIC** — installing MAX over it later upgrades in place, same folder.
+
 ## Install — step by step (Windows, no admin needed)
 
-**1. Download** ``ZClass-ControlSystem-Setup-v$Version.exe`` (below) and run it.
+**1. Download** your Setup exe (above) and run it.
    The installer is unsigned, so SmartScreen may say *"Windows protected your PC"* → click **More info → Run anyway**.
 
-**2. Choose the install folder.** Default ``%LOCALAPPDATA%\ZClass``. Any folder you can write to is fine — the toolchain and your builds live inside it.
+**2. Choose the install folder.** Default ``%LOCALAPPDATA%\ZClass``. Any folder you can write to is fine — everything lives inside it and the folder is fully relocatable.
 
-**3. Tick the first-run tasks:**
-   - ☑ **Install arduino-cli + board cores + libraries now** — needs internet, about 10 minutes. Required before you can compile or flash (re-runnable later from the Start menu → *Re-run toolchain setup*).
-   - ☑ **Link the install folder to GitHub** — needs ``git`` installed. Lets ``bb8 update`` pull new firmware from this repo from then on.
-   - Desktop shortcut — optional.
+**3. (MAX only) Tick the first-run tasks:**
+   - ☑ **Install arduino-cli + board cores + libraries now** — needs internet, about 10 minutes. Required before you can *compile* (flashing prebuilt firmware never needs it — that's what BASIC does).
+   - ☑ **Link the install folder to GitHub** — needs ``git`` installed. Lets ``bb8 update`` pull source commits.
+   - Desktop shortcut — optional (BASIC has this one too).
 
 **4. Let the PowerShell window finish.** It opens automatically after the files copy and runs what you ticked; wait for ``=== Ready ===``.
 
@@ -115,15 +157,16 @@ You should see the five targets (drive, dome, ball, body, imu) and any boards on
 | Do | Command |
 |---|---|
 | pair PS3 / Nav pads | ``bb8 pair`` |
-| flash a board (compile from source + verify) | ``bb8 upload drive``  (then ``body``, ``imu``, ``dome``) |
-| flash the bundled prebuilt binaries instead | ``tools\release\Flash-Prebuilt.ps1 -Target drive -Port COM4`` |
+| flash a board — BASIC: prebuilt binary, no toolchain | ``bb8 flash drive``  (then ``body``, ``imu``, ``dome``) — ``bb8 upload`` does the same automatically when there's no toolchain |
+| flash a board — MAX: compile from source + verify | ``bb8 upload drive`` |
+| get the next release later | ``bb8 update`` (BASIC pulls the GitHub release over HTTPS; ``--flash`` also reflashes boards that are behind) |
 | watch a board / the drive through the dome | ``bb8 monitor drive`` / ``bb8 monitor ball`` |
 | **new droid / fresh boards?** | follow [First-Time Setup](https://github.com/jlvandusen/Z-ClassControlSystem/wiki/First-Time-Setup) end to end |
 | read | Start menu → *How-To Guide*, or the [wiki](https://github.com/jlvandusen/Z-ClassControlSystem/wiki) |
 
 **Uninstall:** Start menu → *Z-Class Control System → Uninstall*.
 
-*Prefer no installer?* ``ZClass-ControlSystem-v$Version.zip`` is the same bundle — extract, then ``.\Install-ZClass.ps1``. The ``firmware-<board>-v$Version.zip`` assets are just the binaries.
+*Prefer no installer?* ``ZClass-ControlSystem-v$Version.zip`` is the same bundle — extract, then ``.\Install-ZClass.ps1`` (add ``-SkipToolchain -NoGit`` for a BASIC-style setup). The ``firmware-<board>-v$Version.zip`` assets are just the binaries.
 
 ## What's in this release
 ## $top
@@ -151,20 +194,23 @@ if (Test-Path $Zip) { Remove-Item $Zip -Force }
 Compress-Archive -Path $Stage -DestinationPath $Zip -CompressionLevel Optimal
 Write-Host "  $Zip  ($([math]::Round((Get-Item $Zip).Length/1MB,1)) MB)" -ForegroundColor Green
 
-# ---- 5. Setup.exe (Inno Setup, if installed) ----
-$SetupExe = Join-Path $Root "dist\ZClass-ControlSystem-Setup-v$Version.exe"
+# ---- 5. Setup.exe x2: BASIC (prebuilt-flash users) + MAX (source + toolchain) ----
+$SetupExes = @("BASIC", "MAX") | ForEach-Object { Join-Path $Root "dist\ZClass-ControlSystem-Setup-$_-v$Version.exe" }
 $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe", "$env:ProgramFiles\Inno Setup*\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($iscc) {
-  Write-Host "[5/5] Setup.exe (Inno Setup)" -ForegroundColor Yellow
-  & $iscc.FullName /Q "/DVersion=$Version" "/DStage=$Stage" "/DOut=$(Join-Path $Root 'dist')" (Join-Path $Root "tools\release\ZClass.iss")
-  if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
-  Write-Host "  $SetupExe  ($([math]::Round((Get-Item $SetupExe).Length/1MB,1)) MB)" -ForegroundColor Green
+  Write-Host "[5/5] Setup.exe (Inno Setup, BASIC + MAX)" -ForegroundColor Yellow
+  foreach ($flavor in @("BASIC", "MAX")) {
+    & $iscc.FullName /Q "/DVersion=$Version" "/DStage=$Stage" "/DOut=$(Join-Path $Root 'dist')" "/DFlavor=$flavor" (Join-Path $Root "tools\release\ZClass.iss")
+    if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($flavor)" }
+    $exe = Join-Path $Root "dist\ZClass-ControlSystem-Setup-$flavor-v$Version.exe"
+    Write-Host "  $exe  ($([math]::Round((Get-Item $exe).Length/1MB,1)) MB)" -ForegroundColor Green
+  }
 } else { Write-Host "[5/5] Inno Setup not found - no Setup.exe (zip only)" -ForegroundColor DarkYellow }
 
 if ($Publish) {
   Write-Host "publishing GitHub release v$Version" -ForegroundColor Yellow
   $assets = @($Zip)
-  if (Test-Path $SetupExe) { $assets += $SetupExe }
+  foreach ($e in $SetupExes) { if (Test-Path $e) { $assets += $e } }
   foreach ($t in $cfg.targets) {
     if ($t.name -eq "ball") { continue }
     $b = Join-Path $Stage "binaries\$($t.name)"
