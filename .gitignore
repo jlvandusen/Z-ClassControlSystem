@@ -34,3 +34,6 @@ tools/freerouting/*.jar
 
 # release bundles
 dist/
+
+binaries/
+tools/flash/
