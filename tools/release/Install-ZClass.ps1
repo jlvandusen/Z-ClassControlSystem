@@ -40,7 +40,9 @@ $BoardUrls = @(
   "https://espressif.github.io/arduino-esp32/package_esp32_index.json",
   "https://adafruit.github.io/arduino-board-index/package_adafruit_index.json"
 )
-$Cores = @("esp32-bluepad32:esp32@4.1.0", "esp32:esp32@3.3.7", "adafruit:avr@1.4.15", "adafruit:samd@1.7.17")
+# arduino:avr must precede adafruit:avr (the Adafruit platform references it —
+# caught by CI: a machine without it can't compile the body)
+$Cores = @("esp32-bluepad32:esp32@4.1.0", "esp32:esp32@3.3.7", "arduino:avr@1.8.7", "adafruit:avr@1.4.15", "adafruit:samd@1.7.17")
 $Libs  = @("SerialTransfer", "DFRobotDFPlayerMini", "Adafruit MPU6050", "Adafruit Unified Sensor",
            "Adafruit BusIO", "Kalman Filter Library", "Adafruit NeoPixel", "Servo")
 $RepoUrl = "https://github.com/jlvandusen/Z-ClassControlSystem.git"

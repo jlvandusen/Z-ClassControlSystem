@@ -41,6 +41,7 @@ jobs:
           done
           arduino-cli core install esp32-bluepad32:esp32@4.1.0
           arduino-cli core install esp32:esp32@3.3.7
+          arduino-cli core install arduino:avr@1.8.7      # adafruit:avr references it
           arduino-cli core install adafruit:avr@1.4.15
           arduino-cli core install adafruit:samd@1.7.17
           arduino-cli lib install SerialTransfer DFRobotDFPlayerMini "Adafruit MPU6050" "Adafruit Unified Sensor" "Adafruit BusIO" "Kalman Filter Library" "Adafruit NeoPixel" Servo
