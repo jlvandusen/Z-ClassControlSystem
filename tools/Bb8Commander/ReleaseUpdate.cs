@@ -49,6 +49,16 @@ static class ReleaseUpdate
         catch (Exception) { return null; }
     }
 
+    static async Task<string?> FetchString(HttpClient http, string url)
+    {
+        try
+        {
+            using var resp = await http.GetAsync(url);
+            return resp.IsSuccessStatusCode ? await resp.Content.ReadAsStringAsync() : null;
+        }
+        catch (Exception) { return null; }
+    }
+
     public static async Task<ApplyResult?> Apply(string repo, string tag, string root, string exeDir)
     {
         var asset = $"ZClass-ControlSystem-{tag}.zip";
@@ -78,6 +88,28 @@ static class ReleaseUpdate
                     if (pct >= 0 && pct / 10 != lastPct) { Console.Write($"\r[UPDATE] downloading {pct}% ({done / 1048576} MB)"); lastPct = pct / 10; }
                 }
                 Console.WriteLine($"\r[UPDATE] downloaded {done / 1048576} MB              ");
+            }
+
+            // Integrity: releases ship a SHA256SUMS asset — verify when present.
+            var sums = await FetchString(http, $"{repo}/releases/download/{tag}/SHA256SUMS-{tag}.txt");
+            if (sums is not null)
+            {
+                var expected = sums.Split('\n')
+                    .Select(l => l.Trim())
+                    .FirstOrDefault(l => l.EndsWith(asset, StringComparison.OrdinalIgnoreCase))?
+                    .Split(' ')[0];
+                if (expected is not null)
+                {
+                    using var sha = System.Security.Cryptography.SHA256.Create();
+                    await using var check = File.OpenRead(tmp);
+                    var actual = Convert.ToHexString(await sha.ComputeHashAsync(check)).ToLowerInvariant();
+                    if (!actual.Equals(expected, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.WriteLine("[UPDATE] SHA256 MISMATCH — download corrupt or tampered, not applying.");
+                        return null;
+                    }
+                    Console.WriteLine("[UPDATE] SHA256 verified.");
+                }
             }
 
             int files = 0; bool bb8New = false, fw = false;

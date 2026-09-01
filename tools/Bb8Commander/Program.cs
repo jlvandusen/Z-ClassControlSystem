@@ -52,7 +52,7 @@ bool HasArduinoCli() => hasArduinoCli ??= Run(config.ArduinoCli, "version", capt
 
 const int REBUILD_EXIT = 75;   // tells bb8.cmd: bb8's own source changed - rebuild bin\ and re-run this command
 var boolFlags = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    { "--raw", "--show-tlm", "--list", "--auto", "--install-driver", "--no-update", "--flash" };
+    { "--raw", "--show-tlm", "--list", "--auto", "--install-driver", "--no-update", "--flash", "--ota", "--web" };
 
 try
 {
@@ -83,6 +83,9 @@ try
         case "tune":     return await CmdTune(Arg(1), Opt("--port"));
         case "pair":     return Flag("--install-driver") ? await CmdInstallPadDriver() : await CmdPair(Opt("--mac"), Opt("--port"), Flag("--list"));
         case "identify": return await CmdIdentify();
+        case "backup":   return await CmdBackup(Arg(1), Opt("--port"));
+        case "restore":  return await CmdRestore(Arg(1), Opt("--port"));
+        case "doctor":   return await CmdDoctor();
         case "update":   return await CmdUpdate(Flag("--flash"));
         case "sounds":   return await CmdSounds(Arg(1), Flag("--flash"));
         case "help": case "-h": case "--help": PrintHelp(); return 0;
@@ -153,7 +156,9 @@ void PrintHelp()
           bb8 list                                targets + detected serial ports
           bb8 build <target|all>                  compile (drive|dome|body|imu)
           bb8 upload <target> [--port COMx]       compile + flash (no arduino-cli? falls back to 'flash')
-          bb8 flash <target> [--port COMx]        flash the PREBUILT release binary — no compiler,
+          bb8 upload drive --ota                  flash the DRIVE wirelessly through the dome bridge
+                                                  (sealed shell; drive disabled + pad connected)
+          bb8 flash <target> [--port COMx] [--ota] flash the PREBUILT release binary — no compiler,
                                                   no cores, no git (esptool / AVR109 / UF2)
           bb8 deploy <target> [--port COMx]       build + upload + monitor
           bb8 monitor <targets...|COMx> [--baud n] [--log file.csv] [--raw] [--show-tlm]
@@ -327,6 +332,11 @@ async Task<int> CmdUpload(string? name, string? port)
     var rc = CmdBuild(t.Name);
     if (rc != 0) return rc;
 
+    // RC4.7: --ota sends the freshly built image through the dome's ESP-NOW
+    // bridge instead of USB — the sealed ball updates without opening.
+    if (Flag("--ota"))
+        return await OtaFlash(t, Path.Combine(config.BuildRoot, t.Sketch, t.Sketch + ".ino.bin"), build, port);
+
     port ??= await AutoPort(t);
     if (port is null)
     {
@@ -407,6 +417,12 @@ async Task<int> CmdFlash(string? name, string? port)
     {
         case "esptool":
         {
+            if (Flag("--ota"))
+            {
+                var app = m.Images.FirstOrDefault(i => i.Offset == 0x10000);
+                if (app is null) { Fail("flash.json has no app image at 0x10000 — can't OTA."); return 1; }
+                return await OtaFlash(t, Path.Combine(dir, app.File), m.Build, port);
+            }
             port ??= await AutoPort(t);
             if (port is null)
             {
@@ -451,6 +467,197 @@ async Task<int> CmdFlash(string? name, string? port)
     Fail(running < 0
         ? $"{t.Name}: no banner after flashing — check with 'bb8 monitor {t.Name}'."
         : $"{t.Name}: reports build {running}, expected {m.Build}.");
+    return 1;
+}
+
+// ------------------------------------------------------------------
+//  BACKUP / RESTORE — everything tuned lives in the drive's NVS (gains,
+//  level offsets, pot center, MACs, sound/idle prefs, macros). 'cfg dump'
+//  prints it as REPLAYABLE console commands; backup captures that to a
+//  file, restore replays it (then saves). Works over USB or the dome
+//  tunnel — whichever port answers.
+// ------------------------------------------------------------------
+async Task<string?> DrivePortOrTunnel(string? port)
+{
+    if (port is not null) return port;
+    var p = await AutoPort(ResolveTarget("drive"));
+    if (p is not null) return p;
+    p = await AutoPort(ResolveTarget("dome"));
+    if (p is not null) Console.WriteLine($"[INFO] drive not on USB — using the dome tunnel on {p}.");
+    return p;
+}
+
+async Task<int> CmdBackup(string? file, string? port)
+{
+    port = await DrivePortOrTunnel(port);
+    if (port is null) { Fail("no drive (or dome for the tunnel) on USB."); return 1; }
+    file ??= $"bb8-config-{DateTime.Now:yyyyMMdd-HHmm}.txt";
+
+    var lines = new List<string>();
+    try
+    {
+        using var sp = new SerialPort(port, 115200) { ReadTimeout = 50, NewLine = "\n", DtrEnable = true, RtsEnable = true };
+        sp.Open();
+        await Task.Delay(2500);                      // the drive reboots on USB port-open
+        sp.DiscardInBuffer();
+        sp.WriteLine("cfg dump");
+        var buf = new StringBuilder();
+        bool inDump = false;
+        var deadline = DateTime.Now.AddSeconds(10);
+        while (DateTime.Now < deadline)
+        {
+            string chunk;
+            try { chunk = sp.ReadExisting(); } catch (TimeoutException) { chunk = ""; }
+            foreach (var c in chunk)
+            {
+                if (c != '\n') { if (buf.Length < 512) buf.Append(c); continue; }
+                var line = buf.ToString().TrimEnd('\r');
+                buf.Clear();
+                if (line.Contains("[DUMP BEGIN]")) { inDump = true; continue; }
+                if (line.Contains("[DUMP END]")) { deadline = DateTime.Now; break; }
+                if (inDump && line.Length > 0) lines.Add(line);
+            }
+            await Task.Delay(20);
+        }
+        if (!inDump) { Fail("board never answered 'cfg dump' — firmware older than RC4.7? ('bb8 upload drive' first)"); return 1; }
+    }
+    catch (Exception ex) { Fail($"backup failed: {ex.Message}"); return 1; }
+
+    var sb = new StringBuilder();
+    sb.AppendLine($"# bb8 backup — drive config snapshot {DateTime.Now:yyyy-MM-dd HH:mm}");
+    sb.AppendLine($"# restore with: bb8 restore {Path.GetFileName(file)}");
+    foreach (var l in lines) sb.AppendLine(l);
+    File.WriteAllText(file, sb.ToString());
+    Console.WriteLine($"\u001b[32m[BACKUP] {lines.Count} settings -> {file}\u001b[0m");
+    return 0;
+}
+
+async Task<int> CmdRestore(string? file, string? port)
+{
+    if (file is null || !File.Exists(file)) { Fail("restore: give a file written by 'bb8 backup'."); return 1; }
+    var cmds = File.ReadLines(file).Select(l => l.Trim())
+        .Where(l => l.Length > 0 && !l.StartsWith("#")).ToList();
+    if (cmds.Count == 0) { Fail("no settings in that file."); return 1; }
+    port = await DrivePortOrTunnel(port);
+    if (port is null) { Fail("no drive (or dome for the tunnel) on USB."); return 1; }
+
+    try
+    {
+        using var sp = new SerialPort(port, 115200) { ReadTimeout = 50, NewLine = "\n", DtrEnable = true, RtsEnable = true };
+        sp.Open();
+        await Task.Delay(2500);
+        sp.DiscardInBuffer();
+        foreach (var c in cmds)
+        {
+            sp.WriteLine(c);
+            Console.WriteLine($"  > {c}");
+            await Task.Delay(150);                    // let each command land + print
+            try { sp.ReadExisting(); } catch (TimeoutException) { }
+        }
+        sp.WriteLine("cfg save"); await Task.Delay(250);
+        sp.WriteLine("pid save"); await Task.Delay(250);
+        try { sp.ReadExisting(); } catch (TimeoutException) { }
+        Console.WriteLine($"\u001b[32m[RESTORE] {cmds.Count} settings replayed + saved to NVS. Verify with 'bb8 monitor drive' -> cfg show.\u001b[0m");
+        return 0;
+    }
+    catch (Exception ex) { Fail($"restore failed: {ex.Message}"); return 1; }
+}
+
+// ------------------------------------------------------------------
+//  DOCTOR — one-command health check: environment, boards, links.
+// ------------------------------------------------------------------
+async Task<int> CmdDoctor()
+{
+    int bad = 0;
+    void OK(string s) => Console.WriteLine($"  \u001b[32m+ {s}\u001b[0m");
+    void NO(string s) { Console.WriteLine($"  \u001b[31m- {s}\u001b[0m"); bad++; }
+    void WARN(string s) => Console.WriteLine($"  \u001b[33m! {s}\u001b[0m");
+
+    Console.WriteLine("\u001b[36m=== bb8 doctor ===\u001b[0m");
+    Console.WriteLine("[environment]");
+    if (HasArduinoCli()) OK("arduino-cli available (compile-from-source works)");
+    else WARN("no arduino-cli — BASIC mode: prebuilt flashing only (that's fine)");
+    bool gitMode = Directory.Exists(Path.Combine(RepoRootDir(), ".git"));
+    Console.WriteLine($"    update channel: {(gitMode ? "git checkout" : "GitHub releases (no git)")}");
+    if (!gitMode)
+    {
+        var tag = await ReleaseUpdate.LatestTag(config.UpdateRepo.TrimEnd('/'));
+        var local = ReleaseUpdate.LocalVersionText(RepoRootDir());
+        if (tag is null) WARN("GitHub unreachable — can't check for updates");
+        else if (local is not null && ReleaseUpdate.ParseVersion(local) >= ReleaseUpdate.ParseVersion(tag))
+            OK($"v{local} is the latest release");
+        else WARN($"release {tag} available (installed: {local ?? "unknown"}) — run 'bb8 update'");
+    }
+    foreach (var t in config.Targets.Where(x => x.Name != "ball"))
+    {
+        var mf = Path.Combine(RepoRootDir(), "binaries", t.Name, "flash.json");
+        if (File.Exists(mf)) { try { OK($"prebuilt binaries: {t.Name} build {FlashManifest.Load(mf).Build}"); } catch (Exception) { NO($"binaries\\{t.Name}\\flash.json unreadable"); } }
+        else if (!HasArduinoCli()) NO($"no prebuilt binaries for {t.Name} and no compiler — 'bb8 update' fetches them");
+    }
+    if (FindFlashTool("esptool.exe") is not null) OK("esptool available (ESP32 flashing)");
+    else WARN("no esptool found — ESP32 prebuilt flashing unavailable (compile path unaffected)");
+
+    Console.WriteLine("[boards]");
+    var ports = DetectPorts();
+    if (ports.Count == 0) WARN("no serial ports at all — nothing plugged in?");
+    foreach (var t in config.Targets.Where(x => x.Name != "ball"))
+    {
+        var cands = ports.Where(p => GuessTargets(p).Contains(t.Name)).ToList();
+        if (cands.Count == 0) { Console.WriteLine($"    {t.Name,-6} not on USB"); continue; }
+        BannerStamp? s = null; string? port = null;
+        foreach (var c in cands)
+        {
+            var r = await ReadBannerStamp(t, c.Port, IsNativeUsb(t), quiet: true);
+            if (r.Raw.Length == 0) continue;
+            bool match = (t.BannerMatch is not null && r.Raw.Contains(t.BannerMatch, StringComparison.OrdinalIgnoreCase))
+                      || (t.RevMatch is not null && r.Rev is not null && r.Rev.EndsWith(t.RevMatch, StringComparison.OrdinalIgnoreCase));
+            if (match) { s = r; port = c.Port; break; }
+        }
+        if (s is null) { NO($"{t.Name} candidate on {string.Join("/", cands.Select(c => c.Port))} but no banner — old/foreign firmware? ('bb8 upload {t.Name} --port COMx')"); continue; }
+        var stale = (gitMode && HasArduinoCli()) ? StaleReason(t, s) : StaleReasonRelease(t, s);
+        if (stale is null) OK($"{t.Name} on {port}: build {s.Build}{(s.Git is not null ? $" git {s.Git}" : "")} — current");
+        else WARN($"{t.Name} on {port}: {stale}");
+    }
+
+    Console.WriteLine(bad == 0 ? "\u001b[32m=== no blockers ===\u001b[0m" : $"\u001b[31m=== {bad} problem(s) — see above ===\u001b[0m");
+    return bad == 0 ? 0 : 1;
+}
+
+// OTA: stream an app image to the drive through the dome bridge. The drive's
+// default partition table already has dual OTA slots, so any RC4.7+ firmware
+// accepts this — no USB access to the sealed ball needed.
+async Task<int> OtaFlash(Bb8Target t, string binPath, int expectedBuild, string? port)
+{
+    if (!t.Name.Equals("drive", StringComparison.OrdinalIgnoreCase))
+    {
+        Fail("--ota is for the drive (it rides the dome's ESP-NOW bridge).");
+        return 1;
+    }
+    if (!File.Exists(binPath)) { Fail($"image not found: {binPath}"); return 1; }
+    var dome = ResolveTarget("dome");
+    port ??= await AutoPort(dome);
+    if (port is null)
+    {
+        Fail("no DOME on USB — OTA goes through it. Plug the dome in, or pass --port COMx.");
+        return 1;
+    }
+    var kb = new FileInfo(binPath).Length / 1024;
+    Console.WriteLine($"\u001b[36m[OTA] drive over the dome bridge on {port} — {kb} KB, ~{Math.Max(1, kb / 480)} min\u001b[0m");
+    Console.WriteLine("[OTA] needs: drive powered + DISABLED, gamepad CONNECTED (a scanning drive can't hear the dome).");
+    var rc = OtaSender.Send(port, dome.Baud, File.ReadAllBytes(binPath));
+    if (rc != 0) return rc;
+
+    Console.WriteLine("[OTA] drive rebooting — verifying through the tunnel...");
+    await Task.Delay(6000);
+    int running = OtaSender.VerifyBuild(port, dome.Baud, 30000);
+    if (expectedBuild > 0 ? running == expectedBuild : running > 0)
+    {
+        Console.WriteLine($"\u001b[32m[VERIFY] OK — drive is running build {running} (via the tunnel).\u001b[0m");
+        return 0;
+    }
+    Fail(running < 0
+        ? "no banner through the tunnel — the old firmware may still be running; check 'bb8 monitor ball'."
+        : $"drive reports build {running}, expected {expectedBuild}.");
     return 1;
 }
 
@@ -706,6 +913,16 @@ async Task<int> CmdMonitor(List<string> names, string? portOpt)
     }
 
     foreach (var ch in channels) ch.TryOpen();
+
+    if (Flag("--web"))
+    {
+        try
+        {
+            var url = WebMonitor.Start();
+            Console.WriteLine($"\u001b[36m[WEB] live telemetry charts: {url}  (send 'telemetry on' to the drive)\u001b[0m");
+        }
+        catch (Exception ex) { Fail($"--web failed: {ex.Message}"); }
+    }
 
     var session = new MonitorSession(channels, log, raw, showTlm);
     var rc2 = session.Run();
@@ -1775,7 +1992,7 @@ async Task<UpdateResult> UpdateFromReleases(bool explicitRun)
 {
     var none = new UpdateResult(false, false, new());
     var root = RepoRootDir();
-    void Note(string s) => Console.WriteLine(explicitRun ? s : $"[90m{s}[0m");
+    void Note(string s) => Console.WriteLine(explicitRun ? s : $"\u001b[90m{s}\u001b[0m");
 
     var repoUrl = config.UpdateRepo.TrimEnd('/');
     var tag = await ReleaseUpdate.LatestTag(repoUrl);
@@ -1801,17 +2018,17 @@ async Task<UpdateResult> UpdateFromReleases(bool explicitRun)
         return none;
     }
 
-    Console.WriteLine($"[36m[UPDATE] release {tag} is out (installed: {(localText is null ? "unknown" : $"v{localText}")}) — downloading...[0m");
+    Console.WriteLine($"\u001b[36m[UPDATE] release {tag} is out (installed: {(localText is null ? "unknown" : $"v{localText}")}) — downloading...\u001b[0m");
     var res = await ReleaseUpdate.Apply(repoUrl, tag, root, AppContext.BaseDirectory);
     if (res is null)
     {
         Fail("release download/extract failed — try again later, or reinstall from GitHub Releases.");
         return none;
     }
-    Console.WriteLine($"[32m[UPDATE] {tag} applied — {res.Files} files.[0m");
+    Console.WriteLine($"\u001b[32m[UPDATE] {tag} applied — {res.Files} files.\u001b[0m");
     if (res.Bb8Updated) Console.WriteLine("[UPDATE] bb8 itself was updated — it takes effect on your next bb8 command.");
     if (res.FirmwareChanged)
-        Console.WriteLine("[33m[UPDATE] new firmware binaries — flash the boards with: bb8 update --flash   (or bb8 flash <board>)[0m");
+        Console.WriteLine("\u001b[33m[UPDATE] new firmware binaries — flash the boards with: bb8 update --flash   (or bb8 flash <board>)\u001b[0m");
     try { config = JsonSerializer.Deserialize<Bb8Config>(File.ReadAllText(configPath!), JsonCtx.Default.Bb8Config)!; }
     catch (Exception) { }
     return new UpdateResult(true, false, new());   // never REBUILD_EXIT here: BASIC installs have no SDK
@@ -2121,6 +2338,7 @@ class MonitorSession(List<Channel> channels, StreamWriter? log, bool raw, bool s
         bool isTlm = line.Contains("pitch:") && line.Contains("roll:");
         if (isTlm)
         {
+            if (WebMonitor.Active) WebMonitor.Push(ch.Label, line);
             _tlm = line;
             _tlmBoard = ch.Label;
             _tlmAt = DateTime.Now;

@@ -19,12 +19,14 @@ Full write-up: [`docs/BB8_RC4_Review_and_Fixes.md`](docs/BB8_RC4_Review_and_Fixe
 Version 9.15 working board
 ![mainboard top render](docs/pcb-renders/render_mainboard_top.png)
 ![mainboard top render](docs/pcb-renders/render_mainboard_bottom.png)
-**RC4.5 (2026-08-23) — what it does now** (history in [`docs/CHANGELOG.md`](docs/CHANGELOG.md)):
-- **Wireless console**: the dome on USB bridges `bb8` to the drive over ESP-NOW — tune and capture telemetry with the shell closed (`bb8 monitor ball`).
-- **Self-updating tooling**: `bb8 update` / every `upload` pulls new firmware from GitHub first; `bb8 update --flash` reflashes only boards that are behind.
-- **Audio cues**: startup on pad connect, shutdown on pad loss, state-aware enable/disable, boot-cal chirp — all `pref`-tunable and persisted; glitch-proof button debounce.
-- **Dome**: white speech-pulsing PSI, blue scrolling logic bars; built on the stock esp32 core (the Bluepad32 core's BT stack was killing the ESP-NOW link).
-- **Dome tilt**: leveling + stick + throttle-proportional motion lean (`tilt lean`) all blend; S2S tuned (Kp 10 / Ki 2 / Kd 1, swing 40) and the method documented in [`docs/RigTuning.md`](docs/RigTuning.md).
+**RC4.7 (2026-09-01) — what it does now** (history in [`docs/CHANGELOG.md`](docs/CHANGELOG.md)):
+- **Wireless console AND wireless flashing**: the dome on USB bridges `bb8` to the drive over ESP-NOW — tune with the shell closed (`bb8 monitor ball`) and update the sealed ball's firmware with `bb8 upload drive --ota` (~2–3 min, dual-slot safe).
+- **Self-updating tooling**: `bb8 update` pulls from GitHub (git commits in a checkout, checksummed releases otherwise); `--flash` reflashes only boards that are behind.
+- **Config as a file**: `bb8 backup` / `bb8 restore` capture and replay the drive's whole tuned state — gains, offsets, MACs, sounds, macros. `bb8 doctor` health-checks the bench in one command.
+- **Black box**: a 25 Hz flight recorder freezes on safety events; `blackbox dump` explains the fall.
+- **Personality**: idle chatter (`pref idle`), 4-slot action macros, dome-battery alerts, and a phone dashboard served by the dome itself (`web on` → http://192.168.4.1).
+- **Live charts**: `bb8 monitor drive --web` graphs pitch/roll/pot/PWM in the browser as you tune.
+- **Audio cues** (pad connect/loss, enable/disable, boot-cal) all `pref`-tunable and persisted; **dome lights** with beep-synced PSI; **dome tilt** blending with motion lean — see the [wiki](https://github.com/jlvandusen/Z-ClassControlSystem/wiki).
 
 ## The fleet
 
@@ -86,12 +88,17 @@ the first enable.
 bb8 list               # targets + detected USB serial ports
 bb8 build all          # compile the whole fleet
 bb8 upload drive       # compile + flash (auto-detects the port)
+bb8 upload drive --ota # flash the DRIVE wirelessly through the dome (sealed shell)
 bb8 flash drive        # flash the PREBUILT release binary — no compiler, no cores, no git
 bb8 deploy drive       # build + upload + open monitor
+bb8 doctor             # health check: environment, boards, firmware freshness
+bb8 backup             # capture the drive's tuned config to a replayable file
+bb8 restore <file>     # ...and put it back (board swaps keep the tune)
 bb8 identify           # probe every port, read boot banners
 bb8 update             # pull new firmware / tooling from GitHub
 bb8 update --flash     # ...and reflash every plugged-in board that is behind its sketch
 bb8 monitor ball       # drive console THROUGH the dome over ESP-NOW (shell closed)
+bb8 monitor drive --web    # + live telemetry charts at http://127.0.0.1:8787
 bb8 tune s2s --port COMx   # live tuner — works through the bridge too (COMx = dome)
 ```
 

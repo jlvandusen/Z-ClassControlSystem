@@ -48,6 +48,12 @@ extern void saveSoundPrefs();
 extern PIDController drivePID;
 extern PIDController s2sPID;
 
+// RC4.7
+bool setDomeMac(const uint8_t* m);               // defined in the .ino (after this include)
+inline void macroStart(const String& steps);     // macro engine, defined below
+extern int idleChatterSec;
+extern float batLowVolts;
+
 // Config + IMU
 extern struct struct_messagempu mpudata;
 extern struct DriveConfig cfg;
@@ -111,13 +117,24 @@ inline void printHelpMenu() {
   Serial.println(F("pid show              - Show current PID values"));
   Serial.println(F("pid save              - Save PID values to NVS (only PID)"));
   Serial.println(F("pid reset             - Reset PID values to RC4 defaults"));
+  Serial.println(F("--- RC4.7 ---"));
+  Serial.println(F("cfg dump              - Replayable settings snapshot ('bb8 backup' captures it)"));
+  Serial.println(F("dome mac [XX:XX:...]  - Show / set + save the dome board's ESP-NOW MAC"));
+  Serial.println(F("pref idle <sec>       - Idle chatter after <sec> quiet (0 = off; pad must be connected)"));
+  Serial.println(F("pref batlow <volts>   - Dome-battery alert threshold (0 = off)"));
+  Serial.println(F("blackbox [dump|arm]   - 25Hz flight recorder; freezes on safety events"));
+  Serial.println(F("macro set <1-4> <cmd;wait ms;cmd...> | macro run <n> | macro show | macro stop"));
+  Serial.println(F("ota begin <bytes> / ota end / ota abort / ota status  - used by 'bb8 upload drive --ota'"));
+  Serial.println(F("ver                   - version (tunnel-safe alias; the dome answers 'version' itself)"));
 }
 
 // ---------- Command handler ----------
 inline void handleSerialCommand(const String &cmd) {
   if (cmd == "help" || cmd == "commands") {
     printHelpMenu();
-  } else if (cmd == "version") {
+  } else if (cmd == "version" || cmd == "ver") {
+    // "ver" exists because the dome bridge answers "version" locally —
+    // through the tunnel, "ver" is the way to ask the DRIVE.
     showBuildInfoSerial("VERSION");
   } else if (cmd == "show controllers") {
     printControllersSummary();
@@ -238,11 +255,25 @@ inline void handleSerialCommand(const String &cmd) {
   } else if (cmd.startsWith("pref lean")) {
     float v = cmd.substring(9).toFloat();
     if (v >= 50 && v <= 255) {
-      maxJoyDrivePwm = v;
-      Serial.printf("[PREF] Max joystick drive authority set to %.0f PWM\n", maxJoyDrivePwm);
+      maxJoyDrivePwm = v; saveSoundPrefs();   // RC4.7: persists
+      Serial.printf("[PREF] Max joystick drive authority set to %.0f PWM (saved)\n", maxJoyDrivePwm);
     } else {
       Serial.println(F("[PREF] Invalid value. Must be 50-255."));
     }
+  } else if (cmd.startsWith("pref idle")) {
+    int v = cmd.substring(9).toInt();
+    if (v >= 0 && v <= 3600) {
+      idleChatterSec = v; saveSoundPrefs();
+      if (v == 0) Serial.println(F("[PREF] Idle chatter OFF"));
+      else Serial.printf("[PREF] Idle chatter after %d s quiet (saved)\n", v);
+    } else Serial.println(F("[PREF] Invalid value. 0 (off) to 3600 seconds."));
+  } else if (cmd.startsWith("pref batlow")) {
+    float v = cmd.substring(11).toFloat();
+    if (v >= 0 && v <= 30) {
+      batLowVolts = v; saveSoundPrefs();
+      if (v < 0.5f) Serial.println(F("[PREF] Battery alert OFF"));
+      else Serial.printf("[PREF] Dome-battery alert below %.2f V (saved)\n", v);
+    } else Serial.println(F("[PREF] Invalid value. 0 (off) to 30 volts."));
   } else if (cmd.startsWith("pref sndon ")) {
     int v = cmd.substring(11).toInt();
     if (v >= 0 && v <= 119) {
@@ -279,8 +310,8 @@ inline void handleSerialCommand(const String &cmd) {
   } else if (cmd.startsWith("pref innerkp")) {
     float v = cmd.substring(12).toFloat();
     if (v > 0 && v <= 5) {
-      s2sInnerKp = v;
-      Serial.printf("[PREF] S2S inner (position) Kp set to %.2f PWM/count\n", s2sInnerKp);
+      s2sInnerKp = v; saveSoundPrefs();   // RC4.7: persists
+      Serial.printf("[PREF] S2S inner (position) Kp set to %.2f PWM/count (saved)\n", s2sInnerKp);
     } else {
       Serial.println(F("[PREF] Invalid value. Must be 0-5."));
     }
@@ -380,7 +411,181 @@ inline void handleSerialCommand(const String &cmd) {
     Serial.println(F("[PID] PID values reset to RC4 defaults."));
     Serial.printf("[PID] Drive: Kp=%.2f Ki=%.2f Kd=%.2f | S2S: Kp=%.2f Ki=%.2f Kd=%.2f\n",
                   cfg.driveKp, cfg.driveKi, cfg.driveKd, cfg.s2sKp, cfg.s2sKi, cfg.s2sKd);
-  } else if (cmd.length() > 0) {
+  }
+
+  // ---- RC4.7: OTA control (data chunks arrive as binary ESP-NOW packets) ----
+  else if (cmd.startsWith("ota begin ")) {
+    OtaRx::begin((size_t)cmd.substring(10).toInt());
+  } else if (cmd == "ota end") {
+    OtaRx::end();
+  } else if (cmd == "ota abort") {
+    OtaRx::abortOta("user request");
+  } else if (cmd == "ota status") {
+    OtaRx::status();
+  }
+
+  // ---- RC4.7: dome board MAC (runtime, NVS) ----
+  else if (cmd.startsWith("dome mac")) {
+    String arg = cmd.substring(8);
+    arg.trim();
+    extern uint8_t domeMACAddress[];
+    if (arg.length() == 0) {
+      Serial.printf("[DOME] board MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                    domeMACAddress[0], domeMACAddress[1], domeMACAddress[2],
+                    domeMACAddress[3], domeMACAddress[4], domeMACAddress[5]);
+    } else {
+      unsigned v[6];
+      if (sscanf(arg.c_str(), "%x:%x:%x:%x:%x:%x", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) == 6) {
+        uint8_t m[6];
+        for (int i = 0; i < 6; i++) m[i] = (uint8_t)v[i];
+        Serial.println(setDomeMac(m)
+                       ? F("[DOME] board MAC saved + ESP-NOW re-peered.")
+                       : F("[DOME] MAC saved but re-peer FAILED — reboot the drive."));
+      } else {
+        Serial.println(F("[DOME] Usage: dome mac XX:XX:XX:XX:XX:XX (the dome prints its STA MAC at boot)"));
+      }
+    }
+  }
+
+  // ---- RC4.7: black box ----
+  else if (cmd == "blackbox") {
+    BlackBox::status();
+  } else if (cmd == "blackbox dump") {
+    BlackBox::dump();
+  } else if (cmd == "blackbox arm") {
+    BlackBox::arm();
+  }
+
+  // ---- RC4.7: macros (NVS slots 1-4; steps 'cmd;wait ms;cmd') ----
+  else if (cmd.startsWith("macro set ")) {
+    int n = cmd.substring(10).toInt();
+    int sp = cmd.indexOf(' ', 10);
+    String steps = sp > 0 ? cmd.substring(sp + 1) : "";
+    steps.trim();
+    if (n < 1 || n > 4 || steps.length() == 0 || steps.length() > 170) {
+      Serial.println(F("[MACRO] Usage: macro set <1-4> <cmd;wait ms;cmd...>  (max 170 chars)"));
+    } else {
+      char key[6];
+      snprintf(key, sizeof(key), "mac%d", n);
+      prefs.begin("drivecfg", false);
+      prefs.putString(key, steps);
+      prefs.end();
+      Serial.printf("[MACRO] slot %d saved: %s\n", n, steps.c_str());
+    }
+  } else if (cmd.startsWith("macro run ")) {
+    int n = cmd.substring(10).toInt();
+    if (n < 1 || n > 4) { Serial.println(F("[MACRO] slots are 1-4")); }
+    else {
+      char key[6];
+      snprintf(key, sizeof(key), "mac%d", n);
+      prefs.begin("drivecfg", true);
+      String steps = prefs.getString(key, "");
+      prefs.end();
+      if (steps.length() == 0) Serial.printf("[MACRO] slot %d is empty ('macro set %d ...')\n", n, n);
+      else { Serial.printf("[MACRO] running slot %d\n", n); macroStart(steps); }
+    }
+  } else if (cmd == "macro show") {
+    for (int n = 1; n <= 4; n++) {
+      char key[6];
+      snprintf(key, sizeof(key), "mac%d", n);
+      prefs.begin("drivecfg", true);
+      String steps = prefs.getString(key, "");
+      prefs.end();
+      Serial.printf("[MACRO] %d: %s\n", n, steps.length() ? steps.c_str() : "(empty)");
+    }
+  } else if (cmd == "macro stop") {
+    macroStart("");
+    Serial.println(F("[MACRO] stopped"));
+  }
+
+  // ---- RC4.7: replayable settings snapshot (bb8 backup/restore) ----
+  else if (cmd == "cfg dump") {
+    extern uint8_t domeMACAddress[];
+    Serial.println(F("[DUMP BEGIN]"));
+    Serial.printf("cfg set pitchoffset %.3f\n", cfg.pitchOffset);
+    Serial.printf("cfg set rolloffset %.3f\n", cfg.rollOffset);
+    Serial.printf("cfg set potcenter %ld\n", (long)cfg.potCenter);
+    Serial.printf("cfg set mpudeadzone %.2f\n", cfg.mpuDeadzone);
+    Serial.printf("pid set drive kp %.2f\n", drivePID.getKp());
+    Serial.printf("pid set drive ki %.2f\n", drivePID.getKi());
+    Serial.printf("pid set drive kd %.2f\n", drivePID.getKd());
+    Serial.printf("pid set s2s kp %.2f\n", s2sPID.getKp());
+    Serial.printf("pid set s2s ki %.2f\n", s2sPID.getKi());
+    Serial.printf("pid set s2s kd %.2f\n", s2sPID.getKd());
+    Serial.printf("pref swing %.1f\n", s2sMaxDegrees);
+    Serial.printf("pref lean %.0f\n", maxJoyDrivePwm);
+    Serial.printf("pref innerkp %.2f\n", s2sInnerKp);
+    Serial.printf("pref sndon %d\n", soundDriveOn);
+    Serial.printf("pref sndoff %d\n", soundDriveOff);
+    Serial.printf("pref sndshut %d\n", soundShutdown);
+    Serial.printf("pref sndconn %d\n", soundConnect);
+    Serial.printf("pref sndcal %d\n", soundBootCal);
+    Serial.printf("pref idle %d\n", idleChatterSec);
+    Serial.printf("pref batlow %.2f\n", batLowVolts);
+    Serial.printf("dome mac %02X:%02X:%02X:%02X:%02X:%02X\n",
+                  domeMACAddress[0], domeMACAddress[1], domeMACAddress[2],
+                  domeMACAddress[3], domeMACAddress[4], domeMACAddress[5]);
+    {
+      extern uint8_t prefDriveMac[6], prefDomeMac[6];
+      const uint8_t z[6] = {0, 0, 0, 0, 0, 0};
+      if (memcmp(prefDriveMac, z, 6) != 0)
+        Serial.printf("bt prefer drive %02X:%02X:%02X:%02X:%02X:%02X\n",
+                      prefDriveMac[0], prefDriveMac[1], prefDriveMac[2],
+                      prefDriveMac[3], prefDriveMac[4], prefDriveMac[5]);
+      if (memcmp(prefDomeMac, z, 6) != 0)
+        Serial.printf("bt prefer dome %02X:%02X:%02X:%02X:%02X:%02X\n",
+                      prefDomeMac[0], prefDomeMac[1], prefDomeMac[2],
+                      prefDomeMac[3], prefDomeMac[4], prefDomeMac[5]);
+    }
+    for (int n = 1; n <= 4; n++) {
+      char key[6];
+      snprintf(key, sizeof(key), "mac%d", n);
+      prefs.begin("drivecfg", true);
+      String steps = prefs.getString(key, "");
+      prefs.end();
+      if (steps.length()) Serial.printf("macro set %d %s\n", n, steps.c_str());
+    }
+    Serial.println(F("[DUMP END]"));
+  }
+
+  else if (cmd.length() > 0) {
     Serial.println(F("[?] Unknown command. Type 'help' for the menu."));
   }
+}
+
+// ---- RC4.7 macro engine: one step per loop() pass, 'wait <ms>' pauses ----
+static String gMacroQueue = "";
+static unsigned long gMacroWaitUntil = 0;
+static bool gMacroActive = false;
+
+inline void macroStart(const String& steps) {
+  gMacroQueue = steps;
+  gMacroActive = steps.length() > 0;
+  gMacroWaitUntil = 0;
+}
+
+inline void macroService() {
+  if (!gMacroActive) return;
+  if (gMacroWaitUntil != 0 && (long)(millis() - gMacroWaitUntil) < 0) return;
+  gMacroWaitUntil = 0;
+
+  int sc = gMacroQueue.indexOf(';');
+  String step = sc >= 0 ? gMacroQueue.substring(0, sc) : gMacroQueue;
+  gMacroQueue = sc >= 0 ? gMacroQueue.substring(sc + 1) : "";
+  if (gMacroQueue.length() == 0 && sc < 0) gMacroActive = false;
+  step.trim();
+  if (step.length() == 0) {
+    if (!gMacroActive) Serial.println(F("[MACRO] done"));
+    return;
+  }
+  if (step.startsWith("wait ")) {
+    long ms = step.substring(5).toInt();
+    if (ms > 0 && ms <= 30000) gMacroWaitUntil = millis() + (unsigned long)ms;
+  } else if (step.startsWith("macro ")) {
+    Serial.println(F("[MACRO] macros can't call macros — step skipped"));
+  } else {
+    Serial.printf("[MACRO] > %s\n", step.c_str());
+    handleSerialCommand(step);
+  }
+  if (!gMacroActive) Serial.println(F("[MACRO] done"));
 }

@@ -160,6 +160,11 @@ TeeSerial SerialTee;
 #define Serial SerialTee
 // ===========================================================================
 
+// RC4.7: OTA-through-the-tunnel + black-box recorder (both print via the tee,
+// so bb8 sees them over the wireless console too)
+#include "OtaUpdate.h"
+#include "BlackBox.h"
+
 #define ENABLE_ESPNOW 1
 #define WIFI_CHANNEL 11
 #define HEARTBEAT_LED 2
@@ -307,6 +312,10 @@ SerialTransfer Coms32u4, ComsTrinket;
 Preferences prefs;
 
 float lastBatteryVoltage = 4.0;
+
+// RC4.7: idle personality + dome-battery watch (both persisted in NVS)
+int   idleChatterSec = 0;     // 0 = off; else random chatter after this many idle seconds
+float batLowVolts = 0.0f;     // 0 = off; else alert when the dome battery drops below
 unsigned long lastSoundTriggerMs = 0;
 uint16_t lastSoundCmd = SOUND_NONE;
 const uint16_t SOUND_DEBOUNCE_MS = 250;
@@ -637,6 +646,9 @@ void loadPrefMacs() {
   prefs.begin("drivecfg", true);
   if (prefs.getBytesLength("pdrv") == 6) prefs.getBytes("pdrv", prefDriveMac, 6);
   if (prefs.getBytesLength("pdome") == 6) prefs.getBytes("pdome", prefDomeMac, 6);
+  // RC4.7: the dome BOARD's ESP-NOW MAC is NVS-configurable ('dome mac XX:..')
+  // — a spare dome board no longer needs a source edit + reflash of the drive.
+  if (prefs.getBytesLength("dmac") == 6) prefs.getBytes("dmac", domeMACAddress, 6);
   prefs.end();
 }
 
@@ -645,6 +657,20 @@ void savePrefMacs() {
   prefs.putBytes("pdrv", prefDriveMac, 6);
   prefs.putBytes("pdome", prefDomeMac, 6);
   prefs.end();
+}
+
+// RC4.7: repoint ESP-NOW at a different dome board at runtime (saved to NVS).
+bool setDomeMac(const uint8_t* m) {
+  esp_now_del_peer(domeMACAddress);        // may not exist yet — ignore result
+  memcpy(domeMACAddress, m, 6);
+  prefs.begin("drivecfg", false);
+  prefs.putBytes("dmac", domeMACAddress, 6);
+  prefs.end();
+  esp_now_peer_info_t peer = {};
+  memcpy(peer.peer_addr, domeMACAddress, 6);
+  peer.channel = WIFI_CHANNEL;
+  peer.encrypt = false;
+  return esp_now_add_peer(&peer) == ESP_OK;
 }
 
 // RC4.3: the sound prefs (sndon/off/shut/conn/cal) persist in NVS so they
@@ -658,6 +684,10 @@ void loadSoundPrefs() {
   soundConnect  = prefs.getInt("sndconn", soundConnect);
   soundBootCal  = prefs.getInt("sndcal",  soundBootCal);
   s2sMaxDegrees = prefs.getFloat("swing", s2sMaxDegrees);   // RC4.4: swing persists too
+  maxJoyDrivePwm = prefs.getFloat("lean", maxJoyDrivePwm);  // RC4.7: these persist now too
+  s2sInnerKp     = prefs.getFloat("innerkp", s2sInnerKp);
+  idleChatterSec = prefs.getInt("idle", idleChatterSec);
+  batLowVolts    = prefs.getFloat("batlow", batLowVolts);
   prefs.end();
 }
 void saveSoundPrefs() {
@@ -668,6 +698,10 @@ void saveSoundPrefs() {
   prefs.putInt("sndconn", soundConnect);
   prefs.putInt("sndcal",  soundBootCal);
   prefs.putFloat("swing", s2sMaxDegrees);
+  prefs.putFloat("lean", maxJoyDrivePwm);
+  prefs.putFloat("innerkp", s2sInnerKp);
+  prefs.putInt("idle", idleChatterSec);
+  prefs.putFloat("batlow", batLowVolts);
   prefs.end();
 }
 
@@ -786,6 +820,7 @@ void onDisconnectedGamepad(GamepadPtr gp) {
       autoBalance = false;
       domeFunctionEnabled = false;
       Serial.println(F("[SAFETY] Drive controller lost — drive DISABLED"));
+      blackboxFreeze("drive pad lost");
     }
     // RC4.3: the disconnect itself is the "powered down" moment -> shutdown
     // clip (pref sndshut), whether or not the drive was still enabled.
@@ -837,6 +872,16 @@ void onEspNowRecv(const uint8_t* mac, const uint8_t* data, int len) {
       SerialTee.inject(c.data, c.len);
       SerialTee.inject("\n", 1);
     }
+  }
+  // RC4.7: OTA firmware chunk relayed by the dome — queue it for loop()
+  // (never write flash from the WiFi task).
+  else if (len == sizeof(TunnelOta)) {
+    TunnelOta o;
+    memcpy(&o, data, sizeof(o));
+    if (o.type != TUNNEL_OTA_TYPE || o.len > sizeof(o.data)) return;
+    if (tunnelSumBytes(&o, sizeof(o)) != o.checksum) return;
+    SerialTee.armedUntil = millis() + 60000UL;
+    OtaRx::onPacket(o);
   }
 }
 
@@ -908,6 +953,7 @@ void runControl(float dt) {
     drivePID.reset();
     s2sPID.reset();
     Serial.println(F("[SAFETY] IMU stale — autoBalance disabled"));
+    blackboxFreeze("IMU stale");
     sendSoundCommand(Coms32u4, sendTo32u4, pickRandomAlert());   // RC4.6: audible alert (bank 80-89)
   }
 
@@ -1614,6 +1660,35 @@ void serviceTelemetry() {
 }
 
 // ------------------- Loop -------------------
+// RC4.7: idle personality + dome-battery watch. Chatter only with a pad
+// connected (same anti-phantom rule as handleSoundTriggers) and only after
+// the sticks/buttons have been quiet for the configured time.
+void serviceExtras() {
+  unsigned long now = millis();
+
+  static unsigned long nextChatterAt = 0;
+  bool padOn = myControllers[0] && myControllers[0]->isConnected();
+  if (idleChatterSec > 0 && padOn &&
+      (now - lastInputTime) > (unsigned long)idleChatterSec * 1000UL) {
+    if (nextChatterAt == 0) nextChatterAt = now + (unsigned long)random(5000, 20000);
+    if ((long)(now - nextChatterAt) >= 0) {
+      sendSoundCommand(Coms32u4, sendTo32u4, pickRandom1to30());
+      nextChatterAt = now + (unsigned long)random(15000, 45000);
+    }
+  } else {
+    nextChatterAt = 0;
+  }
+
+  static unsigned long lastBatWarnMs = 0;
+  if (batLowVolts > 0.5f && lastBatteryVoltage > 0.5f &&
+      lastBatteryVoltage < batLowVolts && now - lastBatWarnMs > 60000UL) {
+    lastBatWarnMs = now;
+    Serial.printf("[BAT] dome battery %.2f V is below the %.2f V threshold\n",
+                  lastBatteryVoltage, batLowVolts);
+    if (padOn) sendSoundCommand(Coms32u4, sendTo32u4, pickRandomAlert());
+  }
+}
+
 void loop() {
 
   if (!shownAfterWait && (millis() - bootMs) >= SHOW_AFTER_MS) {
@@ -1681,6 +1756,14 @@ void loop() {
 
   printDebugInfo();
   serviceTelemetry();
+
+  // RC4.7 services: OTA writes, macro steps, idle/battery, black box
+  OtaRx::service();
+  macroService();
+  serviceExtras();
+  BlackBox::record(mpudata.pitch + cfg.pitchOffset, mpudata.roll + cfg.rollOffset,
+                   (int)potFiltered, gS2STargetPot, drivePwmState,
+                   (uint8_t)((driveEnabled ? 1 : 0) | (autoBalance ? 2 : 0)));
 
   vTaskDelay(1);
 }

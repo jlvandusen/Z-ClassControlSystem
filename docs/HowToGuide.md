@@ -110,6 +110,16 @@ Short version (full method: [RigTuning](RigTuning.md)):
 | Wireless console silent | pad must be **connected** before the dome can reach the drive |
 | Anything else | Runbook §11 troubleshooting matrix |
 
+## 7b. The RC4.7 extras — one-liners
+
+- **Update the sealed ball wirelessly**: `bb8 upload drive --ota` (dome on USB, drive disabled, pad on).
+- **Keep your tune forever**: `bb8 backup` → a file; `bb8 restore <file>` after any reflash/board swap.
+- **Something's off?** `bb8 doctor` first. **It fell over?** `blackbox dump` on the drive console.
+- **Make it feel alive**: `pref idle 120` (chatter after 2 min quiet), `macro set 1 play 5;wait 800;play 28`, `pref batlow 3.5`.
+- **Phone console**: `web on` on the dome → join WiFi `ZClass-Dome` (pass `zclassbb8`) → http://192.168.4.1.
+- **See the tune live**: `bb8 monitor drive --web` → charts at http://127.0.0.1:8787.
+- Full detail: [Runbook §17](Runbook.md).
+
 ## 8. Golden rules
 
 1. **One program per COM port** — close monitors before flashing.

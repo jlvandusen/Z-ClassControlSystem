@@ -107,9 +107,10 @@ primary for everything control and software.
 ## bb8 in one screen
 ```
 bb8 list                 boards on USB           bb8 update [--flash]     pull from GitHub (+ reflash stale boards)
-bb8 upload <board>       compile + flash + verify bb8 monitor <board|ball> console (--log x.csv)
-bb8 flash <board>        prebuilt binary, no toolchain (BASIC)             bb8 analyze x.csv        offline tuning analysis
-bb8 tune s2s|drive|dome  live closed-loop tuner  bb8 pair                 PS3 / Nav pad pairing
+bb8 upload <board>       compile + flash + verify bb8 monitor <board|ball> console (--log x.csv, --web = live charts)
+bb8 upload drive --ota   flash the sealed ball over the dome bridge       bb8 doctor               bench health check
+bb8 flash <board>        prebuilt binary, no toolchain (BASIC)            bb8 backup / restore     config snapshot file
+bb8 tune s2s|drive|dome  live closed-loop tuner  bb8 analyze x.csv        offline tuning analysis
 ```
 """
 

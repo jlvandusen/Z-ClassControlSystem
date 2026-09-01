@@ -421,3 +421,21 @@ PC (bb8) ──USB──> dome ──ESP-NOW──> drive (sealed in the ball)
 - Not bridged: the **body** (no radio). Dome-tilt tuning stays a USB job.
 
 Full procedure with the measured tuning numbers: [`docs/RigTuning.md`](RigTuning.md).
+
+---
+
+## 17. RC4.7 capabilities (OTA, backup, black box, macros, dashboard)
+
+| What | How | Notes |
+|---|---|---|
+| **Wireless drive flash** | `bb8 upload drive --ota` (compile) or `bb8 flash drive --ota` (prebuilt) | Goes through the DOME on USB. Drive must be powered + **disabled**, pad **connected**. ~2-3 min; a failed transfer leaves the old firmware running; USB always rescues. |
+| **Config backup / restore** | `bb8 backup [file]` / `bb8 restore <file>` | Wraps the drive console's `cfg dump` (replayable commands: gains, offsets, potCenter, MACs, sounds, idle/battery prefs, macros). Works over USB or the tunnel. Restore ends with `cfg save` + `pid save`. |
+| **Health check** | `bb8 doctor` | Environment (toolchain, update channel, prebuilt binaries, esptool), then each plugged-in board's banner + staleness. |
+| **Black box** | drive console: `blackbox` / `blackbox dump` / `blackbox arm` | 25 Hz x 30 s ring (pitch/roll/pot/tgt/drv + enable flags). Freezes on: drive pad lost, IMU stale, experiment abort. Dump needs the drive disabled. |
+| **Idle personality** | `pref idle <sec>` (0 = off) | Random chatter (bank 1-31) after the sticks go quiet that long. Only with a connected+armed pad (same guard as all sounds). |
+| **Dome battery alert** | `pref batlow <volts>` (0 = off) | Chirps the alert bank + logs once a minute while the dome cell is below threshold. |
+| **Macros** | `macro set <1-4> <cmd;wait ms;cmd...>` · `macro run <n>` · `macro show` · `macro stop` | Steps are ordinary console commands; `wait 500` pauses. One step per control-loop pass; macros can't call macros. |
+| **Dome board MAC** | drive console: `dome mac XX:XX:XX:XX:XX:XX` | Saved to NVS + re-peers ESP-NOW live. `dome mac` alone shows it. (Pairing the other way stays `setmac` on the dome.) |
+| **Phone dashboard** | dome console: `web on` / `web off` (persisted) | AP **ZClass-Dome** / pass `zclassbb8` -> http://192.168.4.1 : battery, link age, playing track, the drive's mirrored console, and a command box (tunnels to the drive). Blocks the dome's inactivity sleep while on. |
+| **Live charts** | `bb8 monitor drive --web` | http://127.0.0.1:8787 - rolling 60 s of pitch/roll, pot vs tgt, PWM (send `telemetry on`). |
+| **Tunnel version** | `ver` | The dome answers `version` itself; `ver` reaches the DRIVE through the bridge. |

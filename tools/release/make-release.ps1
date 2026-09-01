@@ -218,6 +218,11 @@ if ($Publish) {
     if (Test-Path $bz) { Remove-Item $bz -Force }
     Compress-Archive -Path "$b\*" -DestinationPath $bz; $assets += $bz
   }
+  # SHA256SUMS asset — bb8's release-channel update verifies its download against it
+  $sums = Join-Path $Root "dist\SHA256SUMS-v$Version.txt"
+  $assets | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_ -Algorithm SHA256).Hash.ToLower(), (Split-Path $_ -Leaf) } |
+    Set-Content $sums -Encoding ascii
+  $assets += $sums
   gh release create "v$Version" --title "Z-Class Control System v$Version" --notes-file (Join-Path $Stage "RELEASE_NOTES.md") @assets
 }
 Write-Host "done." -ForegroundColor Green

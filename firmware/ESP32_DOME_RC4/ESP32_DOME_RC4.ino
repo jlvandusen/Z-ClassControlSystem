@@ -119,6 +119,16 @@ float readBatteryVoltage();
 uint16_t calculateChecksum(const struct_message &d);
 void bootFeedback();
 
+// RC4.7 dashboard state (functions live below, past the tunnel section)
+#include <WebServer.h>
+WebServer webServer(80);
+bool webOn = false;
+char webLog[1401];
+uint16_t webLogLen = 0;
+void startWeb();
+void stopWeb();
+void webLogAppend(const char* s, uint8_t n);
+
 void setup() {
   Serial.begin(115200);
   unsigned long start = millis();
@@ -204,6 +214,10 @@ void setup() {
 
   Serial.println(F("[READY] Dome ready"));
 
+  // RC4.7: the phone dashboard survives reboots ('web on' / 'web off')
+  webOn = prefs.getBool("webon", false);
+  if (webOn) startWeb();
+
   lastDataTime = millis();
   lastBatteryUpdate = millis();
 }
@@ -211,6 +225,7 @@ void setup() {
 void loop() {
   checkSerialCommand();
   serviceTunnelRetry();
+  if (webOn) webServer.handleClient();
   updateAnimations();
   handleAnimation();
 
@@ -226,8 +241,8 @@ void loop() {
     sendBattery();
   }
 
-  // Inactivity sleep
-  if (millis() - lastDataTime > SLEEP_TIMEOUT) {
+  // Inactivity sleep (suppressed while the web dashboard is up)
+  if (!webOn && millis() - lastDataTime > SLEEP_TIMEOUT) {
     Serial.println("[TIMEOUT] No data for 15 mins. Sleeping...");
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_35, 0);
     esp_deep_sleep_start();
@@ -269,6 +284,56 @@ uint8_t gTunSeq = 0, gTunAttempts = 0;
 volatile bool gTunAwaitAck = false, gTunResend = false;
 unsigned long lastUsbMs = 0, lastPingMs = 0, gTunSentMs = 0;
 
+// RC4.7: OTA relay — bb8 sends "OTAD <seq> <base64>" lines over USB, we decode
+// and forward them to the drive as binary TunnelOta packets (struct mirrored
+// from ESP32_DRIVE_RC4.ino; size is the discriminator). The drive's acks come
+// back as ordinary console lines through the TunnelOut mirror.
+struct __attribute__((packed)) TunnelOta { uint8_t type; uint32_t seq; uint8_t len; uint8_t data[192]; uint16_t checksum; };
+static const uint8_t TUNNEL_OTA_TYPE = 0xC3;
+TunnelOta gOtaTx;
+uint8_t gOtaAttempts = 0;
+volatile bool gOtaAwaitAck = false, gOtaResend = false;
+unsigned long gOtaSentMs = 0, gOtaActiveMs = 0;
+
+static int b64val(char c) {
+  if (c >= 'A' && c <= 'Z') return c - 'A';
+  if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+  if (c >= '0' && c <= '9') return c - '0' + 52;
+  if (c == '+') return 62;
+  if (c == '/') return 63;
+  return -1;
+}
+static int b64decode(const char* in, int inLen, uint8_t* out, int outMax) {
+  int n = 0, acc = 0, bits = 0;
+  for (int i = 0; i < inLen; i++) {
+    if (in[i] == '=') break;
+    int v = b64val(in[i]);
+    if (v < 0) return -1;
+    acc = (acc << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      if (n >= outMax) return -1;
+      out[n++] = (uint8_t)((acc >> bits) & 0xFF);
+    }
+  }
+  return n;
+}
+
+void handleOtaLine(const String& raw) {           // "OTAD <seq> <base64>"
+  int sp1 = raw.indexOf(' '), sp2 = raw.indexOf(' ', sp1 + 1);
+  if (sp1 < 0 || sp2 < 0) { Serial.println(F("[OTAERR] bad line")); return; }
+  uint32_t seq = strtoul(raw.substring(sp1 + 1, sp2).c_str(), nullptr, 10);
+  int n = b64decode(raw.c_str() + sp2 + 1, raw.length() - sp2 - 1, gOtaTx.data, sizeof(gOtaTx.data));
+  if (n <= 0) { Serial.println(F("[OTAERR] bad b64")); return; }
+  gOtaTx.type = TUNNEL_OTA_TYPE;
+  gOtaTx.seq = seq;
+  gOtaTx.len = (uint8_t)n;
+  gOtaTx.checksum = tunnelSum(gOtaTx);
+  gOtaAttempts = 1; gOtaAwaitAck = true; gOtaSentMs = millis(); gOtaActiveMs = millis();
+  esp_now_send(masterMAC, (uint8_t*)&gOtaTx, sizeof(gOtaTx));
+}
+
 void sendTunnelCmd(const String &line) {
   gTunTx.type = TUNNEL_CMD_TYPE;
   gTunTx.seq = ++gTunSeq; if (gTunSeq == 0) gTunTx.seq = gTunSeq = 1;
@@ -283,11 +348,89 @@ void serviceTunnelRetry() {          // called from loop(); resend on NACK, max 
     gTunResend = false; gTunAttempts++; gTunAwaitAck = true; gTunSentMs = millis();
     esp_now_send(masterMAC, (uint8_t *)&gTunTx, sizeof(gTunTx));
   }
+  // RC4.7: OTA chunk NACK retry (bb8's line-level timeout is the backstop)
+  if (gOtaResend && gOtaAttempts < 8 && millis() - gOtaSentMs >= 30) {
+    gOtaResend = false; gOtaAttempts++; gOtaAwaitAck = true; gOtaSentMs = millis();
+    esp_now_send(masterMAC, (uint8_t *)&gOtaTx, sizeof(gOtaTx));
+  }
   // keepalive while bb8 is attached so the drive keeps mirroring
-  if (millis() - lastUsbMs < 600000UL && millis() - lastPingMs >= 15000UL) {
+  // (suppressed while an OTA transfer is streaming — the chunks arm it)
+  if (millis() - gOtaActiveMs >= 3000UL &&
+      millis() - lastUsbMs < 600000UL && millis() - lastPingMs >= 15000UL) {
     lastPingMs = millis();
     if (!gTunAwaitAck) sendTunnelCmd("");
   }
+}
+// ==========================================================================
+
+// ============ RC4.7: phone dashboard (softAP + tiny web server) ============
+// 'web on' (dome console, persisted) raises an access point "ZClass-Dome"
+// (pass zclassbb8) on the ESP-NOW channel; http://192.168.4.1 shows link/
+// battery status, the drive's mirrored console, and a command box that
+// injects through the tunnel — the phone becomes a wireless drive console.
+// Costs battery and defeats the inactivity sleep — turn it off for shows.
+// (globals live up top so setup()/loop() can see them)
+float readBatteryVoltage();
+
+void webLogAppend(const char* s, uint8_t n) {
+  if (!webOn || n == 0) return;
+  if (webLogLen + n >= sizeof(webLog) - 1) {       // keep the newest half
+    uint16_t keep = (sizeof(webLog) - 1) / 2;
+    memmove(webLog, webLog + webLogLen - keep, keep);
+    webLogLen = keep;
+  }
+  memcpy(webLog + webLogLen, s, n);
+  webLogLen += n;
+  webLog[webLogLen] = 0;
+}
+
+static const char WEB_PAGE[] PROGMEM = R"HTML(<!doctype html><html><head><meta name=viewport content="width=device-width,initial-scale=1"><title>Z-Class Dome</title>
+<style>body{font:16px system-ui;background:#101418;color:#e6e6e6;margin:16px}h1{font-size:18px;margin:0 0 6px}
+#s{color:#9aa5b1;margin:8px 0}pre{background:#161b21;border:1px solid #232a33;padding:8px;height:45vh;overflow:auto;font-size:12px;white-space:pre-wrap}
+input{width:68%;padding:8px;background:#161b21;color:#e6e6e6;border:1px solid #232a33}button{padding:8px 14px}</style></head><body>
+<h1>Z-Class &mdash; dome dashboard</h1><div id=s>connecting&hellip;</div><pre id=l></pre>
+<form onsubmit="send();return false"><input id=c placeholder="drive console command (ver, pid show, macro run 1...)"><button>send</button></form>
+<script>
+async function tick(){try{const r=await(await fetch('/status')).json();
+document.getElementById('s').textContent='dome battery '+r.domebat.toFixed(2)+' V · drive link '+(r.link_ms<3000?'LIVE':'stale '+Math.round(r.link_ms/1000)+'s')+' · track '+r.track+' · anim '+r.anim;
+const t=await(await fetch('/log')).text();const p=document.getElementById('l');if(p.textContent!==t){p.textContent=t;p.scrollTop=p.scrollHeight;}}catch(e){}}
+setInterval(tick,1000);tick();
+async function send(){const c=document.getElementById('c');await fetch('/cmd',{method:'POST',body:new URLSearchParams({c:c.value})});c.value='';}
+</script></body></html>)HTML";
+
+void startWeb() {
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP("ZClass-Dome", "zclassbb8", WIFI_CHANNEL);   // same channel keeps ESP-NOW alive
+  WiFi.setSleep(false);
+  webServer.on("/", []() {
+    webServer.send_P(200, "text/html", WEB_PAGE);
+  });
+  webServer.on("/status", []() {
+    char j[128];
+    snprintf(j, sizeof(j), "{\"domebat\":%.2f,\"link_ms\":%lu,\"track\":%d,\"anim\":%d}",
+             readBatteryVoltage(), (unsigned long)(millis() - lastDataTime),
+             (int)incoming.psi, (int)incoming.anim);
+    webServer.send(200, "application/json", j);
+  });
+  webServer.on("/log", []() { webServer.send(200, "text/plain", webLog); });
+  webServer.on("/cmd", HTTP_POST, []() {
+    String c = webServer.arg("c");
+    c.trim();
+    if (c.length() > 0 && c.length() < 170) { sendTunnelCmd(c); webServer.send(200, "text/plain", "sent"); }
+    else webServer.send(400, "text/plain", "bad command");
+  });
+  webServer.begin();
+  webLog[0] = 0; webLogLen = 0;
+  Serial.println(F("[WEB] dashboard ON — AP 'ZClass-Dome' (pass zclassbb8), http://192.168.4.1"));
+  Serial.println(F("[WEB] note: inactivity sleep is disabled while the dashboard is on"));
+}
+
+void stopWeb() {
+  webServer.stop();
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  Serial.println(F("[WEB] dashboard OFF"));
 }
 // ==========================================================================
 
@@ -300,6 +443,8 @@ void checkSerialCommand() {
       cmdBuffer.trim();
       String rawLine = cmdBuffer;          // RC4.4: preserve case for the tunnel
       bool local = false;
+      // RC4.7: OTA data line from bb8 — decode + relay as binary, never tunnel as text
+      if (rawLine.startsWith("OTAD ")) { local = true; handleOtaLine(rawLine); }
       cmdBuffer.toLowerCase();
       if (cmdBuffer == "version") {
         local = true;
@@ -321,9 +466,18 @@ void checkSerialCommand() {
         Serial.println("[ERROR] Invalid MAC format. Use XX:XX:XX:XX:XX:XX");
       }
     }
+    if (cmdBuffer == "web on" || cmdBuffer == "web off") {
+      local = true;
+      bool want = cmdBuffer.endsWith("on");
+      if (want != webOn) {
+        webOn = want;
+        prefs.putBool("webon", webOn);
+        if (webOn) startWeb(); else stopWeb();
+      } else Serial.println(webOn ? F("[WEB] already on") : F("[WEB] already off"));
+    }
     if (cmdBuffer == "help") {
       local = true;
-      Serial.println("Dome-local: help, version, debug, setmac XX:XX:XX:XX:XX:XX");
+      Serial.println("Dome-local: help, version, debug, setmac XX:XX:XX:XX:XX:XX, web on|off");
       Serial.println("Anything else is sent to the DRIVE over ESP-NOW; its console streams back here.");
     }
       // RC4.4: not a dome command -> tunnel it to the drive
@@ -506,6 +660,7 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
     if (t.type != TUNNEL_OUT_TYPE || t.len > sizeof(t.data)) return;
     if (tunnelSum(t) != t.checksum) return;
     Serial.write((const uint8_t *)t.data, t.len);
+    webLogAppend(t.data, t.len);      // RC4.7: dashboard console view
     lastDataTime = millis();
     return;
   }
@@ -547,8 +702,12 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   if (debugLocal) {
     Serial.printf("[SEND STATUS] %s\n", status == ESP_NOW_SEND_SUCCESS ? "Success" : "Fail");
   }
-  // RC4.4: command packets retry until the MAC ACK lands (max 3 tries)
-  if (gTunAwaitAck) {
+  // RC4.4: command packets retry until the MAC ACK lands. RC4.7: during an
+  // OTA stream the chunk gets the ack routing first (it dominates traffic).
+  if (gOtaAwaitAck) {
+    gOtaAwaitAck = false;
+    if (status != ESP_NOW_SEND_SUCCESS) gOtaResend = true;
+  } else if (gTunAwaitAck) {
     gTunAwaitAck = false;
     if (status != ESP_NOW_SEND_SUCCESS) gTunResend = true;
   }
