@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- Z-Class v10 parts order checklist - offline builder copy, generated 2026-09-01; ticks are saved in this browser only -->
+<title>Z-Drive v10 Parts Order</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#f6f4ef;--panel:#ffffff;--ink:#1d1f24;--muted:#5f6470;--line:#d9d5cc;--acc:#1f5f8b;--acc-ink:#ffffff;--done:#e8efe6;--warn:#8a4b00;--warn-bg:#fff3e0;--mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;--sans:'IBM Plex Sans',system-ui,Segoe UI,sans-serif}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15171b;--panel:#1e2126;--ink:#e8e6e0;--muted:#a0a5ae;--line:#343941;--acc:#6fb1e0;--acc-ink:#0e1418;--done:#1f2a22;--warn:#f0b060;--warn-bg:#2a2116}}
+:root[data-theme="dark"]{--bg:#15171b;--panel:#1e2126;--ink:#e8e6e0;--muted:#a0a5ae;--line:#343941;--acc:#6fb1e0;--acc-ink:#0e1418;--done:#1f2a22;--warn:#f0b060;--warn-bg:#2a2116}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);margin:0;padding:1.25rem;line-height:1.45}
+main{max-width:62rem;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 .25rem;text-wrap:balance}
+.sub{color:var(--muted);margin:0 0 1.25rem;font-size:.95rem}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.6rem;margin:0 0 1.5rem}
+.sum div{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:.6rem .8rem}
+.sum b{display:block;font-size:1.25rem;font-variant-numeric:tabular-nums}
+.sum span{color:var(--muted);font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}
+section{margin:0 0 1.75rem}
+h2{font-size:1.05rem;margin:0 0 .5rem;display:flex;align-items:baseline;gap:.6rem}
+h2 small{color:var(--muted);font-weight:400;font-size:.85rem}
+.wrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:6px}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{padding:.45rem .6rem;text-align:left;vertical-align:top;border-top:1px solid var(--line)}
+th{border-top:0;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;white-space:nowrap}
+td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.pn{font-family:var(--mono);font-size:.82rem;white-space:nowrap}
+td.ref{font-family:var(--mono);font-size:.82rem;white-space:nowrap;color:var(--muted)}
+tr.done td{background:var(--done);color:var(--muted);text-decoration:line-through}
+tr.done td.chk{text-decoration:none}
+td.chk{width:1.6rem}
+input[type=checkbox]{width:1.1rem;height:1.1rem;accent-color:var(--acc)}
+.note{color:var(--muted);font-size:.82rem}
+.warn{background:var(--warn-bg);color:var(--warn);border-left:3px solid var(--warn);padding:.5rem .8rem;border-radius:4px;margin:0 0 1rem;font-size:.9rem}
+.foot{color:var(--muted);font-size:.82rem;margin-top:1.5rem}
+a{color:var(--acc)}
+input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+<h1>Z-Drive v10 — parts still to order</h1>
+<p class="sub">Everything JLCPCB is <em>not</em> placing on order W2026082400040087 (machine-only scope, 5 boards, r7). Tick lines as you add them to a basket; ticks stay in this browser.</p>
+<div class="warn">Board parts are counted for 5 boards (+10 % spares). Modules are listed at <b>2</b> (one build + one spare) — scale to however many droids you're actually building.</div>
+<div class="sum"><div><b id="s-lines">0</b><span>lines</span></div><div><b id="s-done">0</b><span>ticked</span></div><div><b id="s-cost">$0</b><span>est. total</span></div><div><b id="s-left">$0</b><span>left to order</span></div></div>
+<div id="groups"></div>
+<p class="foot">Source: <code>hardware/bom/v10_order_remaining.csv</code> in the Z-ClassControlSystem repo (branch v10). Prices are LCSC / list estimates from 2026-08-23, before shipping. Polarity and orientation for every part you solder: <code>hardware/ASSEMBLY.md</code>.</p>
+</main>
+<script>
+const ROWS = [
+["LCSC basket — through-hole (you solder)","J1","XT60 male vertical PCB — Amass XT60PB-M","LCSC C19268037",1,6,0.36,"Board power input; pack lead gets the XT60 FEMALE"],
+["LCSC basket — through-hole (you solder)","F1","Mini blade fuse clip — Keystone 3568","LCSC C5249699",1,6,1.22,"9.9 mm pitch; global-sourcing part, lead time may be longer"],
+["LCSC basket — through-hole (you solder)","J2, J3","Pin header 2×5 2.54 mm — CJT A2541WV-2x5P","LCSC C225520",2,11,0.18,"Motor ribbons; bare — mark pin 1"],
+["LCSC basket — through-hole (you solder)","J4, J5","Pin header 1×3 2.54 mm — BOOMELE","LCSC C49257",2,20,0.03,"Servo plugs (MOQ 20)"],
+["LCSC basket — through-hole (you solder)","J_AMP","Pin header 2×7 2.54 mm — CJT A2541WV-2x7P","LCSC C5298387",1,6,0.32,"MAX9744 harness"],
+["LCSC basket — through-hole (you solder)","J6, J8","JST-XH 4-pin — B4B-XH-A","LCSC C144395",2,11,0.08,"IMU / dome encoder"],
+["LCSC basket — through-hole (you solder)","J7","JST-XH 5-pin — B5B-XH-A","LCSC C157991",1,6,0.09,"S2S sensor"],
+["LCSC basket — through-hole (you solder)","J9, J10","JST-XH 3-pin — B3B-XH-A","LCSC C144394",2,11,0.05,"Hall / body NeoPixel"],
+["LCSC basket — through-hole (you solder)","J11, J15","JST-XH 2-pin — B2B-XH-A","LCSC C158012",2,20,0.04,"Slip ring / E-stop (MOQ 20)"],
+["LCSC basket — through-hole (you solder)","J13, J14","JST-VH 2-pin 3.96 mm — B2P-VH","LCSC C160315",2,11,0.06,"Speakers"],
+["LCSC basket — through-hole (you solder)","J_U1A, J_U1B","Female header 1×15 8.5 mm — Ckmtw B-2200S15P-A120","LCSC C124408",2,11,0.28,"ESP32 DevKitC sockets"],
+["LCSC basket — through-hole (you solder)","J_U2A, J_U2B","Female header 1×9 8.5 mm — Ckmtw B-2200S09P-A120","LCSC C124417",2,11,0.18,"~430 in stock — if out, cut a 1×15 at position 10"],
+["LCSC basket — through-hole (you solder)","J_U2C","Female header 1×5 — BOOMELE","LCSC C50950",1,6,0.09,"RP2350-Zero end socket"],
+["LCSC basket — SMD, easy (you solder)","C1","220 µF 25 V SMD can 8×10 — EEE-FK1E221P","LCSC C128511",1,6,0.33,"VIN bulk; stripe = negative"],
+["LCSC basket — SMD, easy (you solder)","C2","470 µF 10 V SMD can 8×10 — EEE-FK1A471P","LCSC C178530",1,6,0.35,"+5V_LOGIC"],
+["LCSC basket — SMD, easy (you solder)","C3","1000 µF 10 V SMD can 10×10 — EEE-FK1A102P","LCSC C278397",1,6,0.39,"+5V_LED; low stock — any 10 mm 1000 µF/10 V can works"],
+["LCSC basket — SMD, easy (you solder)","C4","470 µF 16 V SMD can 8×10 — EEE-FK1C471P","LCSC C79121",1,6,0.44,"+6V_SERVO"],
+["LCSC basket — SMD, easy (you solder)","C7","1000 µF 25 V low-ESR SMD can 10×10.2 — EEE-FT1E102UP","LCSC C401766",1,6,0.81,"Amp supply; keep 25 V / low ESR"],
+["LCSC basket — SMD, easy (you solder)","D1","TVS SMBJ15A (SMB)","LCSC C83846",1,6,0.13,"Band = pad 1"],
+["LCSC basket — SMD, easy (you solder)","D6","Zener 12 V BZT52C12 (SOD-123)","LCSC C173429",1,6,0.01,"Q1 gate clamp; K = VIN side"],
+["LCSC basket — SMD, easy (you solder)","F3","Polyfuse 3 A 1812 — 1812L300","LCSC C127824",1,6,0.13,"+5V_LED"],
+["LCSC basket — SMD, easy (you solder)","F4","Fuse 3 A 1206 — 0466003.NRHF","LCSC C14165",1,6,0.09,"Amp 12 V feed"],
+["LCSC basket — SMD, easy (you solder)","L1","Ferrite 600 R 2.9 A 1206 — BLM31KN601SN1L","LCSC C668306",1,6,0.38,"NOT the 1.5 A PG variant"],
+["Modules — customer-fitted","U1","ESP32 DevKitC 30-pin (ELEGOO)","Amazon B0D8T53CQ5",1,2,7,"30-pin ONLY — 38-pin won't fit; sold as 3-packs"],
+["Modules — customer-fitted","U2","Waveshare RP2350-Zero","Amazon B0DYTVCF2H",1,2,9,"Solder pins on all three edges incl. GP9–GP13"],
+["Modules — customer-fitted","U3","DFPlayer Mini — DFRobot DFR0299","DFRobot / Amazon",1,2,6,"Solder direct, or on 2× 1×8 female headers"],
+["Modules — customer-fitted","PS1","Pololu 5 V 5 A step-down D24V50F5","Pololu #2851",1,2,20,"Header strips included; EN left open"],
+["Modules — customer-fitted","PS2","Pololu 6 V 2.5 A step-down D24V25F6","Pololu #2852",1,2,13,"Not D24V22F6 (other pin order), not 7.x V"],
+["Modules — customer-fitted","AMP","MAX9744 20 W stereo class-D I²C amp module","Adafruit 1752",1,1,20,"Off-board, 14-way harness to J_AMP"],
+["Off-board sensors & fuse","IMU (J6)","GY-BMI160 6-axis breakout","Amazon / AliExpress",1,2,5,"4-wire XH: +5V GND SCL SDA; CS/SA0 open"],
+["Off-board sensors & fuse","S2S (J7)","AS5600 board + 6×2.5 mm diametric magnet","Amazon / AliExpress",1,2,4,"Or keep the 10 k pot on pins 1–3"],
+["Off-board sensors & fuse","F1 fuse","Mini blade fuse 10 A, LOW PROFILE (Littelfuse 997 / Bussmann ATM-LP)","auto parts / Amazon",1,5,1,"Standard mini ATM is ~16 mm tall — over the cover budget"],
+["Cables & housings","J1 mate","XT60 female pigtail, 12 AWG silicone","Amazon",1,2,2,"Pack lead; 20 A ATO holder stays at the pack"],
+["Cables & housings","J6, J8","JST-XH 4-pin housing XHP-4","LCSC / Digi-Key",2,6,0.1,"v9.15 IMU/encoder cables already fit"],
+["Cables & housings","J7","JST-XH 5-pin housing XHP-5","LCSC / Digi-Key",1,3,0.1,""],
+["Cables & housings","J9, J10","JST-XH 3-pin housing XHP-3","LCSC / Digi-Key",2,6,0.1,""],
+["Cables & housings","J11, J15","JST-XH 2-pin housing XHP-2","LCSC / Digi-Key",2,6,0.1,""],
+["Cables & housings","XH contacts","JST-XH crimp contacts SXH-001T-P0.6","LCSC / Digi-Key",0,100,0.03,"Or a pre-crimped XH cable kit (~$10)"],
+["Cables & housings","J13, J14","JST-VH 2-pin housing VHR-2N + SVH-21T-P1.1 contacts","LCSC / Digi-Key",2,6,0.15,"Speaker leads"],
+["Cables & housings","J2, J3","2×5 IDC sockets + 10-way ribbon","Amazon / LCSC",2,6,0.5,"To the DFR0601 boards; mark pin 1 both ends"],
+["Cables & housings","J_AMP","2×7 IDC + 14-way ribbon (or Dupont)","Amazon / LCSC",1,3,0.6,"Amp harness"],
+["Cables & housings","J17","Qwiic / JST-SH 4-pin cable","SparkFun PRT-14427",1,1,1.5,"Only if you add an I²C device on the RP2350 bus"],
+["Cables & housings","J4, J5","Servo extension leads 150–300 mm","Amazon",2,4,1,"HS-805BB plugs straight on; signal = pin 1"],
+];
+const KEY='zdrive-v10-order-ticks';
+let ticks={}; try{ticks=JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){ticks={}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(ticks))}catch(e){}}
+const groups={}; ROWS.forEach((r,i)=>{(groups[r[0]]=groups[r[0]]||[]).push([i,r])});
+const host=document.getElementById('groups');
+for(const [g,rows] of Object.entries(groups)){
+  const sec=document.createElement('section');
+  const sub=rows.reduce((a,[,r])=>a+r[5]*r[6],0);
+  sec.innerHTML=`<h2>${g} <small>${rows.length} lines · ≈ $${sub.toFixed(0)}</small></h2><div class="wrap"><table><thead><tr><th></th><th>Ref</th><th>Part</th><th>Where / P/N</th><th>Per board</th><th>Order</th><th>Est.</th><th>Notes</th></tr></thead><tbody>${rows.map(([i,r])=>`<tr data-i="${i}" class="${ticks[i]?'done':''}"><td class="chk"><input type="checkbox" aria-label="ordered ${r[1]}" ${ticks[i]?'checked':''}></td><td class="ref">${r[1]}</td><td>${r[2]}</td><td class="pn">${r[3]}</td><td class="n">${r[4]||'—'}</td><td class="n">${r[5]}</td><td class="n">$${(r[5]*r[6]).toFixed(2)}</td><td class="note">${r[7]}</td></tr>`).join('')}</tbody></table></div>`;
+  host.appendChild(sec);
+}
+function summary(){
+  const total=ROWS.reduce((a,r)=>a+r[5]*r[6],0); let done=0,doneCost=0;
+  ROWS.forEach((r,i)=>{if(ticks[i]){done++;doneCost+=r[5]*r[6]}});
+  document.getElementById('s-lines').textContent=ROWS.length; document.getElementById('s-done').textContent=done;
+  document.getElementById('s-cost').textContent='$'+total.toFixed(0); document.getElementById('s-left').textContent='$'+(total-doneCost).toFixed(0);
+}
+host.addEventListener('change',e=>{const tr=e.target.closest('tr'); if(!tr) return; const i=tr.dataset.i; ticks[i]=e.target.checked; if(!ticks[i]) delete ticks[i]; tr.classList.toggle('done',e.target.checked); save(); summary();});
+summary();
+</script>
+</body>
+</html>
