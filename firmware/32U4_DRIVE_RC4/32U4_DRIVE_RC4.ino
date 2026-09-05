@@ -131,6 +131,7 @@ bool debugEncoder = false;
 bool silentMode = false;
 bool bootSoundPlayed = false;
 bool dfPlayerReady = false;
+unsigned long dfReadyMs = 0;      // when initAudio finished — boot sound settles from here
 bool domeServoMode = false;
 
 // ------------------- STRUCTS -------------------
@@ -354,10 +355,13 @@ void setup() {
   angleOffset = (encoderCount / COUNTS_PER_DEGREE) - FORWARD_ANGLE;
   Serial.println(F("[BOOT] Dome encoder initialized. Boot position = forward (180 deg)."));
 
+  // RC4.7: the boot sound used to fire 1 s after mp3.begin(doReset=true), but
+  // that reset makes the DFPlayer REMOUNT the SD (~2-3 s) — the play landed
+  // while it was still busy and was silently dropped ("scratch then nothing").
+  // Now: settle to ~3 s since begin, then play and CONFIRM via the BUSY pin,
+  // retrying up to 3x so exact timing never matters.
   if (!bootSoundPlayed && dfPlayerReady) {
-      delay(1000);
-      mp3.playMp3Folder(1);
-      Serial.println(F("[AUDIO] Boot sound played."));
+      playBootSoundConfirmed(1);
       bootSoundPlayed = true;
   } else Serial.println(F("[AUDIO] Boot sound not played."));
 
@@ -467,6 +471,38 @@ void sendToESP32() {
     ComsESP32.sendData(bytes);
 }
 
+// Play a track and CONFIRM it started via the BUSY pin, retrying a few times.
+// The DFPlayer drops commands sent while it is still mounting the SD after a
+// reset, so a bare play() at boot often does nothing. This makes it reliable
+// regardless of exact timing.
+void playBootSoundConfirmed(int track) {
+    // ensure at least ~3 s have passed since the DFPlayer came ready (SD mount)
+    if (dfReadyMs != 0) {
+        while (millis() - dfReadyMs < 3000) delay(20);
+    } else {
+        delay(3000);
+    }
+    for (int attempt = 1; attempt <= 3; attempt++) {
+        mp3.playMp3Folder(track);
+        // BUSY goes LOW within ~300 ms of a real start
+        unsigned long t0 = millis();
+        bool started = false;
+        while (millis() - t0 < 500) {
+            if (digitalRead(DFPLAYER_BUSY_PIN) == LOW) { started = true; break; }
+            delay(10);
+        }
+        if (started) {
+            Serial.print(F("[AUDIO] Boot sound played (attempt "));
+            Serial.print(attempt); Serial.println(F(")."));
+            return;
+        }
+        Serial.print(F("[AUDIO] Boot sound not confirmed on attempt "));
+        Serial.print(attempt); Serial.println(F(" — retrying."));
+        delay(400);
+    }
+    Serial.println(F("[AUDIO] Boot sound failed after 3 attempts (DFPlayer busy or track 1 missing)."));
+}
+
 void initAudio() {
     mp3Serial.begin(DFPLAYER_BAUD);
 
@@ -482,6 +518,7 @@ void initAudio() {
     if (mp3.begin(mp3Serial, /*isACK=*/false, /*doReset=*/true)) {
         mp3.volume(currentVolume);
         dfPlayerReady = true;
+        dfReadyMs = millis();
         Serial.println(F("[AUDIO] DFPlayer initialized."));
     } else {
         dfPlayerReady = false;
