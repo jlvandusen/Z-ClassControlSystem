@@ -35,9 +35,17 @@ Preferences prefs;
 #define eyePIN     32
 #define battPin    A13 // GPIO35
 
+// RC4.7: pixel counts are RUNTIME-CONFIGURABLE (a strip may be a single RGB
+// LED, a ring, or a bar). Strips are built at MAX_PIXELS capacity and shrunk
+// to the configured count with updateLength() at boot; `leds <strip> <n>` saves
+// and applies live. These #defines are only the DEFAULTS / initial counts.
 #define NUM_PIXELS 1
-#define LOGIC_PIXELS 4   // RC4.5: pixels per logic bar (scrolling blue) - set to the real count
+#define LOGIC_PIXELS 4
+#define MAX_PIXELS 60    // hard cap per strip (buffer allocation)
 #define BRIGHTNESS 64
+
+// live counts (loaded from NVS "leds" namespace)
+int nPsi = NUM_PIXELS, nLogic = LOGIC_PIXELS, nHp = NUM_PIXELS, nEye = NUM_PIXELS;
 
 #define WIFI_CHANNEL 11
 #define HEARTBEAT_LED 2  // Built-in LED on many ESP32 boards
@@ -68,13 +76,47 @@ typedef struct struct_message {
 struct_message incoming;
 struct_message outgoing;
 
-Adafruit_NeoPixel PSI(NUM_PIXELS, psiPIN, NEO_GRB + NEO_KHZ800);
-Adafruit_NeoPixel sLOGIC(LOGIC_PIXELS, sLogicPIN, NEO_GRB + NEO_KHZ800);
-Adafruit_NeoPixel lLOGIC(LOGIC_PIXELS, lLogicPIN, NEO_GRB + NEO_KHZ800);
-Adafruit_NeoPixel HP(NUM_PIXELS, hpPIN, NEO_RGB + NEO_KHZ800);
-Adafruit_NeoPixel EYE(NUM_PIXELS, eyePIN, NEO_GRB + NEO_KHZ800);
+// Built at MAX_PIXELS; updateLength() shrinks each to its configured count at boot.
+Adafruit_NeoPixel PSI(MAX_PIXELS, psiPIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel sLOGIC(MAX_PIXELS, sLogicPIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel lLOGIC(MAX_PIXELS, lLogicPIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel HP(MAX_PIXELS, hpPIN, NEO_RGB + NEO_KHZ800);
+Adafruit_NeoPixel EYE(MAX_PIXELS, eyePIN, NEO_GRB + NEO_KHZ800);
 
 bool debugLocal = false;
+
+// RC4.7: per-strip pixel counts, runtime-configurable + NVS-persisted.
+void loadLedCounts() {
+  prefs.begin("dome", true);
+  nPsi   = prefs.getInt("lpsi", nPsi);
+  nLogic = prefs.getInt("llog", nLogic);
+  nHp    = prefs.getInt("lhp",  nHp);
+  nEye   = prefs.getInt("leye", nEye);
+  prefs.end();
+}
+void saveLedCounts() {
+  prefs.begin("dome", false);
+  prefs.putInt("lpsi", nPsi);
+  prefs.putInt("llog", nLogic);
+  prefs.putInt("lhp",  nHp);
+  prefs.putInt("leye", nEye);
+  prefs.end();
+}
+void applyLedCounts() {
+  nPsi = constrain(nPsi, 1, MAX_PIXELS);   nLogic = constrain(nLogic, 1, MAX_PIXELS);
+  nHp  = constrain(nHp, 1, MAX_PIXELS);    nEye   = constrain(nEye, 1, MAX_PIXELS);
+  PSI.updateLength(nPsi); sLOGIC.updateLength(nLogic); lLOGIC.updateLength(nLogic);
+  HP.updateLength(nHp);   EYE.updateLength(nEye);
+  PSI.setBrightness(255);                  // PSI at full (boot-feedback look)
+  sLOGIC.setBrightness(BRIGHTNESS); lLOGIC.setBrightness(BRIGHTNESS);
+  HP.setBrightness(BRIGHTNESS);     EYE.setBrightness(BRIGHTNESS);
+  PSI.clear(); sLOGIC.clear(); lLOGIC.clear(); HP.clear(); EYE.clear();
+  PSI.show(); sLOGIC.show(); lLOGIC.show(); HP.show(); EYE.show();
+}
+void ledsShow() {
+  Serial.printf("[LEDS] psi=%d logic=%d(x2 bars) hp=%d eye=%d (max %d each)\n",
+                nPsi, nLogic, nHp, nEye, MAX_PIXELS);
+}
 
 // Timers
 unsigned long lastEyeUpdate = 0;
@@ -91,9 +133,18 @@ RTC_DATA_ATTR bool wake = true;
 const unsigned long SLEEP_TIMEOUT = 15UL * 60UL * 1000UL; // 15 min
 const unsigned long BATTERY_INTERVAL = 5UL * 60UL * 1000UL; // 5 min
 
-// Animation state machine
-enum AnimState { IDLE, RAINBOW, RED, BLUE };
+// Animation state machine. 0-3 are the original tints (PSI only); 4-7 are the
+// RC4.7 D-pad LIGHT SCENES (full takeover of eye/HP/PSI/logic) latched from the
+// pads: UP=ALERT, DOWN=SCANNER, LEFT=FIRE, RIGHT=PARTY.
+enum AnimState { IDLE, RAINBOW, RED, BLUE, SCENE_ALERT, SCENE_SCANNER, SCENE_FIRE, SCENE_PARTY };
 AnimState currentAnim = IDLE;
+void renderScene(unsigned long ms);
+
+// RC4.7: runtime pixel-count config (prototypes; defs after the strip globals)
+void loadLedCounts();
+void saveLedCounts();
+void applyLedCounts();
+void ledsShow();
 
 // Serial command buffer
 String cmdBuffer = "";
@@ -203,14 +254,8 @@ void setup() {
   }
 
   PSI.begin(); sLOGIC.begin(); lLOGIC.begin(); HP.begin(); EYE.begin();
-  PSI.setBrightness(255);   // RC4.5: PSI at full - matches the boot-feedback green the user liked
-  sLOGIC.setBrightness(BRIGHTNESS);
-  lLOGIC.setBrightness(BRIGHTNESS);
-  HP.setBrightness(BRIGHTNESS);
-  EYE.setBrightness(BRIGHTNESS);
-
-  PSI.clear(); sLOGIC.clear(); lLOGIC.clear(); HP.clear(); EYE.clear();
-  PSI.show(); sLOGIC.show(); lLOGIC.show(); HP.show(); EYE.show();
+  loadLedCounts();     // RC4.7: per-strip pixel counts from NVS
+  applyLedCounts();    // updateLength + brightness + clear + show
 
   Serial.println(F("[READY] Dome ready"));
 
@@ -475,9 +520,30 @@ void checkSerialCommand() {
         if (webOn) startWeb(); else stopWeb();
       } else Serial.println(webOn ? F("[WEB] already on") : F("[WEB] already off"));
     }
+    if (cmdBuffer.startsWith("leds")) {
+      local = true;
+      String rest = cmdBuffer.substring(4); rest.trim();
+      if (rest.length() == 0 || rest == "show") { ledsShow(); }
+      else {
+        int sp = rest.indexOf(' ');
+        String strip = sp > 0 ? rest.substring(0, sp) : rest;
+        int n = sp > 0 ? rest.substring(sp + 1).toInt() : -1;
+        if (n < 1 || n > MAX_PIXELS) {
+          Serial.printf("[LEDS] usage: leds <psi|logic|hp|eye> <1-%d>  |  leds show\n", MAX_PIXELS);
+        } else {
+          bool ok = true;
+          if (strip == "psi") nPsi = n;
+          else if (strip == "logic") nLogic = n;
+          else if (strip == "hp") nHp = n;
+          else if (strip == "eye") nEye = n;
+          else { ok = false; Serial.println(F("[LEDS] strip must be psi | logic | hp | eye")); }
+          if (ok) { saveLedCounts(); applyLedCounts(); Serial.printf("[LEDS] %s = %d (saved)\n", strip.c_str(), n); ledsShow(); }
+        }
+      }
+    }
     if (cmdBuffer == "help") {
       local = true;
-      Serial.println("Dome-local: help, version, debug, setmac XX:XX:XX:XX:XX:XX, web on|off");
+      Serial.println("Dome-local: help, version, debug, setmac XX:.., web on|off, leds <psi|logic|hp|eye> <n>");
       Serial.println("Anything else is sent to the DRIVE over ESP-NOW; its console streams back here.");
     }
       // RC4.4: not a dome command -> tunnel it to the drive
@@ -494,6 +560,21 @@ void checkSerialCommand() {
 
 void updateAnimations() {
   unsigned long currentMillis = millis();
+
+  // RC4.7: a latched D-pad scene (4-7) fully owns all the LEDs. When it clears
+  // (back to IDLE/tint), force a one-time repaint of the normal look.
+  static bool sceneWasActive = false;
+  if (currentAnim >= SCENE_ALERT) {
+    renderScene(currentMillis);
+    sceneWasActive = true;
+    return;
+  }
+  if (sceneWasActive) {
+    sceneWasActive = false;
+    PSI.clear(); PSI.show();
+    HP.fill(HP.Color(0, 0, 255)); HP.show();
+    lastEyeUpdate = 0; lastLogicUpdate = 0;   // let eye + bars repaint next tick
+  }
 
   // ---------------- PSI (RC4.5, per the reference video) ----------------
   // While a sound plays: WHITE, easing slowly up and down (0.6-1.2 s ramps,
@@ -524,7 +605,7 @@ void updateAnimations() {
         uint8_t v = (idx < env->len) ? env->data[idx] : 0;   // past the end: dark
         if (v != envLast) {
           envLast = v;
-          PSI.setPixelColor(0, PSI.Color(v, v, v));          // WHITE, beep-synced
+          PSI.fill(PSI.Color(v, v, v));                      // WHITE, beep-synced
           PSI.show();
         }
         wasTalking = true;
@@ -566,7 +647,7 @@ void updateAnimations() {
             break;
         }
         uint8_t v = (uint8_t)level;
-        PSI.setPixelColor(0, PSI.Color(v, v, v));   // WHITE
+        PSI.fill(PSI.Color(v, v, v));   // WHITE
         PSI.show();
       }
     } else {
@@ -581,8 +662,8 @@ void updateAnimations() {
       if (currentAnim != shown) {
         shown = currentAnim;
         switch (currentAnim) {
-          case RED:  PSI.setPixelColor(0, PSI.Color(255, 0, 0)); PSI.show(); break;
-          case BLUE: PSI.setPixelColor(0, PSI.Color(0, 0, 255)); PSI.show(); break;
+          case RED:  PSI.fill(PSI.Color(255, 0, 0)); PSI.show(); break;
+          case BLUE: PSI.fill(PSI.Color(0, 0, 255)); PSI.show(); break;
           case RAINBOW: break;                       // handleAnimation cycles it
           default:   PSI.clear(); PSI.show(); break;
         }
@@ -593,7 +674,7 @@ void updateAnimations() {
 
   // ---------------- Eye (unchanged: red while running) ----------------
   if (currentMillis - lastEyeUpdate > random(3000, 10000)) {
-    EYE.setPixelColor(0, EYE.Color(random(50, 255), 0, 0));
+    EYE.fill(EYE.Color(random(50, 255), 0, 0));
     EYE.show();
     lastEyeUpdate = currentMillis;
   }
@@ -606,12 +687,13 @@ void updateAnimations() {
     static uint8_t head = 0;
     if (currentMillis - scrollAt >= 160) {
       scrollAt = currentMillis;
-      head = (head + 1) % LOGIC_PIXELS;
-      for (uint8_t i = 0; i < LOGIC_PIXELS; i++) {
-        uint8_t d = (uint8_t)((head - i + LOGIC_PIXELS) % LOGIC_PIXELS);  // 0 = head
+      int lp = sLOGIC.numPixels();
+      head = (head + 1) % lp;
+      for (int i = 0; i < lp; i++) {
+        int d = (head - i + lp) % lp;  // 0 = head
         uint8_t b = (d == 0) ? 255 : (d == 1 ? 90 : (d == 2 ? 25 : 0));
         sLOGIC.setPixelColor(i, sLOGIC.Color(0, 0, b));
-        lLOGIC.setPixelColor((i + LOGIC_PIXELS / 2) % LOGIC_PIXELS, lLOGIC.Color(0, 0, b));
+        lLOGIC.setPixelColor((i + lp / 2) % lp, lLOGIC.Color(0, 0, b));
       }
       sLOGIC.show(); lLOGIC.show();
     }
@@ -620,7 +702,7 @@ void updateAnimations() {
   // ---------------- HP: solid blue (say the word for red) ----------------
   {
     static bool hpPainted = false;
-    if (!hpPainted) { hpPainted = true; HP.setPixelColor(0, HP.Color(0, 0, 255)); HP.show(); }
+    if (!hpPainted) { hpPainted = true; HP.fill(HP.Color(0, 0, 255)); HP.show(); }
   }
 }
 
@@ -631,15 +713,86 @@ void handleAnimation() {
   if (currentAnim == RAINBOW) rainbowCycle();
 }
 
+// RC4.7: D-pad light scenes. Each fully owns eye + HP + PSI + both logic bars
+// while latched; releasing the scene (IDLE) restores the normal look. Add a
+// case here + an AnimState + a drive D-pad mapping to grow the set.
+void renderScene(unsigned long ms) {
+  switch (currentAnim) {
+
+    case SCENE_ALERT: {              // UP — red alarm strobe, everything flashes
+      static unsigned long at = 0; static bool on = false;
+      if (ms - at >= 110) { at = ms; on = !on; }
+      uint8_t v = on ? 255 : 12;
+      EYE.fill(EYE.Color(v, 0, 0));
+      PSI.fill(PSI.Color(v, 0, 0));
+      HP.fill(HP.Color(v, 0, 0));
+      sLOGIC.fill(sLOGIC.Color(v, 0, 0));
+      lLOGIC.fill(lLOGIC.Color(v, 0, 0));
+      break;
+    }
+
+    case SCENE_SCANNER: {            // DOWN — cyan KITT bounce on the logic bars
+      static unsigned long at = 0; static int pos = 0; static int dir = 1;
+      int n = sLOGIC.numPixels();
+      if (ms - at >= 70) {
+        at = ms; pos += dir;
+        if (pos >= n - 1) { pos = n - 1; dir = -1; }
+        else if (pos <= 0) { pos = 0; dir = 1; }
+      }
+      for (int i = 0; i < n; i++) {
+        int d = abs(i - pos);
+        uint8_t b = d == 0 ? 255 : (d == 1 ? 60 : 0);
+        sLOGIC.setPixelColor(i, sLOGIC.Color(0, b, b));
+        lLOGIC.setPixelColor(n - 1 - i, lLOGIC.Color(0, b, b));   // mirrored
+      }
+      EYE.fill(EYE.Color(0, 180, 200));
+      HP.fill(HP.Color(0, 40, 60));
+      PSI.fill(PSI.Color(0, 120, 140));
+      break;
+    }
+
+    case SCENE_FIRE: {               // LEFT — warm flicker across every pixel
+      static unsigned long at = 0;
+      if (ms - at >= 60) {
+        at = ms;
+        auto ember = [](Adafruit_NeoPixel& s) {
+          for (int i = 0; i < s.numPixels(); i++) {
+            uint8_t r = random(160, 256), g = (uint8_t)((int)r * random(30, 90) / 255);
+            s.setPixelColor(i, s.Color(r, g, 0));
+          }
+        };
+        ember(EYE); ember(PSI); ember(HP); ember(sLOGIC); ember(lLOGIC);
+      } else return;                  // hold last frame between flicker ticks
+      break;
+    }
+
+    case SCENE_PARTY: {              // RIGHT — fast rainbow across everything
+      static unsigned long at = 0; static uint16_t hue = 0;
+      if (ms - at >= 25) { at = ms; hue += 2200; }
+      auto wash = [&](Adafruit_NeoPixel& s, uint16_t base) {
+        int n = s.numPixels();
+        for (int i = 0; i < n; i++)
+          s.setPixelColor(i, s.gamma32(s.ColorHSV(base + (uint16_t)(i * (65536L / max(1, n))))));
+      };
+      wash(EYE, hue); wash(PSI, hue + 10000); wash(HP, hue + 20000);
+      wash(sLOGIC, hue); wash(lLOGIC, hue + 30000);
+      break;
+    }
+
+    default: return;
+  }
+  EYE.show(); PSI.show(); HP.show(); sLOGIC.show(); lLOGIC.show();
+}
+
 
 void rainbowCycle() {
   static uint16_t hue = 0;
   if (millis() - lastRainbowUpdate > 50) {
-    PSI.setPixelColor(0, PSI.gamma32(PSI.ColorHSV(hue)));
-    sLOGIC.setPixelColor(0, sLOGIC.gamma32(sLOGIC.ColorHSV(hue + 5000)));
-    lLOGIC.setPixelColor(0, lLOGIC.gamma32(lLOGIC.ColorHSV(hue + 10000)));
-    HP.setPixelColor(0, HP.gamma32(HP.ColorHSV(hue + 15000)));
-    EYE.setPixelColor(0, EYE.gamma32(EYE.ColorHSV(hue + 20000)));
+    PSI.fill(PSI.gamma32(PSI.ColorHSV(hue)));
+    sLOGIC.fill(sLOGIC.gamma32(sLOGIC.ColorHSV(hue + 5000)));
+    lLOGIC.fill(lLOGIC.gamma32(lLOGIC.ColorHSV(hue + 10000)));
+    HP.fill(HP.gamma32(HP.ColorHSV(hue + 15000)));
+    EYE.fill(EYE.gamma32(EYE.ColorHSV(hue + 20000)));
     PSI.show(); sLOGIC.show(); lLOGIC.show(); HP.show(); EYE.show();
     hue += 256;
     lastRainbowUpdate = millis();
@@ -690,6 +843,10 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
     case 1: currentAnim = RAINBOW; break;
     case 2: currentAnim = RED; break;
     case 3: currentAnim = BLUE; break;
+    case 4: currentAnim = SCENE_ALERT; break;
+    case 5: currentAnim = SCENE_SCANNER; break;
+    case 6: currentAnim = SCENE_FIRE; break;
+    case 7: currentAnim = SCENE_PARTY; break;
     default: currentAnim = IDLE; break;
   }
 }
@@ -742,7 +899,7 @@ void bootFeedback() {
   bool ledOn = false;
   while (millis() - start < 1200) {
     if ((millis() / 200) % 2 == 0 && !ledOn) {
-      PSI.setPixelColor(0, PSI.Color(0, 255, 0));
+      PSI.fill(PSI.Color(0, 255, 0));
       PSI.show();
       ledOn = true;
     } else if ((millis() / 200) % 2 == 1 && ledOn) {

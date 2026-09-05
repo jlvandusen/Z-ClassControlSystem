@@ -1140,16 +1140,21 @@ void handleDomeAndBodyLights() {
     domeData.psi = playingTrack;
   }
 
-  // RC4: while tuning, cross/dpad belong to the tuner — no light anims
-  if (pidTuneMode) domeData.anim = 0;
-  else if (driveController.cross.pressed) domeData.anim = 1;
-  else if (driveController.circle.pressed) domeData.anim = 2;
-  else if (driveController.L1.pressed) domeData.anim = 3;
-  else if (driveController.dpadUp.pressed) domeData.anim = 4;
-  else if (driveController.dpadDown.pressed) domeData.anim = 5;
-  else if (driveController.dpadLeft.pressed) domeData.anim = 6;
-  else if (driveController.dpadRight.pressed) domeData.anim = 7;
-  else domeData.anim = 0;
+  // RC4.7: D-pad LIGHT SCENES, latched. A directional on EITHER pad (drive or
+  // dome) sets a dome light scene that HOLDS until changed; tapping the same
+  // direction again clears it (back to the normal look). UP=alert, DOWN=scanner,
+  // LEFT=fire, RIGHT=party. Latched on the press edge so it survives the button
+  // release. (Directionals only for now; cross/circle/L1 keep their real jobs.)
+  static int latchedScene = 0;
+  if (!pidTuneMode) {
+    int tapped = 0;
+    if (driveController.dpadUp.pressed    || domeController.dpadUp.pressed)    tapped = 4;
+    else if (driveController.dpadDown.pressed  || domeController.dpadDown.pressed)  tapped = 5;
+    else if (driveController.dpadLeft.pressed  || domeController.dpadLeft.pressed)  tapped = 6;
+    else if (driveController.dpadRight.pressed || domeController.dpadRight.pressed) tapped = 7;
+    if (tapped != 0) latchedScene = (latchedScene == tapped) ? 0 : tapped;
+  }
+  domeData.anim = pidTuneMode ? 0 : latchedScene;
 
   domeData.bat = lastBatteryVoltage;
   domeData.checksum = calculateChecksumDome(domeData);
