@@ -499,6 +499,65 @@ void applyS2SPWM(int pwm) {
   gS2SDirFwd = (pwm > 0);
 }
 
+// RC4.7: builder auto-center. Gently drives the S2S to each endstop, detects
+// the stall (pot stops changing), takes the midpoint as the mechanical center,
+// saves it to NVS (persists — boot cal no longer overwrites potCenter), and
+// parks the frame at center. Run once at assembly: 'cfg autocenter'. Drive
+// must be DISABLED; keep hands clear of the S2S.
+void s2sAutoCenter() {
+  const int   FIND_PWM   = 95;     // gentle drive into the stops
+  const int   STALL_DELTA = 4;     // counts of movement that still count as "moving"
+  const int   STALL_MS   = 400;    // no movement this long = at the stop
+  const unsigned long PHASE_TIMEOUT = 7000;
+
+  Serial.println(F("[AUTOCENTER] finding S2S endstops - keep hands clear..."));
+  driveEnabled = false;            // this routine owns the motor
+
+  auto driveToStop = [&](int pwm, const char* dir) -> int {
+    int last = readS2SPot();
+    unsigned long lastMove = millis();
+    unsigned long t0 = millis();
+    while (millis() - t0 < PHASE_TIMEOUT) {
+      applyS2SPWM(pwm);
+      delay(15);
+      int p = readS2SPot();
+      if (abs(p - last) > STALL_DELTA) { lastMove = millis(); last = p; }
+      if (millis() - lastMove > STALL_MS) break;   // stalled = at the stop
+    }
+    brakeS2S();
+    int e = readS2SPot();
+    Serial.printf("[AUTOCENTER] %s stop: pot=%d\n", dir, e);
+    return e;
+  };
+
+  int lo = driveToStop(-FIND_PWM, "low ");   // pot down
+  delay(250);
+  int hi = driveToStop(+FIND_PWM, "high");    // pot up
+  delay(250);
+
+  if (abs(hi - lo) < 100) {   // never really moved -> motor/pot problem
+    brakeS2S();
+    Serial.println(F("[AUTOCENTER] FAILED: pot barely moved (motor unpowered, or pot/gear disconnected). No change saved."));
+    return;
+  }
+
+  int center = (lo + hi) / 2;
+  cfg.potCenter = center;
+  saveConfig();
+  Serial.printf("[AUTOCENTER] low=%d high=%d -> center=%d (saved to NVS)\n", lo, hi, center);
+
+  // park at center
+  unsigned long t0 = millis();
+  while (millis() - t0 < 4000) {
+    int err = center - readS2SPot();
+    if (abs(err) < 8) break;
+    applyS2SPWM(constrain(err * 2, -FIND_PWM, FIND_PWM));
+    delay(15);
+  }
+  brakeS2S();
+  Serial.println(F("[AUTOCENTER] done - frame parked at center; survives reboot. (Enable + steer to verify.)"));
+}
+
 void applyFlywheelPWM(int pwm) {
   pwm = constrain(pwm, -255, 255);
   if (abs(pwm) <= DEFAULT_JOY_DEADZONE) { brakeFlywheel(); return; }

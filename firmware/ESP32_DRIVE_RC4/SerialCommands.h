@@ -17,6 +17,7 @@ extern bool loadConfig();
 extern void resetConfigToDefaults();
 extern void beginS2SCenterCalibration();
 extern void beginCalibration(uint8_t mask);
+extern void s2sAutoCenter();      // RC4.7: drive-to-endstops auto-center
 extern void printControllersSummary();
 extern bool savePidOnly();
 
@@ -104,6 +105,7 @@ inline void printHelpMenu() {
   Serial.println(F("cfg set rolloffset <float>"));
   Serial.println(F("cfg set potcenter <int>"));
   Serial.println(F("cfg set mpudeadzone <float>   (RC4: display deadzone only, NOT in the PID path)"));
+  Serial.println(F("cfg autocenter        - drive S2S to both stops, save the midpoint as center (persists; run at assembly / anytime)"));
   Serial.println(F("cfg calibrate         - 3s level cal: pitch + roll zeros + pot center"));
   Serial.println(F("cfg calibrate drive   - pitch zero only"));
   Serial.println(F("cfg calibrate s2s     - roll zero + pot center only"));
@@ -340,6 +342,9 @@ inline void handleSerialCommand(const String &cmd) {
     } else {
       Serial.println(F("[PREF] Invalid value. Must be 0-5."));
     }
+  } else if (cmd == "cfg autocenter") {
+    // RC4.7: drive to both S2S endstops, save the midpoint as center (persists).
+    s2sAutoCenter();
   } else if (cmd == "cfg calibrate" || cmd == "cfg calibrate all" || cmd == "cfg calibrate s2scenter") {
     beginCalibration(0x7);      // pitch + roll + pot center
   } else if (cmd == "cfg calibrate drive") {
