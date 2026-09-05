@@ -101,7 +101,7 @@ bool  bodyTelemetry = false;
 //              daisy-chain (DIN->DOUT); runtime count via 'leds <n>'.
 #define BODY_LED_SEQUIN   0
 #define BODY_LED_NEOPIXEL 1
-#define BODY_LED_MODE     BODY_LED_SEQUIN   // <-- flip to BODY_LED_NEOPIXEL for WS2812
+#define BODY_LED_MODE     BODY_LED_NEOPIXEL   // v9.15 hardware: D13 -> BOB-12009 level shifter -> WS2812 (flip to BODY_LED_SEQUIN for plain LEDs)
 #define BODY_LED_PIN      13
 
 #if BODY_LED_MODE == BODY_LED_NEOPIXEL
