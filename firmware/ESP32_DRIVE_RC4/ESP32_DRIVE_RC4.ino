@@ -317,10 +317,13 @@ float lastBatteryVoltage = 4.0;
 int   idleChatterSec = 0;     // 0 = off; else random chatter after this many idle seconds
 float batLowVolts = 0.0f;     // 0 = off; else alert when the dome battery drops below
 
-// RC4.7: on a drive reboot, a paired pad reconnects still holding stale link
-// state and sits lit until it times out. Bounce each pad ONCE as it reconnects
-// in the boot window so it resets to a clean session. Persisted as "btrst".
-bool  btResetOnBoot = true;
+// RC4.7: boot-bounce was the FIRST attempt at "pad stays lit after reboot" —
+// disconnect each pad once as it reconnects in the boot window. It is now
+// REDUNDANT (the link-supervision-timeout fix below is the real one) and it
+// double-fires the connect sound (connect -> bounce -> reconnect), so it is
+// OFF by default. Kept behind 'pref btreset on' for the rare pad that holds a
+// half-open link the supervision timeout doesn't cover.
+bool  btResetOnBoot = false;
 const unsigned long BT_BOOT_BOUNCE_MS = 25000;   // only bounce reconnects this soon after boot
 uint8_t bouncedMacs[4][6];    // pads already bounced this boot (max 4)
 uint8_t bouncedCount = 0;

@@ -285,13 +285,20 @@ inline void handleSerialCommand(const String &cmd) {
       ? F("[PREF] Pads will be bounced to a clean state on boot (saved)")
       : F("[PREF] Boot pad-reset OFF — pads keep their reconnect state (saved)"));
   } else if (cmd.startsWith("pref btsupervision")) {
-    int v = cmd.substring(18).toInt();
-    if (v == 0 || (v >= 3 && v <= 30)) {
-      btSupervisionSec = v; saveSoundPrefs();
-      applyBtSupervision();   // takes effect for the NEXT connection
-      if (v == 0) Serial.println(F("[PREF] Link supervision = BT default (~20 s). Reconnect the pad to apply."));
-      else Serial.printf("[PREF] Link supervision %d s — a pad drops this fast after a drive reboot (saved). Reconnect the pad to apply.\n", v);
-    } else Serial.println(F("[PREF] Invalid. 0 (BT default) or 3-30 seconds. Below ~5 s risks drops on RF stalls."));
+    String arg = cmd.substring(18);
+    arg.trim();
+    if (arg.length() == 0) {   // bare command = SHOW, don't clobber
+      if (btSupervisionSec == 0) Serial.println(F("[PREF] Link supervision = BT default (~20 s)."));
+      else Serial.printf("[PREF] Link supervision = %d s.\n", btSupervisionSec);
+    } else {
+      int v = arg.toInt();
+      if (v == 0 || (v >= 3 && v <= 30)) {
+        btSupervisionSec = v; saveSoundPrefs();
+        applyBtSupervision();   // takes effect for the NEXT connection
+        if (v == 0) Serial.println(F("[PREF] Link supervision = BT default (~20 s). Reconnect the pad to apply."));
+        else Serial.printf("[PREF] Link supervision %d s — a pad drops this fast after a drive reboot (saved). Reconnect the pad to apply.\n", v);
+      } else Serial.println(F("[PREF] Invalid. 0 (BT default) or 3-30 seconds. Below ~5 s risks drops on RF stalls."));
+    }
   } else if (cmd.startsWith("pref sndon ")) {
     int v = cmd.substring(11).toInt();
     if (v >= 0 && v <= 119) {
