@@ -171,7 +171,12 @@ TeeSerial SerialTee;
 
 // ------------------- CONFIG -------------------
 #define REVERSE_DRIVE false      // reverse drive motor direction
-#define REVERSE_S2S false        // reverse S2S inner-loop direction
+#define REVERSE_S2S false        // reverse S2S inner-loop direction (motor)
+#define REVERSE_S2S_POT true     // RC4.7: mirror the S2S pot reading — set true when
+                                 // the pot's two outer wires are swapped (pot reads
+                                 // backwards). Fixes ONLY the reading, so steering/
+                                 // balance directions stay as they were. RECALIBRATE
+                                 // the center after changing this ('cfg calibrate s2s').
 #define S2S_BALANCE_INVERT false // flip roll-PID contribution to S2S target
 #define S2S_STICK_INVERT false   // flip joystick contribution to S2S target
 #define DRIVE_BALANCE_INVERT false // flip pitch-PID contribution to drive
@@ -196,6 +201,14 @@ const uint8_t S2S_POT_PIN = 34;
 const uint8_t FLYWHEEL_PWM = 15;
 const uint8_t FLYWHEEL_PIN_1 = 32;
 const uint8_t FLYWHEEL_PIN_2 = 14;
+
+// RC4.7: single point of truth for the S2S pot. Mirrors the 12-bit reading when
+// the pot wires are swapped, so everything downstream (center cal, inner loop,
+// telemetry) sees a normal, increasing-with-position value.
+static inline int readS2SPot() {
+  int r = analogRead(S2S_POT_PIN);
+  return REVERSE_S2S_POT ? (4095 - r) : r;
+}
 
 // Calibration defaults
 static const int32_t DEFAULT_POT_CENTER = 1500;
@@ -550,7 +563,7 @@ void finishS2SCalibration() {
 
 void serviceS2SCenterCalibration() {
   if (!s2sCalibrating) return;
-  s2sCalSumPot += analogRead(S2S_POT_PIN);
+  s2sCalSumPot += readS2SPot();
   s2sCalSumPitch += mpudata.pitch;
   s2sCalSumRoll += mpudata.roll;
   s2sCalSamples++;
@@ -563,7 +576,7 @@ void serviceS2SCenterCalibration() {
 void savePrefs() {
   cfg.pitchOffset = -mpudata.pitch;
   cfg.rollOffset = -mpudata.roll;
-  cfg.potCenter = analogRead(S2S_POT_PIN);
+  cfg.potCenter = readS2SPot();
 
   cfg.driveKp = drivePID.getKp();
   cfg.driveKi = drivePID.getKi();
@@ -993,7 +1006,7 @@ void runControl(float dt) {
   }
 
   // Pot filter (EMA) — always maintained
-  int potRaw = analogRead(S2S_POT_PIN);
+  int potRaw = readS2SPot();
   potFiltered += 0.3f * ((float)potRaw - potFiltered);
 
   // IMU staleness guard: never balance on dead data
@@ -1312,7 +1325,7 @@ void setup() {
 #endif
 
   initMotors();
-  potFiltered = analogRead(S2S_POT_PIN);
+  potFiltered = readS2SPot();
 
   Serial.println(F("[CAL] Boot calibration pending..."));
 }
