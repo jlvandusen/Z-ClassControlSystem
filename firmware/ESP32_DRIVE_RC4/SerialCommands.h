@@ -54,6 +54,8 @@ inline void macroStart(const String& steps);     // macro engine, defined below
 extern int idleChatterSec;
 extern float batLowVolts;
 extern bool btResetOnBoot;
+extern int btSupervisionSec;
+void applyBtSupervision();
 
 // Config + IMU
 extern struct struct_messagempu mpudata;
@@ -124,6 +126,7 @@ inline void printHelpMenu() {
   Serial.println(F("pref idle <sec>       - Idle chatter after <sec> quiet (0 = off; pad must be connected)"));
   Serial.println(F("pref batlow <volts>   - Dome-battery alert threshold (0 = off)"));
   Serial.println(F("pref btreset on|off   - Bounce pads on boot so they reset clean (default on)"));
+  Serial.println(F("pref btsupervision <s>- Link-timeout so a pad drops <s> s after a drive reboot (default 5; 0=BT default ~20s)"));
   Serial.println(F("blackbox [dump|arm]   - 25Hz flight recorder; freezes on safety events"));
   Serial.println(F("macro set <1-4> <cmd;wait ms;cmd...> | macro run <n> | macro show | macro stop"));
   Serial.println(F("ota begin <bytes> / ota end / ota abort / ota status  - used by 'bb8 upload drive --ota'"));
@@ -281,6 +284,14 @@ inline void handleSerialCommand(const String &cmd) {
     Serial.println(btResetOnBoot
       ? F("[PREF] Pads will be bounced to a clean state on boot (saved)")
       : F("[PREF] Boot pad-reset OFF — pads keep their reconnect state (saved)"));
+  } else if (cmd.startsWith("pref btsupervision")) {
+    int v = cmd.substring(18).toInt();
+    if (v == 0 || (v >= 3 && v <= 30)) {
+      btSupervisionSec = v; saveSoundPrefs();
+      applyBtSupervision();   // takes effect for the NEXT connection
+      if (v == 0) Serial.println(F("[PREF] Link supervision = BT default (~20 s). Reconnect the pad to apply."));
+      else Serial.printf("[PREF] Link supervision %d s — a pad drops this fast after a drive reboot (saved). Reconnect the pad to apply.\n", v);
+    } else Serial.println(F("[PREF] Invalid. 0 (BT default) or 3-30 seconds. Below ~5 s risks drops on RF stalls."));
   } else if (cmd.startsWith("pref sndon ")) {
     int v = cmd.substring(11).toInt();
     if (v >= 0 && v <= 119) {
@@ -530,6 +541,7 @@ inline void handleSerialCommand(const String &cmd) {
     Serial.printf("pref idle %d\n", idleChatterSec);
     Serial.printf("pref batlow %.2f\n", batLowVolts);
     Serial.printf("pref btreset %s\n", btResetOnBoot ? "on" : "off");
+    Serial.printf("pref btsupervision %d\n", btSupervisionSec);
     Serial.printf("dome mac %02X:%02X:%02X:%02X:%02X:%02X\n",
                   domeMACAddress[0], domeMACAddress[1], domeMACAddress[2],
                   domeMACAddress[3], domeMACAddress[4], domeMACAddress[5]);

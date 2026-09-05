@@ -324,6 +324,21 @@ bool  btResetOnBoot = true;
 const unsigned long BT_BOOT_BOUNCE_MS = 25000;   // only bounce reconnects this soon after boot
 uint8_t bouncedMacs[4][6];    // pads already bounced this boot (max 4)
 uint8_t bouncedCount = 0;
+
+// RC4.7: the REAL fix for "pad stays lit ~20 s after a drive reboot". BT's link
+// supervision timeout is how long a pad waits with no data before it decides
+// the link is dead and drops (LEDs off). Default is 0x7D00 = 20 s. Shorten it
+// so the pad self-clears within a few seconds of ANY drive reset (voluntary,
+// DTR, or power) — set BEFORE connections form, applies to new links. In
+// 0.625 ms slots: seconds * 1600. Persisted as "btsup"; 0 = leave default.
+// Not too short — it also drops the pad on a real RF stall (BT/ESP-NOW share
+// the radio), so 5 s is the floor we trust.
+int   btSupervisionSec = 5;
+extern "C" void gap_set_link_supervision_timeout(uint16_t timeout);
+void applyBtSupervision() {
+  if (btSupervisionSec > 0)
+    gap_set_link_supervision_timeout((uint16_t)(btSupervisionSec * 1600));
+}
 unsigned long lastSoundTriggerMs = 0;
 uint16_t lastSoundCmd = SOUND_NONE;
 const uint16_t SOUND_DEBOUNCE_MS = 250;
@@ -697,6 +712,7 @@ void loadSoundPrefs() {
   idleChatterSec = prefs.getInt("idle", idleChatterSec);
   batLowVolts    = prefs.getFloat("batlow", batLowVolts);
   btResetOnBoot  = prefs.getBool("btrst", btResetOnBoot);
+  btSupervisionSec = prefs.getInt("btsup", btSupervisionSec);
   prefs.end();
 }
 void saveSoundPrefs() {
@@ -712,6 +728,7 @@ void saveSoundPrefs() {
   prefs.putInt("idle", idleChatterSec);
   prefs.putFloat("batlow", batLowVolts);
   prefs.putBool("btrst", btResetOnBoot);
+  prefs.putInt("btsup", btSupervisionSec);
   prefs.end();
 }
 
@@ -1236,7 +1253,10 @@ void setup() {
   // RC4 fix #11: no forgetBluetoothKeys(), no blocking 5 s window.
   BP32.setup(&onConnectedGamepad, &onDisconnectedGamepad);
   BP32.enableNewBluetoothConnections(true);
+  applyBtSupervision();   // RC4.7: short link supervision so pads drop fast on a reboot
   Serial.println(F("[BT] Ready — paired controllers will auto-reconnect ('bt forget' to re-pair)"));
+  if (btSupervisionSec > 0)
+    Serial.printf("[BT] link supervision timeout = %d s (pads self-clear this fast after a reboot)\n", btSupervisionSec);
 
   uint8_t bt_mac[6];
   esp_read_mac(bt_mac, ESP_MAC_BT);
