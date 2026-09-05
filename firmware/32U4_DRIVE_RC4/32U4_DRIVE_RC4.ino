@@ -39,6 +39,7 @@
 #include "DFRobotDFPlayerMini.h"
 #include "SoftwareSerial.h"
 #include "BuildStamp.h"
+#include <Adafruit_NeoPixel.h>   // RC4.7: body circle-panel lights on D13
 
 // ------------------- CONFIG -------------------
 
@@ -91,6 +92,15 @@ bool  bodyTelemetry = false;
 #define motorEncoder_pin_A 2
 #define motorEncoder_pin_B A0
 #define hallEffectSensor_Pin 20
+
+// RC4.7: body circle-panel NeoPixels. D13 -> BOB-12009 level shifter -> DIN,
+// external 5 V rail. Count is runtime-configurable ('leds <n>', EEPROM) since
+// only some of the six circles are lit and the chain length varies.
+#define BODY_LED_PIN     13
+#define BODY_LED_MAX     30
+#define BODY_LED_EE_ADDR 100
+uint8_t bodyLedCount = 6;
+Adafruit_NeoPixel bodyLeds(BODY_LED_MAX, BODY_LED_PIN, NEO_GRB + NEO_KHZ800);
 
 // ------------------- CONFIGURABLE DEFAULTS -------------------
 static const char* DEFAULT_REVISION = "Joe Drive Rev 1.0 RC4 DRIVE";
@@ -220,73 +230,18 @@ static inline float stickToTilt(int8_t v, int deadband) {
   return (v > 0) ? -t : t;
 }
 
-// ---- RC4.2: audio diagnostics ----
-// Drain and classify one DFPlayer response within 'ms'. Returns:
-// 0 = nothing, 1 = error frame (file missing / busy), 2 = other frame.
-uint8_t dfWaitReply(unsigned long ms) {
-  unsigned long t0 = millis();
-  uint8_t r = 0;
-  while (millis() - t0 < ms) {
-    if (mp3.available()) {
-      uint8_t type = mp3.readType();
-      mp3.read();
-      if (type == DFPlayerError) return 1;
-      r = 2;
-    }
-  }
-  return r;
-}
 
 void audioStatus() {
   Serial.print(F("[AUDIO] ready=")); Serial.print(dfPlayerReady);
   Serial.print(F(" busyPin=")); Serial.print(digitalRead(DFPLAYER_BUSY_PIN) == LOW ? F("PLAYING") : F("idle"));
   Serial.print(F(" vol=")); Serial.print(currentVolume);
   Serial.print(F(" silent=")); Serial.println(silentMode);
-  if (!dfPlayerReady) { Serial.println(F("[AUDIO] DFPlayer not initialised (no SD / no reply at boot)")); return; }
-  int files = mp3.readFileCounts();
-  int folders = mp3.readFolderCounts();
-  Serial.print(F("[AUDIO] SD total files=")); Serial.print(files);
-  Serial.print(F(" folders=")); Serial.println(folders);
-  if (files <= 0) Serial.println(F("[AUDIO] WARNING: card reports no files — check SD card / format (FAT32)"));
+  if (!dfPlayerReady) { Serial.println(F("[AUDIO] DFPlayer not ready (no SD?)")); return; }
+  Serial.print(F("[AUDIO] SD files=")); Serial.println(mp3.readFileCounts());
 }
 
-// Muted scan of MP3/0001.mp3 .. MP3/00NN.mp3: the module answers a
-// missing track with an error frame, a present one starts playing (BUSY).
-void audioScan(int maxTrack) {
-  if (!dfPlayerReady) { Serial.println(F("[AUDIO] DFPlayer not ready")); return; }
-  Serial.print(F("[AUDIO] scanning MP3 folder 1..")); Serial.print(maxTrack);
-  Serial.println(F(" (muted, ~0.2 s per track)"));
-  mp3.volume(0);
-  delay(50);
-  dfWaitReply(50);
-  int runStart = -1, present = 0;
-  Serial.print(F("[AUDIO] present: "));
-  for (int n = 1; n <= maxTrack; n++) {
-    // RC4.3: wait for the previous track to actually stop (BUSY high) so
-    // its lingering BUSY can't be credited to this track - that produced
-    // one phantom "present" after every real one (e.g. 60 -> 61).
-    unsigned long tIdle = millis();
-    while (digitalRead(DFPLAYER_BUSY_PIN) == LOW && millis() - tIdle < 400) dfWaitReply(10);
-    bool wasIdle = digitalRead(DFPLAYER_BUSY_PIN) == HIGH;
-    mp3.playMp3Folder(n);
-    uint8_t r = dfWaitReply(140);
-    bool ok = wasIdle && (r != 1) && digitalRead(DFPLAYER_BUSY_PIN) == LOW;
-    if (!ok && wasIdle && r != 1) { delay(40); ok = (digitalRead(DFPLAYER_BUSY_PIN) == LOW) && dfWaitReply(10) != 1; }
-    if (ok) {
-      present++;
-      if (runStart < 0) runStart = n;
-    } else if (runStart >= 0) {
-      Serial.print(runStart); if (n - 1 > runStart) { Serial.print('-'); Serial.print(n - 1); } Serial.print(' ');
-      runStart = -1;
-    }
-    mp3.stop();
-    dfWaitReply(30);
-  }
-  if (runStart >= 0) { Serial.print(runStart); if (maxTrack > runStart) { Serial.print('-'); Serial.print(maxTrack); } }
-  Serial.println();
-  Serial.print(F("[AUDIO] ")); Serial.print(present); Serial.print(F(" of ")); Serial.print(maxTrack); Serial.println(F(" tracks found"));
-  mp3.volume(silentMode ? 0 : currentVolume);
-}
+// RC4.7: audioScan() removed to free flash for the body NeoPixels — the PC-side
+// 'bb8 sounds' scans the card far better anyway.
 
 // RC4.2: tilt param helpers (defined after the struct typedefs so the
 // Arduino prototype generator does not hoist them above SendToESP32)
@@ -341,6 +296,15 @@ void setup() {
   pinMode(DFPLAYER_BUSY_PIN, INPUT_PULLUP);
   initAudio();
 
+  // RC4.7: body panel lights
+  bodyLeds.begin();
+  bodyLedCount = EEPROM.read(BODY_LED_EE_ADDR);
+  if (bodyLedCount < 1 || bodyLedCount > BODY_LED_MAX) bodyLedCount = 6;
+  bodyLeds.updateLength(bodyLedCount);
+  bodyLeds.setBrightness(120);
+  bodyLeds.clear();
+  bodyLeds.show();
+
   pinMode(domeMotor_pin_A, OUTPUT);
   pinMode(domeMotor_pin_B, OUTPUT);
   pinMode(domeMotor_pwm, OUTPUT);
@@ -366,6 +330,27 @@ void setup() {
   } else Serial.println(F("[AUDIO] Boot sound not played."));
 
   Serial.println(F("Ready — Dome Controller Active (RC4)"));
+}
+
+// RC4.7: body circle-panel lights. No floats (flash is tight on the 32u4): a
+// triangle "breathe", white while a sound plays, teal while the drive is live,
+// idle blue otherwise.
+void serviceBodyLights() {
+  static unsigned long at = 0;
+  static int level = 20, dir = 4;
+  unsigned long now = millis();
+  if (now - at < 30) return;
+  at = now;
+  level += dir;
+  if (level >= 120) { level = 120; dir = -4; }
+  else if (level <= 20) { level = 20; dir = 4; }
+  uint8_t v = (uint8_t)level;
+  uint32_t c;
+  if (dfPlayerReady && digitalRead(DFPLAYER_BUSY_PIN) == LOW) c = bodyLeds.Color(v, v, v);        // speaking = white
+  else if (incoming.driveEnabled)                            c = bodyLeds.Color(0, v, v / 3);     // live = teal
+  else                                                        c = bodyLeds.Color(0, 0, v);         // idle = blue
+  bodyLeds.fill(c);
+  bodyLeds.show();
 }
 
 // ------------------- LOOP -------------------
@@ -416,6 +401,7 @@ void loop() {
   }
 
   handleSerialCommands();
+  serviceBodyLights();       // RC4.7: body circle-panel NeoPixels
   printDebugInfo();
 
   // RC4.2: 50 Hz tilt telemetry for 'bb8 tune dome' / bb8 analyze
@@ -810,18 +796,9 @@ void handleSerialCommands() {
         Serial.println(F("[ENCODER] Forward position set at 180 deg."));
     }
     else if (cmd == "help") {
-        Serial.println(F("Commands: help, version, debug, debug encoder, center, set zero, play <n>"));
-        Serial.println(F("  telemetry on|off      50 Hz tilt stream (t,pitch,roll,tx,ty,l,r,bal,en)"));
-        Serial.println(F("  tilt show             current tilt-compensation params"));
-        Serial.println(F("  tilt gain <f>         servo deg per body deg (default 1.0)"));
-        Serial.println(F("  tilt alpha <0.05-1>   smoothing (higher = snappier, default 0.35)"));
-        Serial.println(F("  tilt slew <deg/s>     slew limit (default 220)"));
-        Serial.println(F("  tilt invert x|y       flip an axis"));
-  Serial.println(F("  tilt lean <deg>       dome lean vs motion at full throttle (default -8 = against travel)"));
-        Serial.println(F("  tilt save | tilt reset"));
-        Serial.println(F("  audio status          DFPlayer/SD state, file counts, volume"));
-        Serial.println(F("  audio scan [max]      muted scan: which MP3/00NN.mp3 exist (default 1-100)"));
-        Serial.println(F("  audio stop | vol <0-30>"));
+        Serial.println(F("Cmds: help version debug [encoder] center set-zero play<n> telemetry on|off\n"
+                         "  tilt show|gain|alpha|slew|lean<f>|invert x|y|save|reset\n"
+                         "  audio status|stop  vol<0-30>  leds<n> (body panels 1-30)"));
     }
     // ---- RC4.2: tilt compensation tuning ----
     else if (cmd == "telemetry on")  { bodyTelemetry = true;  Serial.println(F("[TLM] body telemetry ON (50 Hz)")); }
@@ -849,14 +826,17 @@ void handleSerialCommands() {
     }
     else if (cmd == "tilt invert x") { tilt.invertX = !tilt.invertX; tiltShow(); }
     else if (cmd == "tilt invert y") { tilt.invertY = !tilt.invertY; tiltShow(); }
+    else if (cmd.startsWith("leds ")) {
+        int n = cmd.substring(5).toInt();
+        if (n >= 1 && n <= BODY_LED_MAX) {
+            bodyLedCount = n; EEPROM.update(BODY_LED_EE_ADDR, (uint8_t)n);
+            bodyLeds.updateLength(n); bodyLeds.clear(); bodyLeds.show();
+            Serial.print(F("[LEDS] body pixels = ")); Serial.println(n);
+        } else Serial.print(F("[LEDS] 1-")), Serial.println(BODY_LED_MAX);
+    }
     else if (cmd == "tilt save")     { tiltSave(); Serial.println(F("[TILT] saved to EEPROM")); tiltShow(); }
     else if (cmd == "tilt reset")    { tiltDefaults(); tiltSave(); Serial.println(F("[TILT] reset to defaults (saved)")); tiltShow(); }
-    // ---- RC4.2: audio diagnostics ----
     else if (cmd == "audio status")  { audioStatus(); }
-    else if (cmd.startsWith("audio scan")) {
-        int mx = cmd.substring(10).toInt();
-        audioScan(mx > 0 ? constrain(mx, 1, 255) : 100);
-    }
     else if (cmd == "audio stop")    { if (dfPlayerReady) { mp3.stop(); Serial.println(F("[AUDIO] stopped")); } }
     else if (cmd.startsWith("vol ")) {
         int v = cmd.substring(4).toInt();
@@ -866,7 +846,7 @@ void handleSerialCommands() {
     else if (cmd.length() > 0) {
         // RC4.1: never answer with silence — old firmware did, making it
         // impossible to tell 'unknown command' from 'not listening'
-        Serial.println(F("[?] Unknown command. Type 'help'."));
+        Serial.println(F("[?] see 'help'"));
     }
   }  // while Serial.available
 }
