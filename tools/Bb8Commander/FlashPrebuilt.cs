@@ -9,7 +9,92 @@
 // What to flash comes from binaries\<target>\flash.json, written by make-release.
 
 using System.IO.Ports;
+using System.Runtime.InteropServices;
 using System.Text.Json;
+
+// The Caterina BOOTLOADER's CDC port opens fine via raw CreateFile but .NET
+// SerialPort.Open dies in its config IOCTLs ("device not functioning" —
+// bench-proven 2026-09-05). So AVR109 talks through a bare Win32 handle;
+// baud is advisory over USB CDC, and SetCommState failures are ignored.
+sealed class RawSerial : IDisposable
+{
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern IntPtr CreateFile(string name, uint access, uint share, IntPtr sec, uint disp, uint flags, IntPtr tmpl);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool ReadFile(IntPtr h, byte[] buf, uint n, out uint read, IntPtr ovl);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool WriteFile(IntPtr h, byte[] buf, uint n, out uint written, IntPtr ovl);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool CloseHandle(IntPtr h);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool SetCommTimeouts(IntPtr h, ref ComTimeouts t);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool SetCommState(IntPtr h, ref Dcb dcb);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool EscapeCommFunction(IntPtr h, uint func);
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct ComTimeouts { public uint ReadInterval, ReadTotalMult, ReadTotalConst, WriteTotalMult, WriteTotalConst; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct Dcb
+    {
+        public uint DCBlength, BaudRate, Flags;
+        public ushort wReserved, XonLim, XoffLim;
+        public byte ByteSize, Parity, StopBits;
+        public sbyte XonChar, XoffChar, ErrorChar, EofChar, EvtChar;
+        public ushort wReserved1;
+    }
+
+    IntPtr _h = new(-1);
+
+    public bool Open(string port)
+    {
+        _h = CreateFile(@"\\.\" + port, 0xC0000000 /*GENERIC_RW*/, 0, IntPtr.Zero, 3 /*OPEN_EXISTING*/, 0, IntPtr.Zero);
+        if (_h == new IntPtr(-1)) return false;
+        var t = new ComTimeouts { ReadInterval = 0xFFFFFFFF, ReadTotalMult = 0xFFFFFFFF, ReadTotalConst = 200, WriteTotalConst = 2000 };
+        SetCommTimeouts(_h, ref t);
+        var dcb = new Dcb
+        {
+            DCBlength = (uint)Marshal.SizeOf<Dcb>(),
+            BaudRate = 57600,
+            ByteSize = 8,
+            // fBinary | fDtrControl=ENABLE | fRtsControl=ENABLE
+            Flags = 0x1 | 0x10 | 0x1000
+        };
+        SetCommState(_h, ref dcb);              // usbser may refuse — harmless over CDC
+        EscapeCommFunction(_h, 5);              // SETDTR
+        EscapeCommFunction(_h, 3);              // SETRTS
+        return true;
+    }
+
+    public void Write(byte[] data)
+    {
+        if (!WriteFile(_h, data, (uint)data.Length, out var w, IntPtr.Zero) || w != data.Length)
+            throw new IOException($"write failed (err {Marshal.GetLastWin32Error()})");
+    }
+
+    // Read exactly n bytes or throw after deadlineMs.
+    public byte[] ReadExact(int n, int deadlineMs)
+    {
+        var outBuf = new byte[n];
+        int got = 0;
+        var deadline = DateTime.Now.AddMilliseconds(deadlineMs);
+        var chunk = new byte[n];
+        while (got < n)
+        {
+            if (DateTime.Now > deadline) throw new TimeoutException("bootloader went quiet");
+            if (!ReadFile(_h, chunk, (uint)(n - got), out var r, IntPtr.Zero))
+                throw new IOException($"read failed (err {Marshal.GetLastWin32Error()})");
+            for (uint i = 0; i < r; i++) outBuf[got++] = chunk[i];
+        }
+        return outBuf;
+    }
+
+    public void Dispose()
+    {
+        if (_h != new IntPtr(-1)) { CloseHandle(_h); _h = new IntPtr(-1); }
+    }
+}
 
 record FlashImage(string File, uint Offset);
 
@@ -76,20 +161,25 @@ static class PrebuiltFlash
             Console.WriteLine($"\u001b[31m[FLASH] image is {length} bytes — larger than the 0x{AVR_FLASH_APP_END:X} app area. Refusing.\u001b[0m");
             return 1;
         }
+        // Raw Win32 handle: .NET SerialPort's config IOCTLs fail against the
+        // Caterina bootloader's CDC ("device not functioning") while a plain
+        // CreateFile works every time — bench-proven 2026-09-05.
+        using var sp = new RawSerial();
+        bool opened = false;
+        for (int i = 0; i < 12 && !opened; i++)
+        {
+            opened = sp.Open(bootPort);
+            if (!opened) Thread.Sleep(250);
+        }
+        if (!opened)
+        {
+            Console.WriteLine($"\u001b[31m[FLASH] could not open the bootloader port {bootPort} inside its window.\u001b[0m");
+            return 1;
+        }
         try
         {
-            using var sp = new SerialPort(bootPort, 57600) { ReadTimeout = 3000, WriteTimeout = 3000, DtrEnable = true, RtsEnable = true };
-            sp.Open();
-            sp.DiscardInBuffer();
-
-            string Expect(int n)
-            {
-                var buf = new byte[n];
-                for (int got = 0; got < n;)
-                    got += sp.Read(buf, got, n - got);   // ReadTimeout throws if the bootloader goes quiet
-                return System.Text.Encoding.ASCII.GetString(buf);
-            }
-            void Cmd(byte[] bytes) => sp.Write(bytes, 0, bytes.Length);
+            string Expect(int n) => System.Text.Encoding.ASCII.GetString(sp.ReadExact(n, 3000));
+            void Cmd(byte[] bytes) => sp.Write(bytes);
 
             Cmd("S"u8.ToArray());
             var id = Expect(7);
@@ -99,6 +189,15 @@ static class PrebuiltFlash
             var y = Expect(3);
             int bufSize = y[0] == 'Y' ? (y[1] << 8) | y[2] : 128;
             if (bufSize is < 16 or > 256) bufSize = 128;
+
+            // Chip-erase the app section first — avrdude always does, and some
+            // Caterina builds' block-write does NOT page-erase: writing over an
+            // old image then just ANDs the bits (acked writes, corrupt app).
+            Console.Write("[FLASH] erasing... ");
+            Cmd("e"u8.ToArray());
+            if (System.Text.Encoding.ASCII.GetString(sp.ReadExact(1, 15000)) != "\r")
+                throw new IOException("erase not acknowledged");
+            Console.WriteLine("done");
 
             Cmd(new byte[] { (byte)'A', 0, 0 });         // word address 0
             if (Expect(1) != "\r") throw new IOException("address set not acknowledged");
@@ -115,6 +214,41 @@ static class PrebuiltFlash
                 if (off % 4096 == 0) Console.Write($"\r[FLASH] {off * 100 / Math.Max(1, total)}% ");
             }
             Console.WriteLine($"\r[FLASH] 100% — {length} bytes written");
+
+            // Read the whole image back BEFORE exiting the bootloader — a bad write
+            // is recoverable here, unbootable after 'E' it is not. On mismatch,
+            // print enough to diagnose (blank? shifted? garbage?).
+            Cmd(new byte[] { (byte)'A', 0, 0 });
+            if (Expect(1) != "\r") throw new IOException("verify address set not acknowledged");
+            var rb = new byte[total];
+            for (int off = 0; off < total; off += bufSize)
+            {
+                Cmd(new byte[] { (byte)'g', (byte)(bufSize >> 8), (byte)(bufSize & 0xFF), (byte)'F' });
+                Array.Copy(sp.ReadExact(bufSize, 3000), 0, rb, off, bufSize);
+                if (off % 4096 == 0) Console.Write($"\r[FLASH] verify {off * 100 / Math.Max(1, total)}% ");
+            }
+            var want = new byte[total];
+            for (int i = 0; i < total; i++) want[i] = i < length ? image[i] : (byte)0xFF;
+            int bad = 0, firstBad = -1;
+            for (int i = 0; i < total; i++)
+                if (rb[i] != want[i]) { bad++; if (firstBad < 0) firstBad = i; }
+            if (bad > 0)
+            {
+                Console.WriteLine($"\r\u001b[31m[FLASH] VERIFY FAILED: {bad}/{total} bytes differ, first at 0x{firstBad:X}\u001b[0m");
+                int b0 = Math.Max(0, (firstBad & ~15));
+                string Hex(byte[] a, int o) => string.Join(" ", Enumerable.Range(o, Math.Min(16, total - o)).Select(k => a[k].ToString("X2")));
+                Console.WriteLine($"[FLASH]  wrote@0x{b0:X4}: {Hex(want, b0)}");
+                Console.WriteLine($"[FLASH]   read@0x{b0:X4}: {Hex(rb, b0)}");
+                if (rb.Take(Math.Min(total, 512)).All(x => x == 0xFF))
+                    Console.WriteLine("[FLASH]  read is blank 0xFF — erase worked but the writes never landed");
+                int shift = -1;
+                for (int s = 1; s <= 128 && shift < 0; s++)
+                    if (total > s + 64 && Enumerable.Range(0, 64).All(k => rb[s + k] == want[k])) shift = s;
+                if (shift > 0) Console.WriteLine($"[FLASH]  the image appears at +{shift} bytes — writes are SHIFTED");
+                Console.WriteLine("[FLASH]  NOT exiting the bootloader — the board is still recoverable. Retry, or double-tap + 'bb8 upload body --port COMx'.");
+                return 1;
+            }
+            Console.WriteLine("\r[FLASH] verify OK — image read back identical   ");
 
             Cmd("E"u8.ToArray());                        // exit bootloader -> app starts
             try { Expect(1); } catch (Exception) { }     // board may reset before acking

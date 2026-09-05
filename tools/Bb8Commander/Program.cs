@@ -59,7 +59,7 @@ bool IsGitCheckout()
 
 const int REBUILD_EXIT = 75;   // tells bb8.cmd: bb8's own source changed - rebuild bin\ and re-run this command
 var boolFlags = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    { "--raw", "--show-tlm", "--list", "--auto", "--install-driver", "--no-update", "--flash", "--ota", "--web" };
+    { "--raw", "--show-tlm", "--list", "--auto", "--install-driver", "--no-update", "--flash", "--ota", "--web", "--watch" };
 
 try
 {
@@ -345,9 +345,10 @@ async Task<int> CmdUpload(string? name, string? port)
         return await OtaFlash(t, Path.Combine(config.BuildRoot, t.Sketch, t.Sketch + ".ino.bin"), build, port);
 
     port ??= await AutoPort(t);
+    if (port is null && Flag("--watch")) port = await WaitForBoard(t, 600);
     if (port is null)
     {
-        Fail($"No port found for '{t.Name}'. Plug the board in, or pass --port COMx (bb8 list shows candidates).");
+        Fail($"No port found for '{t.Name}'. Plug the board in, pass --port COMx, or add --watch to wait for it.");
         return 1;
     }
 
@@ -361,7 +362,12 @@ async Task<int> CmdUpload(string? name, string? port)
     // vice-versa). If the running build number != the stamp, flash again —
     // up to 3 attempts in total.
     bool nativeUsbBoot = IsNativeUsb(t);
-    const int MAX_ATTEMPTS = 3;
+    // The 32u4/Trinket bootloader port can VANISH between our detection and
+    // avrdude's open (bench 2026-09-05: "cannot open port … cannot find the
+    // file", then success on the very next try), so native boards get more
+    // attempts and re-hunt the bootloader (VID match, PID 000C) each retry —
+    // a board with a corrupt app only ever shows its bootloader.
+    int MAX_ATTEMPTS = nativeUsbBoot ? 5 : 3;
     for (int a = 1; a <= MAX_ATTEMPTS; a++)
     {
         Console.WriteLine($"\u001b[36m[UPLOAD] {t.Name} -> {port}{(a > 1 ? $"  (attempt {a}/{MAX_ATTEMPTS})" : "")}\u001b[0m");
@@ -380,10 +386,17 @@ async Task<int> CmdUpload(string? name, string? port)
             : $"\u001b[33m[VERIFY] {t.Name} still reports build {running} (wanted {build}) after attempt {a}.\u001b[0m");
         if (a < MAX_ATTEMPTS)
         {
-            await Task.Delay(2500);
-            // the board may have come back on a different COM number
+            await Task.Delay(1500);
+            // the board may have come back on a different COM number, and a
+            // corrupt-app board only shows its bootloader (PID 000C)
             if (nativeUsbBoot)
-                port = DetectPorts().Where(x => GuessTargets(x).Contains(t.Name)).Select(x => x.Port).FirstOrDefault() ?? port;
+            {
+                var re = DetectPorts().Where(x => GuessTargets(x).Contains(t.Name)).Select(x => x.Port).FirstOrDefault()
+                      ?? RegistryPorts().FirstOrDefault(x =>
+                             string.Equals(x.Vid, t.UsbVid, StringComparison.OrdinalIgnoreCase) &&
+                             string.Equals(x.Pid, "000C", StringComparison.OrdinalIgnoreCase))?.Port;
+                if (re is not null) port = re;
+            }
         }
     }
     Fail($"{t.Name} never confirmed build {build} after {MAX_ATTEMPTS} attempts.");
@@ -443,6 +456,12 @@ async Task<int> CmdFlash(string? name, string? port)
         }
         case "avr109":
         {
+            // EXPERIMENTAL / known-unreliable on some hosts: the native AVR109
+            // writer produced a corrupt app on the 2026-09-05 bench (verify
+            // caught it; the board stayed recoverable via `bb8 upload body`).
+            // Until it's fixed (or avrdude is bundled for BASIC installs), the
+            // reliable path is `bb8 upload body` with the toolchain.
+            Console.WriteLine("\u001b[33m[FLASH] note: native AVR109 flashing is experimental — if it fails verify, use 'bb8 upload body' (needs arduino-cli).\u001b[0m");
             var boot = await FindAvrBootloaderPort(t, port);
             if (boot is null) return 1;
             byte[] image;
@@ -685,31 +704,86 @@ async Task<int> OtaFlash(Bb8Target t, string binPath, int expectedBuild, string?
     return 1;
 }
 
+// --watch: block until the board shows up — either its normal CDC/serial port
+// (VID match) or ANY brand-new port (a bootloader summoned by double-tap).
+// This is the "tap reset whenever, the tool catches it" automation.
+async Task<string?> WaitForBoard(Bb8Target t, int timeoutSec)
+{
+    Console.WriteLine($"\u001b[36m[WATCH] waiting for '{t.Name}' — plug it in, or double-tap its reset (up to {timeoutSec / 60} min, Ctrl+C aborts)...\u001b[0m");
+    var baseline = new HashSet<string>(System.IO.Ports.SerialPort.GetPortNames(), StringComparer.OrdinalIgnoreCase);
+    var t0 = DateTime.Now;
+    while ((DateTime.Now - t0).TotalSeconds < timeoutSec)
+    {
+        var now = System.IO.Ports.SerialPort.GetPortNames();
+        var fresh = now.FirstOrDefault(p => !baseline.Contains(p));
+        if (fresh is not null)
+        {
+            Console.WriteLine($"[WATCH] new port {fresh}");
+            await Task.Delay(500);
+            return fresh;
+        }
+        // a board that quietly re-enumerated with a known VID counts too
+        var cand = RegistryPorts().FirstOrDefault(p => GuessTargets(p).Contains(t.Name));
+        if (cand is not null)
+        {
+            Console.WriteLine($"[WATCH] {t.Name} on {cand.Port}");
+            return cand.Port;
+        }
+        await Task.Delay(250);
+    }
+    Fail($"'{t.Name}' never appeared in {timeoutSec} s.");
+    return null;
+}
+
 // Caterina: 1200-baud touch on the CDC port, then the bootloader enumerates
-// (VID 239A PID 000C, often a different COM number) for ~8 s.
+// for ~8 s — sometimes on a NEW COM number, sometimes REUSING the CDC's
+// (this bench's body does). Registry VID/PID rows go stale, so the reliable
+// detector is the DIFFERENCE: snapshot ports, touch, take the first port
+// that appears — or the CDC port coming back after vanishing.
 async Task<string?> FindAvrBootloaderPort(Bb8Target t, string? port)
 {
-    string? Boot() => DetectPorts().FirstOrDefault(p =>
-        string.Equals(p.Vid, t.UsbVid, StringComparison.OrdinalIgnoreCase) &&
-        string.Equals(p.Pid, "000C", StringComparison.OrdinalIgnoreCase))?.Port;
-
-    var b = Boot();
-    if (b is not null) { Console.WriteLine($"[FLASH] bootloader already live on {b}"); return b; }
-
     var cdc = port ?? DetectPorts().Where(p => GuessTargets(p).Contains(t.Name)).Select(p => p.Port).FirstOrDefault();
+    if (cdc is null && Flag("--watch"))
+    {
+        var caught = await WaitForBoard(t, 600);
+        if (caught is null) return null;
+        var reg = RegistryPorts().FirstOrDefault(p => string.Equals(p.Port, caught, StringComparison.OrdinalIgnoreCase));
+        if (reg is null || string.Equals(reg.Pid, "000C", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine($"[FLASH] treating {caught} as the bootloader (tap-summoned)");
+            return caught;
+        }
+        cdc = caught;
+    }
     if (cdc is null)
     {
-        Fail($"'{t.Name}' not found on USB. Plug it in — or double-tap its reset (LED pulses) and rerun within 8 s.");
+        Fail($"'{t.Name}' not found on USB. Plug it in — or double-tap its reset (LED pulses) and rerun within 8 s, or add --watch.");
         return null;
     }
+    var before = new HashSet<string>(System.IO.Ports.SerialPort.GetPortNames(), StringComparer.OrdinalIgnoreCase);
     Console.WriteLine($"[FLASH] 1200-baud touch on {cdc} — waiting for the bootloader...");
     PrebuiltFlash.Touch1200(cdc);
-    var deadline = DateTime.Now.AddSeconds(10);
-    while (DateTime.Now < deadline)
+    bool cdcVanished = false;
+    var t0 = DateTime.Now;
+    while ((DateTime.Now - t0).TotalSeconds < 12)
     {
-        b = Boot();
-        if (b is not null) { await Task.Delay(400); return b; }   // give the driver a beat
-        await Task.Delay(300);
+        var now = new HashSet<string>(System.IO.Ports.SerialPort.GetPortNames(), StringComparer.OrdinalIgnoreCase);
+        var fresh = now.Except(before).FirstOrDefault();
+        if (fresh is not null)
+        {
+            Console.WriteLine($"[FLASH] bootloader on {fresh}");
+            await Task.Delay(500);      // let the driver finish enumerating
+            return fresh;
+        }
+        if (!now.Contains(cdc)) cdcVanished = true;
+        else if (cdcVanished && (DateTime.Now - t0).TotalSeconds < 6)
+        {
+            // came straight back under the same name = Caterina reusing it
+            Console.WriteLine($"[FLASH] bootloader back on {cdc}");
+            await Task.Delay(400);
+            return cdc;
+        }
+        await Task.Delay(120);
     }
     Fail("bootloader never enumerated. Double-tap the board's reset (LED pulses), then rerun immediately.");
     return null;
