@@ -52,7 +52,7 @@ inline void freeze(const char* why) {
 inline void arm() {
   frozen = false;
   reason[0] = 0;
-  Serial.println(F("[BLACKBOX] recording (25 Hz, ~40 s ring)"));
+  Serial.println(F("[BLACKBOX] recording (25 Hz, ~30 s ring)"));
 }
 
 inline void status() {

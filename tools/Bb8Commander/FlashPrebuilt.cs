@@ -14,7 +14,8 @@ using System.Text.Json;
 record FlashImage(string File, uint Offset);
 
 record FlashManifest(string Method, int Build, int Baud, List<FlashImage> Images,
-                     uint Base, uint FamilyId, string Volume)
+                     uint Base, uint FamilyId, string Volume,
+                     string FlashMode, string FlashFreq)
 {
     public static FlashManifest Load(string path)
     {
@@ -36,19 +37,22 @@ record FlashManifest(string Method, int Build, int Baud, List<FlashImage> Images
             images,
             Hex("base", 0x2000),
             Hex("familyId", 0x68ED2B88),
-            r.TryGetProperty("volume", out var v) ? v.GetString()! : "TRINKETBOOT");
+            r.TryGetProperty("volume", out var v) ? v.GetString()! : "TRINKETBOOT",
+            r.TryGetProperty("flashMode", out var fm) ? fm.GetString()! : "dio",
+            r.TryGetProperty("flashFreq", out var ff) ? ff.GetString()! : "80m");
     }
 }
 
 static class PrebuiltFlash
 {
     // ---------------- esptool (ESP32) ----------------
-    // Mirrors what arduino-cli invokes; mode/freq "keep" defers to the header
-    // already baked into the compiled bootloader image.
+    // Mirrors what arduino-cli invokes. Mode/freq must be EXPLICIT so esptool
+    // patches the bootloader header — "keep" left an unpatched header and the
+    // board boot-looped (RTCWDT resets; bench-verified 2026-09-05).
     public static int Esp32(string esptool, string port, FlashManifest m, string dir)
     {
         var args = $"--chip esp32 --port {port} --baud {m.Baud} --before default_reset --after hard_reset " +
-                   "write_flash -z --flash_mode keep --flash_freq keep --flash_size detect " +
+                   $"write_flash -z --flash_mode {m.FlashMode} --flash_freq {m.FlashFreq} --flash_size detect " +
                    string.Join(' ', m.Images.Select(i => $"0x{i.Offset:X} \"{Path.Combine(dir, i.File)}\""));
         Console.WriteLine($"\u001b[36m[FLASH] esptool write_flash ({m.Images.Count} images) -> {port}\u001b[0m");
         var psi = new System.Diagnostics.ProcessStartInfo(esptool, args) { UseShellExecute = false };

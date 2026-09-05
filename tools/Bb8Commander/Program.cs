@@ -50,6 +50,13 @@ if (args.Length == 0) { PrintHelp(); return 0; }
 bool? hasArduinoCli = null;
 bool HasArduinoCli() => hasArduinoCli ??= Run(config.ArduinoCli, "version", capture: true).rc == 0;
 
+// A worktree's .git is a FILE pointing at the real gitdir — accept both.
+bool IsGitCheckout()
+{
+    var p = Path.Combine(RepoRootDir(), ".git");
+    return Directory.Exists(p) || File.Exists(p);
+}
+
 const int REBUILD_EXIT = 75;   // tells bb8.cmd: bb8's own source changed - rebuild bin\ and re-run this command
 var boolFlags = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     { "--raw", "--show-tlm", "--list", "--auto", "--install-driver", "--no-update", "--flash", "--ota", "--web" };
@@ -577,7 +584,7 @@ async Task<int> CmdDoctor()
     Console.WriteLine("[environment]");
     if (HasArduinoCli()) OK("arduino-cli available (compile-from-source works)");
     else WARN("no arduino-cli — BASIC mode: prebuilt flashing only (that's fine)");
-    bool gitMode = Directory.Exists(Path.Combine(RepoRootDir(), ".git"));
+    bool gitMode = IsGitCheckout();
     Console.WriteLine($"    update channel: {(gitMode ? "git checkout" : "GitHub releases (no git)")}");
     if (!gitMode)
     {
@@ -600,23 +607,40 @@ async Task<int> CmdDoctor()
     Console.WriteLine("[boards]");
     var ports = DetectPorts();
     if (ports.Count == 0) WARN("no serial ports at all — nothing plugged in?");
+    // Probe each candidate port ONCE (the two ESP32s share a VID, and every
+    // probe reboots an ESP32 — no double-dipping), then match targets.
+    var probed = new Dictionary<string, BannerStamp>(StringComparer.OrdinalIgnoreCase);
+    foreach (var p in ports)
+    {
+        var guess = GuessTargets(p).FirstOrDefault();
+        if (guess is null) continue;
+        var tg = ResolveTarget(guess);
+        var r = await ReadBannerStamp(tg, p.Port, IsNativeUsb(tg), quiet: true);
+        if (r.Raw.Length > 0) probed[p.Port] = r;
+    }
+    bool Matches(Bb8Target t, BannerStamp s) =>
+        (t.BannerMatch is not null && s.Raw.Contains(t.BannerMatch, StringComparison.OrdinalIgnoreCase))
+     || (t.RevMatch is not null && s.Rev is not null && s.Rev.EndsWith(t.RevMatch, StringComparison.OrdinalIgnoreCase));
     foreach (var t in config.Targets.Where(x => x.Name != "ball"))
     {
-        var cands = ports.Where(p => GuessTargets(p).Contains(t.Name)).ToList();
+        var cands = ports.Where(p => GuessTargets(p).Contains(t.Name)).Select(p => p.Port).ToList();
         if (cands.Count == 0) { Console.WriteLine($"    {t.Name,-6} not on USB"); continue; }
-        BannerStamp? s = null; string? port = null;
-        foreach (var c in cands)
+        var hit = cands.FirstOrDefault(p => probed.TryGetValue(p, out var s0) && Matches(t, s0));
+        if (hit is null)
         {
-            var r = await ReadBannerStamp(t, c.Port, IsNativeUsb(t), quiet: true);
-            if (r.Raw.Length == 0) continue;
-            bool match = (t.BannerMatch is not null && r.Raw.Contains(t.BannerMatch, StringComparison.OrdinalIgnoreCase))
-                      || (t.RevMatch is not null && r.Rev is not null && r.Rev.EndsWith(t.RevMatch, StringComparison.OrdinalIgnoreCase));
-            if (match) { s = r; port = c.Port; break; }
+            // a port that answered as ANOTHER target is fine — only silence is suspect
+            var silent = cands.Where(p => !probed.ContainsKey(p) ||
+                !config.Targets.Any(o => Matches(o, probed[p]))).ToList();
+            if (silent.Count > 0)
+                NO($"{t.Name} candidate on {string.Join("/", silent)} gave no matching banner — old/foreign firmware? ('bb8 upload {t.Name} --port COMx')");
+            else
+                Console.WriteLine($"    {t.Name,-6} not on USB");
+            continue;
         }
-        if (s is null) { NO($"{t.Name} candidate on {string.Join("/", cands.Select(c => c.Port))} but no banner — old/foreign firmware? ('bb8 upload {t.Name} --port COMx')"); continue; }
+        var s = probed[hit];
         var stale = (gitMode && HasArduinoCli()) ? StaleReason(t, s) : StaleReasonRelease(t, s);
-        if (stale is null) OK($"{t.Name} on {port}: build {s.Build}{(s.Git is not null ? $" git {s.Git}" : "")} — current");
-        else WARN($"{t.Name} on {port}: {stale}");
+        if (stale is null) OK($"{t.Name} on {hit}: build {s.Build}{(s.Git is not null ? $" git {s.Git}" : "")} — current");
+        else WARN($"{t.Name} on {hit}: {stale}");
     }
 
     Console.WriteLine(bad == 0 ? "\u001b[32m=== no blockers ===\u001b[0m" : $"\u001b[31m=== {bad} problem(s) — see above ===\u001b[0m");
@@ -1799,7 +1823,7 @@ async Task<int> CmdUpdate(bool flash)
     // judged from the banner's git hash vs. commits to its sketch since; in a
     // release install, from the banner's build number vs. the prebuilt
     // binaries' build. A board already current is left alone.
-    bool gitMode = Directory.Exists(Path.Combine(RepoRootDir(), ".git")) && HasArduinoCli();
+    bool gitMode = IsGitCheckout() && HasArduinoCli();
     Console.WriteLine();
     int flashed = 0, failed = 0;
     foreach (var t in config.Targets)
@@ -1878,7 +1902,7 @@ async Task<UpdateResult> UpdateFromGitHub(bool explicitRun)
 {
     var none = new UpdateResult(false, false, new());
     var repo = RepoRootDir();
-    if (!Directory.Exists(Path.Combine(repo, ".git")))
+    if (!IsGitCheckout())
         return await UpdateFromReleases(explicitRun);   // BASIC install: GitHub Releases over HTTPS, no git needed
     string G(string a) => $"-C \"{repo}\" {a}";
     void Note(string s) => Console.WriteLine(explicitRun ? s : $"\u001b[90m{s}\u001b[0m");

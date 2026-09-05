@@ -107,7 +107,8 @@ foreach ($t in $cfg.targets) {
     if (-not $bootApp0) { $bootApp0 = Get-ChildItem (Join-Path $arduino15 "*\hardware\esp32\*\tools\partitions\boot_app0.bin") -ErrorAction SilentlyContinue | Select-Object -First 1 }
     if ($bootApp0) { Copy-Item $bootApp0.FullName (Join-Path $dst "boot_app0.bin") -Force }
     else { Write-Host "  boot_app0.bin not found for $($t.name) - its flash.json will be incomplete" -ForegroundColor DarkYellow }
-    $manifest = [ordered]@{ method = "esptool"; build = $build; baud = 921600; images = @(
+    $manifest = [ordered]@{ method = "esptool"; build = $build; baud = 921600
+                            flashMode = "dio"; flashFreq = "80m"; images = @(
       [ordered]@{ offset = "0x1000";  file = "$($t.sketch).ino.bootloader.bin" },
       [ordered]@{ offset = "0x8000";  file = "$($t.sketch).ino.partitions.bin" },
       [ordered]@{ offset = "0xE000";  file = "boot_app0.bin" },
