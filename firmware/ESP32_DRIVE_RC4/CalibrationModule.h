@@ -64,19 +64,18 @@ inline void serviceBootCalibration() {
     if (sampleCount > 0) {
       cfg.pitchOffset = -(sumPitch / sampleCount);
       cfg.rollOffset = -(sumRoll / sampleCount);
-      cfg.potCenter = (int32_t)(sumPot / sampleCount);
-      // RC4: RAM only — RC3 wrote NVS on EVERY boot, clobbering a good
-      // saved calibration with the boot pose and wearing flash. Persist
-      // explicitly via the both-dpad-up combo or "cfg save".
+      // RC4.7: DO NOT re-capture potCenter at boot. The S2S frame flops to one
+      // side when the drive is disabled, so the boot pose is NOT the center —
+      // capturing it here saved the flopped position as "center" every reset.
+      // The center now persists from explicit 'cfg calibrate s2s' / 'cfg set
+      // potcenter' (loaded from NVS in setup).
       sendSoundCommand(Coms32u4, sendTo32u4, soundBootCal);  // 0 = silent
-      Serial.printf("[BOOT CAL] Completed: pitchOffset=%.2f rollOffset=%.2f potCenter=%d (samples=%u)\n",
+      Serial.printf("[BOOT CAL] Completed: pitchOffset=%.2f rollOffset=%.2f (potCenter kept=%d) (samples=%u)\n",
                     cfg.pitchOffset, cfg.rollOffset, cfg.potCenter, sampleCount);
     } else {
-      Serial.println("[BOOT CAL] No IMU samples collected! Using defaults.");
+      Serial.println("[BOOT CAL] No IMU samples collected! Using defaults (potCenter kept).");
       cfg.pitchOffset = 0.0f;
       cfg.rollOffset = 0.0f;
-      cfg.potCenter = analogRead(S2S_POT_PIN);
-
     }
     bootCalibrating = false;
   }

@@ -172,7 +172,7 @@ TeeSerial SerialTee;
 // ------------------- CONFIG -------------------
 #define REVERSE_DRIVE false      // reverse drive motor direction
 #define REVERSE_S2S false        // reverse S2S inner-loop direction (motor)
-#define REVERSE_S2S_POT true     // RC4.7: mirror the S2S pot reading — set true when
+#define REVERSE_S2S_POT false    // RC4.7: mirror the S2S pot reading — set true when
                                  // the pot's two outer wires are swapped (pot reads
                                  // backwards). Fixes ONLY the reading, so steering/
                                  // balance directions stay as they were. RECALIBRATE
