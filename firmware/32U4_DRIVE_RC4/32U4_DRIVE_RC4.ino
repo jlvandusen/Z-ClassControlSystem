@@ -39,7 +39,6 @@
 #include "DFRobotDFPlayerMini.h"
 #include "SoftwareSerial.h"
 #include "BuildStamp.h"
-#include <Adafruit_NeoPixel.h>   // RC4.7: body circle-panel lights on D13
 
 // ------------------- CONFIG -------------------
 
@@ -93,14 +92,25 @@ bool  bodyTelemetry = false;
 #define motorEncoder_pin_B A0
 #define hallEffectSensor_Pin 20
 
-// RC4.7: body circle-panel NeoPixels. D13 -> BOB-12009 level shifter -> DIN,
-// external 5 V rail. Count is runtime-configurable ('leds <n>', EEPROM) since
-// only some of the six circles are lit and the chain length varies.
-#define BODY_LED_PIN     13
-#define BODY_LED_MAX     30
-#define BODY_LED_EE_ADDR 100
-uint8_t bodyLedCount = 6;
-Adafruit_NeoPixel bodyLeds(BODY_LED_MAX, BODY_LED_PIN, NEO_GRB + NEO_KHZ800);
+// RC4.7: body circle-panel lights on D13. PICK THE DRIVER HERE (only the
+// selected one compiles, so it fits the 32u4):
+//   SEQUIN   = Adafruit Sequins / plain single-colour LEDs wired in PARALLEL:
+//              D13 -> small N-MOSFET gate -> the LEDs' common ground; + bus to
+//              the 5 V rail. Colour is fixed by the window; D13 PWM = brightness.
+//   NEOPIXEL = WS2812 addressable: D13 -> BOB-12009 level shifter -> data
+//              daisy-chain (DIN->DOUT); runtime count via 'leds <n>'.
+#define BODY_LED_SEQUIN   0
+#define BODY_LED_NEOPIXEL 1
+#define BODY_LED_MODE     BODY_LED_SEQUIN   // <-- flip to BODY_LED_NEOPIXEL for WS2812
+#define BODY_LED_PIN      13
+
+#if BODY_LED_MODE == BODY_LED_NEOPIXEL
+  #include <Adafruit_NeoPixel.h>
+  #define BODY_LED_MAX     30
+  #define BODY_LED_EE_ADDR 100
+  uint8_t bodyLedCount = 6;
+  Adafruit_NeoPixel bodyLeds(BODY_LED_MAX, BODY_LED_PIN, NEO_GRB + NEO_KHZ800);
+#endif
 
 // ------------------- CONFIGURABLE DEFAULTS -------------------
 static const char* DEFAULT_REVISION = "Joe Drive Rev 1.0 RC4 DRIVE";
@@ -297,6 +307,7 @@ void setup() {
   initAudio();
 
   // RC4.7: body panel lights
+#if BODY_LED_MODE == BODY_LED_NEOPIXEL
   bodyLeds.begin();
   bodyLedCount = EEPROM.read(BODY_LED_EE_ADDR);
   if (bodyLedCount < 1 || bodyLedCount > BODY_LED_MAX) bodyLedCount = 6;
@@ -304,6 +315,10 @@ void setup() {
   bodyLeds.setBrightness(120);
   bodyLeds.clear();
   bodyLeds.show();
+#else
+  pinMode(BODY_LED_PIN, OUTPUT);
+  analogWrite(BODY_LED_PIN, 0);   // Sequins: D13 PWM -> MOSFET -> LEDs
+#endif
 
   pinMode(domeMotor_pin_A, OUTPUT);
   pinMode(domeMotor_pin_B, OUTPUT);
@@ -332,9 +347,10 @@ void setup() {
   Serial.println(F("Ready — Dome Controller Active (RC4)"));
 }
 
-// RC4.7: body circle-panel lights. No floats (flash is tight on the 32u4): a
-// triangle "breathe", white while a sound plays, teal while the drive is live,
-// idle blue otherwise.
+// RC4.7: body circle-panel lights (no floats — flash is tight on the 32u4). A
+// triangle "breathe" that gets fuller/steadier when the droid speaks or the
+// drive is live. NeoPixels also carry colour; Sequins are fixed-colour so D13
+// PWM just sets brightness.
 void serviceBodyLights() {
   static unsigned long at = 0;
   static int level = 20, dir = 4;
@@ -344,13 +360,22 @@ void serviceBodyLights() {
   level += dir;
   if (level >= 120) { level = 120; dir = -4; }
   else if (level <= 20) { level = 20; dir = 4; }
+  bool playing = dfPlayerReady && digitalRead(DFPLAYER_BUSY_PIN) == LOW;
+#if BODY_LED_MODE == BODY_LED_NEOPIXEL
   uint8_t v = (uint8_t)level;
   uint32_t c;
-  if (dfPlayerReady && digitalRead(DFPLAYER_BUSY_PIN) == LOW) c = bodyLeds.Color(v, v, v);        // speaking = white
-  else if (incoming.driveEnabled)                            c = bodyLeds.Color(0, v, v / 3);     // live = teal
-  else                                                        c = bodyLeds.Color(0, 0, v);         // idle = blue
+  if (playing)                    c = bodyLeds.Color(v, v, v);        // speaking = white
+  else if (incoming.driveEnabled) c = bodyLeds.Color(0, v, v / 3);    // live = teal
+  else                            c = bodyLeds.Color(0, 0, v);        // idle = blue
   bodyLeds.fill(c);
   bodyLeds.show();
+#else
+  uint8_t v;
+  if (playing)                    v = 255;              // full while speaking
+  else if (incoming.driveEnabled) v = (uint8_t)(120 + level);  // brighter when live
+  else                            v = (uint8_t)level;   // idle breathe
+  analogWrite(BODY_LED_PIN, v);
+#endif
 }
 
 // ------------------- LOOP -------------------
@@ -826,6 +851,7 @@ void handleSerialCommands() {
     }
     else if (cmd == "tilt invert x") { tilt.invertX = !tilt.invertX; tiltShow(); }
     else if (cmd == "tilt invert y") { tilt.invertY = !tilt.invertY; tiltShow(); }
+#if BODY_LED_MODE == BODY_LED_NEOPIXEL
     else if (cmd.startsWith("leds ")) {
         int n = cmd.substring(5).toInt();
         if (n >= 1 && n <= BODY_LED_MAX) {
@@ -834,6 +860,7 @@ void handleSerialCommands() {
             Serial.print(F("[LEDS] body pixels = ")); Serial.println(n);
         } else Serial.print(F("[LEDS] 1-")), Serial.println(BODY_LED_MAX);
     }
+#endif
     else if (cmd == "tilt save")     { tiltSave(); Serial.println(F("[TILT] saved to EEPROM")); tiltShow(); }
     else if (cmd == "tilt reset")    { tiltDefaults(); tiltSave(); Serial.println(F("[TILT] reset to defaults (saved)")); tiltShow(); }
     else if (cmd == "audio status")  { audioStatus(); }
