@@ -46,6 +46,7 @@ Preferences prefs;
 
 // live counts (loaded from NVS "leds" namespace)
 int nPsi = NUM_PIXELS, nLogic = LOGIC_PIXELS, nHp = NUM_PIXELS, nEye = NUM_PIXELS;
+bool ledTestActive = false;   // 'ledtest' count-discovery mode holds the LEDs
 
 #define WIFI_CHANNEL 11
 #define HEARTBEAT_LED 2  // Built-in LED on many ESP32 boards
@@ -520,6 +521,29 @@ void checkSerialCommand() {
         if (webOn) startWeb(); else stopWeb();
       } else Serial.println(webOn ? F("[WEB] already on") : F("[WEB] already off"));
     }
+    if (cmdBuffer.startsWith("ledtest")) {
+      local = true;
+      String s = cmdBuffer.substring(7); s.trim();
+      // Light EVERY physical LED on a circle (strip run at MAX) so you can
+      // count them, then 'leds <strip> <count>'. 'ledtest off' restores.
+      Adafruit_NeoPixel* strip = (s == "psi") ? &PSI : (s == "logic") ? &sLOGIC
+                               : (s == "hp") ? &HP : (s == "eye") ? &EYE : nullptr;
+      if (s == "off" || s.length() == 0) {
+        ledTestActive = false; applyLedCounts();
+        Serial.println(F("[LEDTEST] off — counts restored"));
+      } else if (strip) {
+        ledTestActive = true;
+        PSI.clear(); sLOGIC.clear(); lLOGIC.clear(); HP.clear(); EYE.clear();
+        PSI.show(); sLOGIC.show(); lLOGIC.show(); HP.show(); EYE.show();
+        strip->updateLength(MAX_PIXELS);
+        for (int i = 0; i < MAX_PIXELS; i++) strip->setPixelColor(i, strip->Color(60, 60, 60));
+        strip->show();
+        if (s == "logic") { lLOGIC.updateLength(MAX_PIXELS); for (int i=0;i<MAX_PIXELS;i++) lLOGIC.setPixelColor(i, lLOGIC.Color(60,60,60)); lLOGIC.show(); }
+        Serial.printf("[LEDTEST] %s: every physical LED is lit dim white — COUNT them, then 'leds %s <count>'. 'ledtest off' when done.\n", s.c_str(), s.c_str());
+      } else {
+        Serial.println(F("[LEDTEST] usage: ledtest <psi|logic|hp|eye>  |  ledtest off"));
+      }
+    }
     if (cmdBuffer.startsWith("leds")) {
       local = true;
       String rest = cmdBuffer.substring(4); rest.trim();
@@ -537,13 +561,15 @@ void checkSerialCommand() {
           else if (strip == "hp") nHp = n;
           else if (strip == "eye") nEye = n;
           else { ok = false; Serial.println(F("[LEDS] strip must be psi | logic | hp | eye")); }
-          if (ok) { saveLedCounts(); applyLedCounts(); Serial.printf("[LEDS] %s = %d (saved)\n", strip.c_str(), n); ledsShow(); }
+          if (ok) { ledTestActive = false; saveLedCounts(); applyLedCounts(); Serial.printf("[LEDS] %s = %d (saved)\n", strip.c_str(), n); ledsShow(); }
         }
       }
     }
     if (cmdBuffer == "help") {
       local = true;
-      Serial.println("Dome-local: help, version, debug, setmac XX:.., web on|off, leds <psi|logic|hp|eye> <n>");
+      Serial.println("Dome-local: help, version, debug, setmac XX:.., web on|off");
+      Serial.println("  leds <psi|logic|hp|eye> <n> | leds show   (per-strip pixel counts, saved)");
+      Serial.println("  ledtest <psi|logic|hp|eye>                (light all LEDs on a circle to COUNT them; ledtest off)");
       Serial.println("Anything else is sent to the DRIVE over ESP-NOW; its console streams back here.");
     }
       // RC4.4: not a dome command -> tunnel it to the drive
@@ -559,6 +585,7 @@ void checkSerialCommand() {
 }
 
 void updateAnimations() {
+  if (ledTestActive) return;   // 'ledtest' owns the LEDs while counting
   unsigned long currentMillis = millis();
 
   // RC4.7: a latched D-pad scene (4-7) fully owns all the LEDs. When it clears
