@@ -2,6 +2,10 @@
 
 Builds = `versions.json` counters at the time; each board's banner shows `build N | date | git`.
 
+## RC4.7 — 2026-09-05 additions (bench)
+- **Boot pad-reset** (`pref btreset on|off`, default on, persisted): after a drive reboot a paired pad reconnects still holding stale link state and sits lit until it times out. The drive now bounces each pad ONCE as it reconnects within 25 s of boot (`gp->disconnect()` → LEDs off → clean reconnect); normal mid-session reconnects and deliberate power-ons are untouched.
+- **Body boot sound reliable**: the startup track fired 1 s after `mp3.begin(doReset=true)`, but that reset makes the DFPlayer remount the SD (~2-3 s) so the play was dropped ("scratch then nothing"). `playBootSoundConfirmed()` settles ~3 s then plays with BUSY-pin confirmation + up to 3 retries.
+
 ## RC4.7 — 2026-09-01 · the capabilities drop (in source — lands on each board's next flash)
 - **Wireless drive updates (OTA)**: `bb8 upload drive --ota` (or `bb8 flash drive --ota` for the prebuilt) streams the app image through the dome's ESP-NOW bridge — the sealed ball updates in ~2–3 min with no USB. Needs: drive powered + DISABLED, pad connected. The stock featheresp32 partition table already has dual OTA slots, so no partition change; a failed/aborted transfer leaves the running firmware untouched, and USB stays the rescue path.
 - **`bb8 backup [file]` / `bb8 restore <file>`**: the drive's whole tuned state (PID gains, level offsets, pot center, board + pad MACs, sound/idle/battery prefs, macros) captured via the new `cfg dump` as a REPLAYABLE command file. Board swap = flash + restore. Works over USB or the dome tunnel.

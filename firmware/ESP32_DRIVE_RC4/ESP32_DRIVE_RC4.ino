@@ -316,6 +316,14 @@ float lastBatteryVoltage = 4.0;
 // RC4.7: idle personality + dome-battery watch (both persisted in NVS)
 int   idleChatterSec = 0;     // 0 = off; else random chatter after this many idle seconds
 float batLowVolts = 0.0f;     // 0 = off; else alert when the dome battery drops below
+
+// RC4.7: on a drive reboot, a paired pad reconnects still holding stale link
+// state and sits lit until it times out. Bounce each pad ONCE as it reconnects
+// in the boot window so it resets to a clean session. Persisted as "btrst".
+bool  btResetOnBoot = true;
+const unsigned long BT_BOOT_BOUNCE_MS = 25000;   // only bounce reconnects this soon after boot
+uint8_t bouncedMacs[4][6];    // pads already bounced this boot (max 4)
+uint8_t bouncedCount = 0;
 unsigned long lastSoundTriggerMs = 0;
 uint16_t lastSoundCmd = SOUND_NONE;
 const uint16_t SOUND_DEBOUNCE_MS = 250;
@@ -688,6 +696,7 @@ void loadSoundPrefs() {
   s2sInnerKp     = prefs.getFloat("innerkp", s2sInnerKp);
   idleChatterSec = prefs.getInt("idle", idleChatterSec);
   batLowVolts    = prefs.getFloat("batlow", batLowVolts);
+  btResetOnBoot  = prefs.getBool("btrst", btResetOnBoot);
   prefs.end();
 }
 void saveSoundPrefs() {
@@ -702,6 +711,7 @@ void saveSoundPrefs() {
   prefs.putFloat("innerkp", s2sInnerKp);
   prefs.putInt("idle", idleChatterSec);
   prefs.putFloat("batlow", batLowVolts);
+  prefs.putBool("btrst", btResetOnBoot);
   prefs.end();
 }
 
@@ -757,6 +767,26 @@ void btPrefer(bool driveSlot, String arg) {
 // RC4.3: play the startup clip whenever a controller lands in the DRIVE
 // slot (first pairing, and every reconnect after a PS-hold power-off).
 void onConnectedGamepad(GamepadPtr gp) {
+  // RC4.7: right after a reboot, a paired pad reconnects carrying stale link
+  // state (it sat lit until now). Bounce it ONCE — disconnect so its LEDs go
+  // off and it comes back in a clean session. Each pad is bounced at most once
+  // per boot, only within the boot window, so normal mid-session reconnects
+  // and deliberate power-ons are untouched.
+  if (btResetOnBoot && millis() < BT_BOOT_BOUNCE_MS) {
+    uint8_t mac[6];
+    memcpy(mac, gp->getProperties().btaddr, 6);
+    bool already = false;
+    for (uint8_t i = 0; i < bouncedCount; i++)
+      if (memcmp(bouncedMacs[i], mac, 6) == 0) { already = true; break; }
+    if (!already) {
+      if (bouncedCount < 4) memcpy(bouncedMacs[bouncedCount++], mac, 6);
+      Serial.printf("[BT] boot reset: bouncing %02X:%02X:%02X:%02X:%02X:%02X (reconnect clean)\n",
+                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+      gp->disconnect();
+      return;   // don't assign — it'll reconnect fresh
+    }
+  }
+
   bool hadDrive = myControllers[0] != nullptr;
   assignConnectedGamepad(gp);
   if (!hadDrive && myControllers[0] != nullptr)
