@@ -353,23 +353,31 @@ void setup() {
 // PWM just sets brightness.
 void serviceBodyLights() {
   static unsigned long at = 0;
-  static int level = 20, dir = 4;
   unsigned long now = millis();
   if (now - at < 30) return;
   at = now;
+  bool playing = dfPlayerReady && digitalRead(DFPLAYER_BUSY_PIN) == LOW;
+#if BODY_LED_MODE == BODY_LED_NEOPIXEL
+  // RC4.7: NeoPixel.show() blanks interrupts (~30 us/pixel) to bit-bang WS2812
+  // timing, which stretches whatever 32u4 Servo pulse it overlaps -> dome-tilt
+  // servo TWITCH. The old per-frame breathe re-showed at ~33 Hz and twitched the
+  // servos even at idle. So on NeoPixels we go STATIC by state and show() ONLY
+  // when the color changes: the strip is quiet whenever nothing's happening and
+  // the servos hold rock-steady. (The dome's PSI still does the talking pulse.)
+  const uint8_t V = 90;
+  uint32_t c;
+  if (playing)                    c = bodyLeds.Color(V, V, V);        // speaking = white
+  else if (incoming.driveEnabled) c = bodyLeds.Color(0, V, V / 3);    // live = teal
+  else                            c = bodyLeds.Color(0, 0, V);        // idle = blue
+  static uint32_t lastColor = 0xFFFFFFFF;
+  if (c != lastColor) { lastColor = c; bodyLeds.fill(c); bodyLeds.show(); }
+#else
+  // Sequin path is hardware PWM (analogWrite) — no interrupt blanking, so the
+  // breathe is free of the servo-twitch problem; keep it.
+  static int level = 20, dir = 4;
   level += dir;
   if (level >= 120) { level = 120; dir = -4; }
   else if (level <= 20) { level = 20; dir = 4; }
-  bool playing = dfPlayerReady && digitalRead(DFPLAYER_BUSY_PIN) == LOW;
-#if BODY_LED_MODE == BODY_LED_NEOPIXEL
-  uint8_t v = (uint8_t)level;
-  uint32_t c;
-  if (playing)                    c = bodyLeds.Color(v, v, v);        // speaking = white
-  else if (incoming.driveEnabled) c = bodyLeds.Color(0, v, v / 3);    // live = teal
-  else                            c = bodyLeds.Color(0, 0, v);        // idle = blue
-  bodyLeds.fill(c);
-  bodyLeds.show();
-#else
   uint8_t v;
   if (playing)                    v = 255;              // full while speaking
   else if (incoming.driveEnabled) v = (uint8_t)(120 + level);  // brighter when live
