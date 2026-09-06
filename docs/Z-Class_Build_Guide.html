@@ -505,7 +505,7 @@
 
     <div class="call note">
       <span class="ct">Autocenter over the bridge</span>
-      <p><code>cfg autocenter</code> drives the S2S to both stops and <b>blocks ~15–20 s</b> — the console goes quiet while it runs, then prints <code>low/high/center</code>. Don't resend it during the quiet period. (The relay <code>autotune</code> is non-blocking, so its progress and Ku/Tu results stream live.)</p>
+      <p><code>cfg autocenter</code> drives the S2S to both stops for ~15–20&nbsp;s. It pumps the tunnel from inside that sweep and streams a ~1&nbsp;Hz <b>busy heartbeat</b> with the live pot — so you can see it working — then the compact <code>low/high/center</code> result. (The relay <code>autotune</code> is non-blocking, so its progress and Ku/Tu results stream live too.)</p>
     </div>
 
     <h3>Reverse a motor without re-wiring</h3>

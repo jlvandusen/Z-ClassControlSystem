@@ -513,6 +513,8 @@ void applyS2SPWM(int pwm) {
   gS2SDirFwd = (pwm > 0);
 }
 
+void flushConsoleTunnel();   // RC4.7: fwd decl — pump the dome bridge from inside blocking routines
+
 // RC4.7: builder auto-center. Gently drives the S2S to each endstop, detects
 // the stall (pot stops changing), takes the midpoint as the mechanical center,
 // saves it to NVS (persists — boot cal no longer overwrites potCenter), and
@@ -527,29 +529,34 @@ void s2sAutoCenter() {
   Serial.println(F("[AUTOCENTER] finding S2S endstops - keep hands clear..."));
   driveEnabled = false;            // this routine owns the motor
 
-  // RC4.7: silent during the sweep. Over the dome bridge the whole run buffers
-  // behind the ~18 s blocking drive and flushes as one burst on best-effort
-  // ESP-NOW, so we emit a SINGLE compact result line at the end instead of
-  // per-phase chatter — fewer packets = better odds the one line that matters
-  // (the saved center) survives the lossy link intact.
-  auto driveToStop = [&](int pwm) -> int {
+  // RC4.7: a ~1 Hz "busy" heartbeat (with the live pot) streams over the dome
+  // bridge via flushConsoleTunnel() DURING the otherwise-blocking sweep, so a
+  // sealed-ball operator sees it working instead of a dead console. The final
+  // result is still one compact line so the numbers land in a single packet.
+  auto driveToStop = [&](int pwm, const char* phase) -> int {
     int last = readS2SPot();
     unsigned long lastMove = millis();
     unsigned long t0 = millis();
+    unsigned long lastBeat = 0;
     while (millis() - t0 < PHASE_TIMEOUT) {
       applyS2SPWM(pwm);
       delay(15);
       int p = readS2SPot();
       if (abs(p - last) > STALL_DELTA) { lastMove = millis(); last = p; }
-      if (millis() - lastMove > STALL_MS) break;   // stalled = at the stop
+      if (millis() - lastBeat >= 1000) {             // ~1 Hz busy heartbeat
+        Serial.printf("[AUTOCENTER] %s (pot=%d)...\n", phase, p);
+        lastBeat = millis();
+      }
+      flushConsoleTunnel();                           // stream it live over the bridge
+      if (millis() - lastMove > STALL_MS) break;      // stalled = at the stop
     }
     brakeS2S();
     return readS2SPot();
   };
 
-  int lo = driveToStop(-FIND_PWM);   // pot down
+  int lo = driveToStop(-FIND_PWM, "sweeping to low stop");    // pot down
   delay(250);
-  int hi = driveToStop(+FIND_PWM);    // pot up
+  int hi = driveToStop(+FIND_PWM, "sweeping to high stop");   // pot up
   delay(250);
 
   if (abs(hi - lo) < 100) {   // never really moved -> motor/pot problem
@@ -564,15 +571,21 @@ void s2sAutoCenter() {
 
   // park at center
   unsigned long t0 = millis();
+  unsigned long lastBeat = 0;
   while (millis() - t0 < 4000) {
     int err = center - readS2SPot();
     if (abs(err) < 8) break;
     applyS2SPWM(constrain(err * 2, -FIND_PWM, FIND_PWM));
     delay(15);
+    if (millis() - lastBeat >= 1000) {
+      Serial.printf("[AUTOCENTER] parking at %d (pot=%d)...\n", center, readS2SPot());
+      lastBeat = millis();
+    }
+    flushConsoleTunnel();
   }
   brakeS2S();
 
-  // The one line that matters (see note above): numbers + saved + parked, once.
+  // The one line that matters: numbers + saved + parked, once.
   Serial.printf("[AUTOCENTER] low=%d high=%d center=%d SAVED+parked (survives reboot; enable+steer to verify)\n",
                 lo, hi, center);
 }
@@ -1270,6 +1283,29 @@ void handleDomeAndBodyLights() {
   }
 }
 
+// RC4.7: push one pending console-tunnel chunk to the dome if the radio is free.
+// Factored out so long blocking routines (cfg autocenter) can keep the bridge
+// alive and stream progress while loop() is stalled — the WiFi task clears
+// espnowSendInFlight on TX-done independently of loop().
+void flushConsoleTunnel() {
+#if ENABLE_ESPNOW
+  static unsigned long lastTunnelMs = 0;
+  unsigned long now = millis();
+  if (!espnowSendInFlight && SerialTee.pending() > 0 && (now - lastTunnelMs) >= 12) {
+    static TunnelOut tp;
+    static uint8_t tseq = 0;
+    tp.type = TUNNEL_OUT_TYPE;
+    tp.seq = ++tseq;
+    tp.len = SerialTee.drain(tp.data, sizeof(tp.data));
+    tp.checksum = tunnelSum(tp);
+    espnowSendInFlight = true;
+    if (esp_now_send(domeMACAddress, (uint8_t*)&tp, sizeof(tp)) != ESP_OK)
+      espnowSendInFlight = false;               // chunk lost; stream is best-effort
+    lastTunnelMs = now;
+  }
+#endif
+}
+
 // RC4: non-blocking ESP-NOW service — no delay(), no busy retry
 void serviceEspNow() {
 #if ENABLE_ESPNOW
@@ -1296,21 +1332,9 @@ void serviceEspNow() {
   }
 
   // RC4.4: mirror buffered console output to the dome bridge. Lights have
-  // priority (handled above); tunnel chunks fill the gaps, one in flight,
-  // >=12 ms apart (~80 pkt/s ceiling — telemetry fast fits with room over).
-  static unsigned long lastTunnelMs = 0;
-  if (!espnowSendInFlight && SerialTee.pending() > 0 && (now - lastTunnelMs) >= 12) {
-    static TunnelOut tp;
-    static uint8_t tseq = 0;
-    tp.type = TUNNEL_OUT_TYPE;
-    tp.seq = ++tseq;
-    tp.len = SerialTee.drain(tp.data, sizeof(tp.data));
-    tp.checksum = tunnelSum(tp);
-    espnowSendInFlight = true;
-    if (esp_now_send(domeMACAddress, (uint8_t*)&tp, sizeof(tp)) != ESP_OK)
-      espnowSendInFlight = false;               // chunk lost; stream is best-effort
-    lastTunnelMs = now;
-  }
+  // priority (handled above); tunnel chunks fill the gaps. RC4.7: factored into
+  // flushConsoleTunnel() so blocking routines can pump the same path.
+  flushConsoleTunnel();
 #endif
 }
 
