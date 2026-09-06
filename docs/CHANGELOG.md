@@ -2,6 +2,14 @@
 
 Builds = `versions.json` counters at the time; each board's banner shows `build N | date | git`.
 
+## RC4.7 — 2026-09-06 · safety guards, on-board self-test, guided setup wizard
+- **Fall / tip-over guard** (`pref fallguard on|off`, default on, NVS-persisted): sustained tilt past 45° for >1.2 s that the balance loop can't recover from = it's on its side → the drive force-disables, brakes all motors, plays an alert, and freezes the black box so the motors don't thrash. **Tap PS to re-arm** once upright.
+- **S2S stall guard** (`pref stallguard on|off`, default on, NVS-persisted): the S2S pushing hard (|pwm| ≥ 130) with no pot movement for 700 ms = jammed gear / dead motor / disconnected pot → the S2S is latched OFF (the drive's pitch balance keeps running) and it alerts. The latch clears on re-enable (tap PS) or `cfg autocenter`; while latched `cfg show` reads "[S2S STALLED …]".
+- Both guards **fail safe, persist in NVS, appear in `cfg show`** (a new "Guards:" line), and are captured by **`bb8 backup`** (via `cfg dump`) — overridable if they ever false-trip.
+- **`selftest` / `selftest full`** (drive console): an on-board POST that diagnoses a sealed ball from the **inside** (complements the PC-side `bb8 doctor`). Reports PASS/WARN/FAIL per line + a summary for: IMU streaming + accel magnitude (~9.8), 32u4 body link (packet age + CRC), dome ESP-NOW link, S2S pot in range, and config/calibration present. `selftest full` adds a gentle two-way S2S nudge to prove motor + pot work together (disables the drive first — re-center with `cfg autocenter` after).
+- **`setup`** (drive console): a guided first-bring-up **wizard** — autocenter → level → sign check (nudge test, prints the exact `pref rev*`/`inv*` fixes if it's backwards) → save, one step at a time. While active it owns the console (`go`/`skip`/`y`/`n`/`next`/`quit`).
+- Both `selftest` and `setup` **run over the dome bridge** (`bb8 monitor ball`), so a sealed ball is tested and brought up without opening it.
+
 ## RC4.7 — 2026-09-06 · runtime sign fixes + sealed-ball service over the bridge
 - **Six sign flags are now runtime + NVS-persisted**, replacing the compile-time `#define`s (which stay as the defaults): polarity at the I/O layer — `pref revdrive` (DRIVE motor), `pref revs2s` (S2S motor), `pref revs2spot` (S2S pot); direction at the control-mix layer — `pref invdrivebal` (drive balance), `pref invs2sbal` (S2S roll-hold), `pref invs2sstick` (S2S steering). A backwards-wired motor in a **sealed ball** is now a one-command fix — no re-wire, no reflash.
 - **Coherent with auto-balance**: the polarity reversals live at the I/O layer (motor output, pot read), so reversing a motor flips the **whole axis** — balance correction and joystick together — keeping the feedback loop stable instead of turning it into a runaway. The `inv*` flags then set each direction independently.

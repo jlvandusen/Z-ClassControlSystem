@@ -112,6 +112,7 @@ Short version (full method: [RigTuning](RigTuning.md)):
 | Sounds play, PSI dark | radio link — dome powered? within range? (Runbook §11) |
 | Servos weak / body resets | tilt servos need their **own 6 V supply**, not the 5 V feed |
 | Wireless console silent | pad must be **connected** before the dome can reach the drive |
+| Not sure what's wrong (esp. sealed) | `selftest` on the drive console (or over `bb8 monitor ball`) — PASS/WARN/FAIL per subsystem |
 | Anything else | Runbook §11 troubleshooting matrix |
 
 ## 7b. The RC4.7 extras — one-liners
@@ -119,7 +120,10 @@ Short version (full method: [RigTuning](RigTuning.md)):
 - **Update the sealed ball wirelessly**: `bb8 upload drive --ota` (dome on USB, drive disabled, pad on).
 - **Fix a wrong sign without opening the ball**: motor/pot **polarity** with `pref revdrive` / `pref revs2s` / `pref revs2spot`, contribution **direction** with `pref invdrivebal` / `pref invs2sbal` / `pref invs2sstick` — all runtime + saved. **Stability first** (toggle one of `revs2s`/`revs2spot` for a stable S2S hold, re-run `cfg autocenter`), **direction second** ([Runbook §8.6](Runbook.md)).
 - **Do it all from outside the ball**: `cfg autocenter`, `autotune drive|s2s`, and those sign fixes all run over `bb8 monitor ball` (dome on USB, pad connected) — the sealed shell never has to come apart.
-- **Fresh build? Auto-find the S2S center**: `cfg autocenter` on the drive drives the S2S axis to *both* mechanical stops, takes the midpoint as center, and saves it (survives reboot; re-run anytime). **It powers the motor to the stops — hands clear.**
+- **Fresh build? Let the wizard walk you through it**: `setup` on the drive console runs the guided bring-up — autocenter → level → sign check → save, one step at a time (reply `go`/`skip`/`y`/`n`/`next`/`quit`). Works over `bb8 monitor ball` too.
+- **Auto-find the S2S center by hand**: `cfg autocenter` on the drive drives the S2S axis to *both* mechanical stops, takes the midpoint as center, and saves it (survives reboot; re-run anytime). **It powers the motor to the stops — hands clear.** (The `setup` wizard does this as step 1.)
+- **Check its health from the inside**: `selftest` on the drive console is an on-board POST — PASS/WARN/FAIL for the IMU, both links, the S2S pot, and config. `selftest full` adds a gentle S2S nudge (disables the drive first, hands clear; re-center with `cfg autocenter` after). Runs over `bb8 monitor ball` for a sealed ball.
+- **It won't thrash if it falls**: the **fall guard** force-disables and brakes everything if it tips past 45° for more than a second (**tap PS to re-arm** once upright); the **S2S stall guard** latches the S2S off if it pushes hard against a jam / dead motor / disconnected pot (clears on re-enable or `cfg autocenter`). Both default on and persist — `pref fallguard off` / `pref stallguard off` if one ever false-trips.
 - **Keep the dome on top**: it self-levels whenever the drive is enabled (no autoBalance needed). Tune it on the body console — `tilt gain` (leveling strength), `tilt lean` (anti-acceleration lean), `tilt slew` (speed cap), `tilt alpha` (smoothing), `tilt invert x|y` (direction); `tilt save` persists, `tilt show` prints.
 - **Keep your tune forever**: `bb8 backup` → a file; `bb8 restore <file>` after any reflash/board swap.
 - **Something's off?** `bb8 doctor` first. **It fell over?** `blackbox dump` on the drive console.

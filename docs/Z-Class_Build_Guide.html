@@ -405,6 +405,11 @@
     <div class="phase-head"><span class="phase-num">04</span><h2>Calibrate — before anything moves</h2></div>
     <p class="phase-sub">Find the steering center, zero the level, and prove the motor signs. Skip these and the balance loop fights a ghost.</p>
 
+    <div class="call tip">
+      <span class="ct">The easy path</span>
+      <p>New to it? Type <code>setup</code> on the drive console for a guided wizard that walks this whole phase — autocenter → level → sign check → save — one prompt at a time, and prints the exact fix if a sign is backwards. The steps below are what it automates.</p>
+    </div>
+
     <h3>Auto-find the S2S center <span style="color:var(--muted);font-weight:400;font-size:15px">— new, and the easy way on a fresh build</span></h3>
     <p>The gearbox holds the steering frame wherever you leave it, so its resting pose is <em>not</em> the center. <code>cfg autocenter</code> finds the true center for you: it drives the S2S to both mechanical stops, takes the midpoint, saves it to flash, and parks the frame there. It survives reboots, and you can re-run it any time.</p>
     <div class="cmd"><span class="k">cfg autocenter</span>   <span class="c"># drives to both stops → saves midpoint as center</span></div>
@@ -526,6 +531,10 @@
       <span class="ct">Then lock it in</span>
       <p><code>cfg show</code> lists the live polarity/direction; <code>bb8 backup my-droid.txt</code> captures it. All six survive reboot <em>and</em> reflash.</p>
     </div>
+
+    <h3>Diagnose it from inside — and let it protect itself</h3>
+    <p><code>selftest</code> runs an on-board POST — IMU, both links, pot range, config — and prints PASS/WARN/FAIL per subsystem, so you can tell what's wrong in a closed ball without opening it (<code>selftest full</code> adds a gentle S2S nudge to prove the motor and pot work together). It's the inside-the-ball counterpart to <code>bb8 doctor</code>.</p>
+    <p>Two guards also run on their own, defaulting on: a <b>fall / tip-over guard</b> force-disables if it goes past 45° so the motors don't thrash on their side (tap PS to re-arm), and an <b>S2S stall guard</b> cuts the steering motor if it jams — pushing hard with the pot not moving — before it cooks. Both persist and ride along in <code>bb8 backup</code>; toggle with <code>pref fallguard</code> / <code>pref stallguard</code> if one ever false-trips.</p>
   </section>
 
   <!-- APPENDIX -->
@@ -567,6 +576,9 @@
         <tr><td class="mono">blackbox dump / arm</td><td>flight recorder — freezes on safety events</td></tr>
         <tr><td class="mono">pref revdrive · revs2s · revs2spot</td><td>runtime motor/pot polarity — fix a sealed ball, coherent with balance</td></tr>
         <tr><td class="mono">pref invdrivebal · invs2sbal · invs2sstick</td><td>runtime balance / steering direction flips</td></tr>
+        <tr><td class="mono">selftest [full]</td><td>on-board POST — IMU/links/pot/config; <code>full</code> adds a gentle S2S nudge</td></tr>
+        <tr><td class="mono">setup</td><td>guided bring-up wizard: autocenter → level → sign check → save</td></tr>
+        <tr><td class="mono">pref fallguard · stallguard</td><td>tip-over auto-disable · S2S stall cutout (both default on)</td></tr>
       </tbody>
     </table></div>
 

@@ -119,6 +119,12 @@ on the drive console pins which pad is which (saved).
 
 ## 5. First calibration — before anything moves
 
+> **Fastest path — the `setup` wizard.** On the drive console, `setup` walks
+> **autocenter → level → sign-check → save** for you, one step at a time (reply
+> `go` / `skip` / `y` / `n` / `next` / `quit`; it works over `bb8 monitor ball`
+> too). The manual steps in §5 and §6 below are exactly what it automates — read
+> them to understand each step, or just run `setup` and follow the prompts.
+
 Two steps: **find the S2S steering center**, then **zero the level**. Order matters.
 
 **5a. Auto-find the S2S center — `cfg autocenter`.** The steering gearbox holds the
@@ -155,6 +161,12 @@ lose your steering center.
 A balance loop with a reversed motor doesn't balance, it *shoves*. New build = every
 motor's polarity is unproven. With the ball **on a roller cradle or stand** (never the
 floor for this):
+
+> **First, `selftest` on the drive console** — an on-board POST that confirms the IMU,
+> both links, the S2S pot, and config are healthy (PASS/WARN/FAIL per line) *before* you
+> enable. Fix any FAIL first — a dead IMU or railed pot will fail the sign check for
+> reasons that have nothing to do with polarity.
+
 
 1. Enable (tap **PS**) with autoBalance on, and nudge the shell a few degrees by hand.
    Each axis should push **against** your nudge, back toward level. A correction that

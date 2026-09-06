@@ -137,6 +137,8 @@ The drive is the hub: IMU pitch/roll, body replies (`debug from32u4`), what it s
 | Command | Does |
 |---|---|
 | `help` / `version` | command list / build banner |
+| `selftest` · `selftest full` | on-board POST — PASS/WARN/FAIL per subsystem (IMU, body link, dome link, S2S pot, config); `full` adds a gentle S2S nudge. See §5.5 |
+| `setup` | guided first-bring-up wizard: autocenter → level → sign check → save. See §5.5 |
 | `telemetry on` · `telemetry fast` · `telemetry off` | 20 Hz · 100 Hz stream: `t,exp,pitch,roll,pot,tgt,drv,s2s,fly,en,bal,jx,jy,hz` |
 | `cfg show` · `cfg save` · `cfg load` · `cfg reset` | config in NVS |
 | `cfg autocenter` | **drive S2S to both stops, save the midpoint as center** (NVS, survives reboot & reflash). The first-time center-finder — **hands clear, it runs the motor**; prints `low/high/center`, parks at center, fails safe if the pot barely moves. Run this *before* `cfg calibrate` on a fresh build |
@@ -151,6 +153,7 @@ The drive is the hub: IMU pitch/roll, body replies (`debug from32u4`), what it s
 | `pref sndshut <n>` · `pref sndconn <n>` · `pref sndcal <n>` | controller-disconnect "shutdown" clip (100) · controller-connect "startup" clip (1) · boot-cal-done chirp (6, `0` = silent). **All `pref snd*` and `pref swing` persist in NVS** (RC4.3/4.4) |
 | **Sign fixes — polarity (I/O layer):** `pref revdrive on|off` · `pref revs2s on|off` · `pref revs2spot on|off` | flip the DRIVE motor · S2S motor · S2S pot read. `revdrive` flips balance **and** throttle together (coherent); `revs2s`+`revs2spot` are the S2S inner-loop stability pair. Runtime, **NVS-persisted**, in `cfg show` + `bb8 backup`. **Stability first** — fix-it order in §8.6 |
 | **Sign fixes — direction (control-mix layer):** `pref invdrivebal on|off` · `pref invs2sbal on|off` · `pref invs2sstick on|off` | flip the drive balance (pitch-PID) dir · S2S balance (roll-hold) dir · S2S steering (joystick) dir. Persisted. Use *after* the frame holds stably — **direction second** (§8.6) |
+| **Safety guards:** `pref fallguard on|off` · `pref stallguard on|off` | fall/tip-over guard · S2S stall guard. **Both default ON**, NVS-persisted, shown in `cfg show` "Guards:" line, in `bb8 backup`. What trips them / how to clear in §10 |
 | `bt mac` · `bt list` · `bt prefer drive|dome <MAC|slot0|slot1|none>` · `bt prefer show` · `bt forget` | pad pairing/assignment (see §14) |
 | `step drive <pwm> <ms>` · `step s2s <counts> <ms>` | open-loop steps (rig) |
 | `autotune drive [amp]` · `autotune s2s [amp]` · `autotune apply` · `autotune abort` | on-board relay autotune (rig) |
@@ -179,6 +182,22 @@ The drive is the hub: IMU pitch/roll, body replies (`debug from32u4`), what it s
 Dome-local commands: `help`, `version`, `debug` (prints every ESP-NOW packet + send status), `setmac XX:XX:XX:XX:XX:XX` (drive's WiFi MAC, saved in prefs).
 
 **Anything else you type is tunnelled to the DRIVE over ESP-NOW and the drive's whole console streams back** (RC4.4). `bb8 monitor ball` uses exactly this — see §16. One command at a time (the dome holds one in-flight command for ACK-retry).
+
+### 5.5 On-board self-test & guided setup (RC4.7)
+
+Two drive-console commands diagnose and bring up a **sealed** ball from the inside — both run over the dome bridge (§16), so the shell never has to open.
+
+**`selftest` / `selftest full`** — an on-board POST that complements the PC-side `bb8 doctor` (which only sees banners from outside). Prints **PASS / WARN / FAIL** per subsystem plus a `N PASS, N WARN, N FAIL` summary:
+
+- **IMU** — streaming (fresh samples) and accel magnitude sane (~9.8)
+- **Body link** — 32u4 packet age + CRC error rate
+- **Dome link** — a fresh `lastDomeRx` over ESP-NOW (WARN if not heard — power the dome, connect a pad)
+- **S2S pot** — reads in range, not railed (a disconnected/mis-clocked pot rails)
+- **Config** — calibration present (potCenter / offsets set)
+
+Passive `selftest` moves nothing — safe any time. **`selftest full`** additionally does a gentle two-way S2S nudge to prove motor + pot work together: it **disables the drive first (hands clear)**, then re-center with `cfg autocenter` afterward.
+
+**`setup`** — the guided first-bring-up wizard, the easy path when you don't want to remember the order. Four steps: **(1)** `cfg autocenter`, **(2)** level calibration that keeps the center, **(3)** sign check (nudge test — if it's backwards it prints the exact runtime fixes: `pref revdrive` / `revs2s` / `revs2spot` / `invs2sbal` / `invdrivebal`), **(4)** save. While active it **owns the console** — reply `go` / `skip` / `y` / `n` / `next` / `quit`.
 
 ---
 
@@ -286,6 +305,8 @@ From the 2026-08-20 capture: S2S balance polarity is **correct** as shipped (`co
 | Event | Response |
 |---|---|
 | IMU stale > 500 ms | autoBalance output cut, motors braked, **alert sound (80–89)** |
+| **Fall / tip-over** — sustained tilt past 45° for >1.2 s the balance loop can't recover (`pref fallguard`, default on) | it's on its side → drive **force-DISABLED**, all motors braked, PID reset, **alert sound (80–89)**, black box frozen — so the motors don't thrash. **Tap PS to re-arm** once upright. `pref fallguard off` overrides |
+| **S2S stall** — S2S pushing hard (\|pwm\| ≥ 130) with no pot movement for 700 ms (`pref stallguard`, default on) | jammed gear / dead motor / disconnected pot → **S2S latched OFF** (drive pitch balance keeps running), alert, black box frozen. `cfg show` reads "[S2S STALLED …]". Clears on **re-enable (tap PS)** or **`cfg autocenter`**. `pref stallguard off` overrides |
 | Drive controller disconnects | drive force-DISABLED + shutdown clip (100); dome pad may be promoted but drive stays disabled until PS |
 | PS held 2 s | drive force-DISABLED (+ sound) |
 | No ESP32 packet to body for 2 s | servos neutral, dome motor stopped |
