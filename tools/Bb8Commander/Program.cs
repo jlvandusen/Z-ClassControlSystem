@@ -1900,7 +1900,7 @@ async Task<int> CmdUpdate(bool flash)
     bool gitMode = IsGitCheckout() && HasArduinoCli();
     Console.WriteLine();
     int flashed = 0, failed = 0;
-    foreach (var t in config.Targets)
+    foreach (var t in config.Targets.Where(x => x.Name != "ball"))   // 'ball' is virtual (the drive via the dome bridge) — flashing 'dome' covers it
     {
         var candidates = DetectPorts().Where(p => GuessTargets(p).Contains(t.Name)).ToList();
         if (candidates.Count == 0) { Console.WriteLine($"[FLASH] {t.Name,-6} not plugged in — skipped."); continue; }
