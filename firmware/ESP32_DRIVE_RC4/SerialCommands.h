@@ -18,6 +18,10 @@ extern void resetConfigToDefaults();
 extern void beginS2SCenterCalibration();
 extern void beginCalibration(uint8_t mask);
 extern void s2sAutoCenter();      // RC4.7: drive-to-endstops auto-center
+extern void runSelfTest(bool full);   // RC4.7: on-board POST / diagnostics
+extern bool wizardActive();           // RC4.7: guided setup wizard
+extern void wizardStart();
+extern void wizardInput(const String& c);
 extern void printControllersSummary();
 extern bool savePidOnly();
 
@@ -58,6 +62,7 @@ extern bool btResetOnBoot;
 extern int btSupervisionSec;
 void applyBtSupervision();
 extern bool revDrive, revS2S, revS2SPot, invDriveBal, invS2SBal, invS2SStick;   // RC4.7 runtime polarity/direction
+extern bool fallGuard, stallGuard, s2sStalled;   // RC4.7 safety guards
 
 // Config + IMU
 extern struct struct_messagempu mpudata;
@@ -72,6 +77,8 @@ inline void printHelpMenu() {
   Serial.println(F("\n=== Available Commands (RC4) ==="));
   Serial.println(F("help or commands      - Show this help menu"));
   Serial.println(F("version               - Show firmware revision/date"));
+  Serial.println(F("selftest [full]       - on-board POST: IMU/links/pot/config (full = + gentle S2S motion test)"));
+  Serial.println(F("setup                 - guided first-bring-up wizard (autocenter -> level -> sign check -> save)"));
   Serial.println(F("telemetry on|off      - 20Hz telemetry stream (Serial-Plotter friendly)"));
   Serial.println(F("telemetry fast        - 100Hz stream for rig captures / system ID"));
   Serial.println(F("step drive <pwm> <ms> - constant drive PWM step (rig only)"));
@@ -136,6 +143,9 @@ inline void printHelpMenu() {
   Serial.println(F("                        (S2S slams / won't hold center -> toggle ONE of revs2s/revs2spot; then re-run cfg autocenter)"));
   Serial.println(F("pref invdrivebal on|off  - flip drive balance dir (joystick right but balance pushes INTO the lean)"));
   Serial.println(F("pref invs2sbal on|off    - flip S2S balance dir  |  pref invs2sstick on|off - flip S2S steering dir"));
+  Serial.println(F("--- safety guards (default on; persist) ---"));
+  Serial.println(F("pref fallguard on|off - force-disable if it tips past 45 deg for >1.2 s (tap PS to re-arm)"));
+  Serial.println(F("pref stallguard on|off- disable the S2S if it pushes hard with no pot motion (jam/dead motor/pot)"));
   Serial.println(F("blackbox [dump|arm]   - 25Hz flight recorder; freezes on safety events"));
   Serial.println(F("macro set <1-4> <cmd;wait ms;cmd...> | macro run <n> | macro show | macro stop"));
   Serial.println(F("ota begin <bytes> / ota end / ota abort / ota status  - used by 'bb8 upload drive --ota'"));
@@ -144,6 +154,9 @@ inline void printHelpMenu() {
 
 // ---------- Command handler ----------
 inline void handleSerialCommand(const String &cmd) {
+  // RC4.7: the setup wizard owns console input while it's active
+  if (wizardActive()) { wizardInput(cmd); return; }
+  if (cmd == "setup" || cmd == "wizard") { wizardStart(); return; }
   if (cmd == "help" || cmd == "commands") {
     printHelpMenu();
   } else if (cmd == "version" || cmd == "ver") {
@@ -236,6 +249,8 @@ inline void handleSerialCommand(const String &cmd) {
     Serial.printf("Reverse: drive=%s s2s=%s s2spot=%s | Invert: drivebal=%s s2sbal=%s s2sstick=%s\n",
                   revDrive?"ON":"off", revS2S?"ON":"off", revS2SPot?"ON":"off",
                   invDriveBal?"ON":"off", invS2SBal?"ON":"off", invS2SStick?"ON":"off");
+    Serial.printf("Guards: fall=%s stall=%s%s\n", fallGuard?"ON":"off", stallGuard?"ON":"off",
+                  s2sStalled ? "  [S2S STALLED — re-enable/autocenter to clear]" : "");
   } else if (cmd == "cfg save") {
     Serial.println(saveConfig() ? F("[CFG] Saved to NVS.") : F("[CFG] Save failed."));
   } else if (cmd == "cfg load") {
@@ -332,6 +347,12 @@ inline void handleSerialCommand(const String &cmd) {
   } else if (cmd == "pref invs2sstick on" || cmd == "pref invs2sstick off") {
     invS2SStick = (cmd == "pref invs2sstick on"); saveSoundPrefs();
     Serial.printf("[PREF] invs2sstick %s (saved) — S2S steering (joystick) direction flipped.\n", invS2SStick?"ON":"OFF");
+  } else if (cmd == "pref fallguard on" || cmd == "pref fallguard off") {
+    fallGuard = (cmd == "pref fallguard on"); saveSoundPrefs();
+    Serial.printf("[PREF] fallguard %s (saved) — force-disable if it tips past 45 deg.\n", fallGuard?"ON":"OFF");
+  } else if (cmd == "pref stallguard on" || cmd == "pref stallguard off") {
+    stallGuard = (cmd == "pref stallguard on"); saveSoundPrefs();
+    Serial.printf("[PREF] stallguard %s (saved) — disable the S2S if it's stuck at high PWM.\n", stallGuard?"ON":"OFF");
   } else if (cmd.startsWith("pref sndon ")) {
     int v = cmd.substring(11).toInt();
     if (v >= 0 && v <= 119) {
@@ -373,6 +394,9 @@ inline void handleSerialCommand(const String &cmd) {
     } else {
       Serial.println(F("[PREF] Invalid value. Must be 0-5."));
     }
+  } else if (cmd == "selftest" || cmd == "selftest full") {
+    // RC4.7: POST — passive checks; 'full' adds a gentle S2S motion test.
+    runSelfTest(cmd.endsWith("full"));
   } else if (cmd == "cfg autocenter") {
     // RC4.7: drive to both S2S endstops, save the midpoint as center (persists).
     s2sAutoCenter();
@@ -591,6 +615,8 @@ inline void handleSerialCommand(const String &cmd) {
     Serial.printf("pref invdrivebal %s\n", invDriveBal ? "on" : "off");
     Serial.printf("pref invs2sbal %s\n", invS2SBal ? "on" : "off");
     Serial.printf("pref invs2sstick %s\n", invS2SStick ? "on" : "off");
+    Serial.printf("pref fallguard %s\n", fallGuard ? "on" : "off");
+    Serial.printf("pref stallguard %s\n", stallGuard ? "on" : "off");
     Serial.printf("dome mac %02X:%02X:%02X:%02X:%02X:%02X\n",
                   domeMACAddress[0], domeMACAddress[1], domeMACAddress[2],
                   domeMACAddress[3], domeMACAddress[4], domeMACAddress[5]);

@@ -329,6 +329,17 @@ bool telemetryFast = false;   // RC4: 100 Hz stream for rig/system-ID captures
 
 bool imuHasSample = false;
 
+// RC4.7: safety guards (runtime, NVS-persisted; default ON). Both fail SAFE and
+// are overridable if they ever false-trip ('pref fallguard/stallguard off').
+bool fallGuard  = true;    // force-disable if it tips past FALL_ANGLE and can't recover
+bool stallGuard = true;    // disable the S2S if it's stuck at high PWM (jam / dead motor / pot)
+bool s2sStalled = false;   // latch: S2S held off after a stall until the drive is re-enabled
+const float    FALL_ANGLE        = 45.0f;  // deg past which (sustained) = tipped over
+const uint32_t FALL_MS           = 1200;   // must exceed FALL_ANGLE this long to trip
+const int      STALL_GUARD_PWM   = 130;    // |S2S PWM| above this = "pushing hard"
+const int      STALL_GUARD_DELTA = 6;      // filtered pot moves less than this = "not moving"
+const uint32_t STALL_GUARD_MS    = 700;    // pushing hard + not moving this long = stall
+
 bool isPlaying = false;
 bool flywheelMode = false;
 GamepadPtr myControllers[2];  // [0] Drive, [1] Dome
@@ -375,6 +386,7 @@ const uint16_t SOUND_DEBOUNCE_MS = 250;
 
 unsigned long last32u4Packet = 0;
 unsigned long lastIMUUpdate = 0;
+unsigned long lastDomeRx = 0;     // RC4.7: last valid dome ESP-NOW packet (for selftest)
 
 // RC4 control state
 float potFiltered = 0.0f;
@@ -528,6 +540,7 @@ void s2sAutoCenter() {
 
   Serial.println(F("[AUTOCENTER] finding S2S endstops - keep hands clear..."));
   driveEnabled = false;            // this routine owns the motor
+  s2sStalled = false;              // RC4.7: re-testing the S2S clears any stall latch
 
   // RC4.7: a ~1 Hz "busy" heartbeat (with the live pot) streams over the dome
   // bridge via flushConsoleTunnel() DURING the otherwise-blocking sweep, so a
@@ -826,6 +839,8 @@ void loadSoundPrefs() {
   invDriveBal = prefs.getBool("invdrvbal", invDriveBal);
   invS2SBal   = prefs.getBool("invs2sbal", invS2SBal);
   invS2SStick = prefs.getBool("invs2sstk", invS2SStick);
+  fallGuard   = prefs.getBool("fallguard",  fallGuard);      // RC4.7 safety guards
+  stallGuard  = prefs.getBool("stallguard", stallGuard);
   prefs.end();
 }
 void saveSoundPrefs() {
@@ -848,6 +863,8 @@ void saveSoundPrefs() {
   prefs.putBool("invdrvbal", invDriveBal);
   prefs.putBool("invs2sbal", invS2SBal);
   prefs.putBool("invs2sstk", invS2SStick);
+  prefs.putBool("fallguard",  fallGuard);      // RC4.7 safety guards
+  prefs.putBool("stallguard", stallGuard);
   prefs.end();
 }
 
@@ -1022,6 +1039,7 @@ void onEspNowRecv(const uint8_t* mac, const uint8_t* data, int len) {
     uint16_t calc = calculateChecksumDome(temp);
     if (calc != temp.checksum) return;
     lastBatteryVoltage = temp.bat;
+    lastDomeRx = millis();
   }
   // RC4.4: console command tunneled in from the dome bridge. len==0 is a
   // keepalive (arms the output mirror while bb8 is attached to the dome).
@@ -1158,6 +1176,28 @@ void runControl(float dt) {
   float pitch = mpudata.pitch + cfg.pitchOffset;
   float roll  = mpudata.roll + cfg.rollOffset;
 
+  // RC4.7: fall / tip-over guard. Sustained tilt past what the loop can recover
+  // = it's on its side; force-disable so the motors don't thrash. Tap PS to
+  // re-arm once it's back upright. ('pref fallguard off' to override.)
+  if (fallGuard && imuFresh) {
+    static unsigned long fallSince = 0;
+    if (fabsf(pitch) > FALL_ANGLE || fabsf(roll) > FALL_ANGLE) {
+      if (fallSince == 0) fallSince = millis();
+      else if (millis() - fallSince > FALL_MS) {
+        driveEnabled = false; autoBalance = false;
+        brakeDrive(); brakeS2S(); brakeFlywheel();
+        drivePID.reset(); s2sPID.reset(); drivePwmState = 0;
+        Serial.printf("[SAFETY] FALL — tilt %.0f/%.0f deg past recovery. Drive disabled; tap PS to re-arm.\n", pitch, roll);
+        blackboxFreeze("fall");
+        sendSoundCommand(Coms32u4, sendTo32u4, pickRandomAlert());
+        fallSince = 0;
+        return;
+      }
+    } else {
+      fallSince = 0;
+    }
+  }
+
   // RC4: rig experiments (step / relay autotune) own the motors while active.
   // Grabbing a stick aborts back to normal control.
   if (experimentActive()) {
@@ -1227,6 +1267,27 @@ void runControl(float dt) {
       s2sPWM = (s2sPWM > 0) ? S2S_STICTION_PWM : -S2S_STICTION_PWM;
     }
   }
+
+  // RC4.7: S2S stall guard — pushing hard but the pot isn't moving = jammed gear
+  // / dead motor / disconnected pot. Latch the S2S off (drive pitch balance
+  // keeps running) and alert; clears on re-enable (tap PS) or 'cfg autocenter'.
+  if (stallGuard && !s2sStalled) {
+    static unsigned long stallT0 = 0;
+    static float stallPot0 = 0;
+    if (abs(s2sPWM) >= STALL_GUARD_PWM) {
+      if (stallT0 == 0) { stallT0 = millis(); stallPot0 = potFiltered; }
+      else if (fabsf(potFiltered - stallPot0) > STALL_GUARD_DELTA) { stallT0 = millis(); stallPot0 = potFiltered; }
+      else if (millis() - stallT0 > STALL_GUARD_MS) {
+        s2sStalled = true;
+        Serial.printf("[SAFETY] S2S STALL — pwm=%d but pot stuck ~%d. S2S disabled; fix the gear/pot then re-enable (tap PS). 'pref stallguard off' overrides.\n", s2sPWM, (int)potFiltered);
+        blackboxFreeze("s2s stall");
+        stallT0 = 0;
+      }
+    } else {
+      stallT0 = 0;
+    }
+  }
+  if (s2sStalled) s2sPWM = 0;
   applyS2SPWM(s2sPWM);
 
   brakeFlywheel();
@@ -1455,6 +1516,7 @@ void toggleDriveEnabled() {
   } else {
     drivePID.reset();
     s2sPID.reset();
+    s2sStalled = false;   // RC4.7: re-arming clears a latched S2S stall
   }
   // RC4.6: PS toggle acknowledgement = random quick blip (70-74), unless a
   // fixed track is pinned via pref sndon/sndoff.
@@ -1872,6 +1934,149 @@ void serviceExtras() {
                   lastBatteryVoltage, batLowVolts);
     if (padOn) sendSoundCommand(Coms32u4, sendTo32u4, pickRandomAlert());
   }
+}
+
+// RC4.7: guided first-bring-up wizard. Walks autocenter -> level cal -> sign
+// check -> save, one step at a time, so nobody has to remember the order.
+// 'setup' starts it; while active, all console input routes here (go/skip/y/n/
+// next/quit). Works over the dome bridge too.
+int wizardStep = 0;   // 0 = inactive
+bool wizardActive() { return wizardStep > 0; }
+
+void wizardPrompt() {
+  switch (wizardStep) {
+    case 1:
+      Serial.println(F("\n=== SETUP WIZARD ===   (reply: go / skip / quit)"));
+      Serial.println(F("Step 1/4 - Auto-center the S2S steering."));
+      Serial.println(F("  Drives the motor to both stops, saves the midpoint. HANDS CLEAR."));
+      Serial.println(F("  > 'go' to run  |  'skip' if already centered  |  'quit'"));
+      break;
+    case 2:
+      Serial.println(F("Step 2/4 - Level calibration (keeps your S2S center)."));
+      Serial.println(F("  Set the droid LEVEL and STILL."));
+      Serial.println(F("  > 'go' to run, wait for [CAL] Done, then 'next'  |  'skip'  |  'quit'"));
+      break;
+    case 3:
+      Serial.println(F("Step 3/4 - Sign check (on a stand/cradle, not the floor)."));
+      Serial.println(F("  Tap PS to enable, press X for autoBalance, nudge the shell a few deg."));
+      Serial.println(F("  It should push BACK toward level, not run away."));
+      Serial.println(F("  > 'y' corrects the right way  |  'n' runs away/backwards  |  'skip'"));
+      break;
+    case 4:
+      Serial.println(F("Step 4/4 - Save."));
+      Serial.println(F("  > 'go' to save to NVS (then 'bb8 backup' from the PC)  |  'quit'"));
+      break;
+  }
+}
+
+void wizardStart() { wizardStep = 1; wizardPrompt(); }
+
+void wizardInput(const String& c) {
+  if (c == "quit" || c == "q" || c == "exit") { Serial.println(F("[WIZARD] exited.")); wizardStep = 0; return; }
+  switch (wizardStep) {
+    case 1:
+      if (c == "go")        { s2sAutoCenter(); wizardStep = 2; wizardPrompt(); }
+      else if (c == "skip") { wizardStep = 2; wizardPrompt(); }
+      else Serial.println(F("[WIZARD] reply 'go', 'skip', or 'quit'."));
+      break;
+    case 2:
+      if (c == "go")                       { beginCalibration(0x3); Serial.println(F("[WIZARD] calibrating - hold level ~3 s, then reply 'next'.")); }
+      else if (c == "next" || c == "skip") { wizardStep = 3; wizardPrompt(); }
+      else Serial.println(F("[WIZARD] 'go' to calibrate, 'next' after [CAL] Done, or 'skip'/'quit'."));
+      break;
+    case 3:
+      if (c == "y" || c == "yes")     { Serial.println(F("[WIZARD] signs good.")); wizardStep = 4; wizardPrompt(); }
+      else if (c == "n" || c == "no") {
+        Serial.println(F("[WIZARD] Wrong direction - runtime fixes (persist; details in 'help'):"));
+        Serial.println(F("  drive runs away        -> pref revdrive on"));
+        Serial.println(F("  S2S slams / won't hold -> toggle ONE of: pref revs2s / pref revs2spot, then cfg autocenter"));
+        Serial.println(F("  holds but wrong way    -> pref invs2sbal (roll) / pref invdrivebal (pitch)"));
+        Serial.println(F("  Fix, then reply 'y' to continue, or 'skip'."));
+      }
+      else if (c == "skip") { wizardStep = 4; wizardPrompt(); }
+      else Serial.println(F("[WIZARD] reply 'y', 'n', 'skip', or 'quit'."));
+      break;
+    case 4:
+      if (c == "go") {
+        Serial.println(saveConfig() ? F("[WIZARD] config saved to NVS.") : F("[WIZARD] save FAILED."));
+        Serial.println(F("[WIZARD] Done. Run 'bb8 backup my-droid.txt' from the PC to keep a copy. Happy rolling!"));
+        wizardStep = 0;
+      }
+      else Serial.println(F("[WIZARD] reply 'go' to save, or 'quit'."));
+      break;
+  }
+}
+
+// RC4.7: on-board self-test / POST — diagnoses a sealed ball from the inside.
+// 'selftest' is passive (no motion, safe anytime); 'selftest full' adds a gentle
+// S2S nudge to prove the motor + pot work together (disables drive, hands clear).
+void runSelfTest(bool full) {
+  int pass = 0, warn = 0, fail = 0;
+  Serial.println(F("\n=== SELF-TEST ==="));
+
+  // IMU — streaming? magnitude sane?
+  receiveFromTrinket();
+  unsigned long imuAge = millis() - lastIMUUpdate;
+  float mag = sqrtf(mpudata.rawX*mpudata.rawX + mpudata.rawY*mpudata.rawY + mpudata.rawZ*mpudata.rawZ);
+  if (!imuHasSample || imuAge > 1000) {
+    Serial.printf("IMU        : FAIL  (no samples / stale %lu ms) — check Trinket + MPU wiring/power\n", imuAge); fail++;
+  } else if (mag < 6.0f || mag > 13.0f) {
+    Serial.printf("IMU        : WARN  (|accel|=%.1f, expected ~9.8; pitch=%.1f roll=%.1f)\n", mag, mpudata.pitch, mpudata.roll); warn++;
+  } else {
+    Serial.printf("IMU        : PASS  (fresh %lu ms, |accel|=%.1f, pitch=%.1f roll=%.1f)\n", imuAge, mag, mpudata.pitch, mpudata.roll); pass++;
+  }
+
+  // 32u4 body serial link
+  long bodyAge = last32u4Packet ? (long)(millis() - last32u4Packet) : -1;
+  if (bodyAge < 0 || bodyAge > 1000) {
+    Serial.println(F("Body link  : FAIL  (no packets) — check the 32u4 + SerialTransfer wiring")); fail++;
+  } else if (g32u4CrcErrors > 20) {
+    Serial.printf("Body link  : WARN  (%ld ms, %lu CRC errors — noisy line)\n", bodyAge, (unsigned long)g32u4CrcErrors); warn++;
+  } else {
+    Serial.printf("Body link  : PASS  (%ld ms, %lu rx, %lu CRC)\n", bodyAge, (unsigned long)g32u4RxCount, (unsigned long)g32u4CrcErrors); pass++;
+  }
+
+  // Dome ESP-NOW link
+  long domeAge = lastDomeRx ? (long)(millis() - lastDomeRx) : -1;
+  if (domeAge < 0 || domeAge > 3000) {
+    Serial.println(F("Dome link  : WARN  (not heard — power the dome + connect a pad; check PSI pulses on a sound)")); warn++;
+  } else {
+    Serial.printf("Dome link  : PASS  (%ld ms, dome bat %.1f V)\n", domeAge, lastBatteryVoltage); pass++;
+  }
+
+  // S2S pot in range
+  int pot = readS2SPot();
+  if (pot < 100 || pot > 3995) {
+    Serial.printf("S2S pot    : FAIL  (railed at %d — pot/gear disconnected or mis-clocked)\n", pot); fail++;
+  } else {
+    Serial.printf("S2S pot    : PASS  (%d, in range, %+ld from center)\n", pot, (long)pot - cfg.potCenter); pass++;
+  }
+
+  // Config / calibration present?
+  bool cal = (cfg.potCenter != DEFAULT_POT_CENTER) || (cfg.pitchOffset != 0.0f) || (cfg.rollOffset != 0.0f);
+  Serial.printf("Config     : %s  (potCenter=%ld pitchOff=%.2f rollOff=%.2f)\n",
+                cal ? "PASS" : "WARN", (long)cfg.potCenter, cfg.pitchOffset, cfg.rollOffset);
+  cal ? pass++ : warn++;
+
+  // Optional gentle S2S motion test
+  if (full) {
+    driveEnabled = false; s2sStalled = false;
+    Serial.println(F("S2S motion : nudging both ways (hands clear)..."));
+    int p0 = readS2SPot();
+    unsigned long t0 = millis();
+    while (millis() - t0 < 600) { applyS2SPWM(110);  delay(15); flushConsoleTunnel(); }
+    brakeS2S();
+    int moved = abs(readS2SPot() - p0);
+    t0 = millis();
+    while (millis() - t0 < 600) { applyS2SPWM(-110); delay(15); flushConsoleTunnel(); }
+    brakeS2S();
+    if (moved > 15) { Serial.printf("S2S motion : PASS  (pot moved %d counts under 110 PWM)\n", moved); pass++; }
+    else           { Serial.printf("S2S motion : FAIL  (pot barely moved %d — motor unpowered or pot dead)\n", moved); fail++; }
+    Serial.println(F("(re-center after a motion test: 'cfg autocenter')"));
+  }
+
+  Serial.printf("=== %d PASS, %d WARN, %d FAIL%s ===\n", pass, warn, fail,
+                fail ? "  <-- fix the FAILs before enabling" : "");
 }
 
 void loop() {
