@@ -57,6 +57,7 @@ extern float batLowVolts;
 extern bool btResetOnBoot;
 extern int btSupervisionSec;
 void applyBtSupervision();
+extern bool revDrive, revS2S, revS2SPot, invDriveBal, invS2SBal, invS2SStick;   // RC4.7 runtime polarity/direction
 
 // Config + IMU
 extern struct struct_messagempu mpudata;
@@ -129,6 +130,12 @@ inline void printHelpMenu() {
   Serial.println(F("pref batlow <volts>   - Dome-battery alert threshold (0 = off)"));
   Serial.println(F("pref btreset on|off   - Bounce pads on boot so they reset clean (default on)"));
   Serial.println(F("pref btsupervision <s>- Link-timeout so a pad drops <s> s after a drive reboot (default 5; 0=BT default ~20s)"));
+  Serial.println(F("--- sign fixes (sealed-ball safe; persist in NVS; in 'cfg show' + 'bb8 backup') — STABLE hold first, then DIRECTION ---"));
+  Serial.println(F("pref revdrive on|off  - flip DRIVE motor (balance runs away / throttle backwards -> flips both together)"));
+  Serial.println(F("pref revs2s on|off    - flip S2S motor  |  pref revs2spot on|off - flip S2S pot"));
+  Serial.println(F("                        (S2S slams / won't hold center -> toggle ONE of revs2s/revs2spot; then re-run cfg autocenter)"));
+  Serial.println(F("pref invdrivebal on|off  - flip drive balance dir (joystick right but balance pushes INTO the lean)"));
+  Serial.println(F("pref invs2sbal on|off    - flip S2S balance dir  |  pref invs2sstick on|off - flip S2S steering dir"));
   Serial.println(F("blackbox [dump|arm]   - 25Hz flight recorder; freezes on safety events"));
   Serial.println(F("macro set <1-4> <cmd;wait ms;cmd...> | macro run <n> | macro show | macro stop"));
   Serial.println(F("ota begin <bytes> / ota end / ota abort / ota status  - used by 'bb8 upload drive --ota'"));
@@ -226,6 +233,9 @@ inline void handleSerialCommand(const String &cmd) {
                   cfg.mpuDeadzone, (unsigned long)cfg.cfgVersion);
     Serial.printf("Drive PID: Kp=%.2f Ki=%.2f Kd=%.2f | S2S PID: Kp=%.2f Ki=%.2f Kd=%.2f\n",
                   cfg.driveKp, cfg.driveKi, cfg.driveKd, cfg.s2sKp, cfg.s2sKi, cfg.s2sKd);
+    Serial.printf("Reverse: drive=%s s2s=%s s2spot=%s | Invert: drivebal=%s s2sbal=%s s2sstick=%s\n",
+                  revDrive?"ON":"off", revS2S?"ON":"off", revS2SPot?"ON":"off",
+                  invDriveBal?"ON":"off", invS2SBal?"ON":"off", invS2SStick?"ON":"off");
   } else if (cmd == "cfg save") {
     Serial.println(saveConfig() ? F("[CFG] Saved to NVS.") : F("[CFG] Save failed."));
   } else if (cmd == "cfg load") {
@@ -301,6 +311,27 @@ inline void handleSerialCommand(const String &cmd) {
         else Serial.printf("[PREF] Link supervision %d s — a pad drops this fast after a drive reboot (saved). Reconnect the pad to apply.\n", v);
       } else Serial.println(F("[PREF] Invalid. 0 (BT default) or 3-30 seconds. Below ~5 s risks drops on RF stalls."));
     }
+  // RC4.7: runtime motor/sensor polarity + direction — correct a SEALED ball
+  // without opening it to re-wire. Motor/pot reversals live at the I/O layer so
+  // they flip the whole axis together and stay coherent with auto-balance.
+  } else if (cmd == "pref revdrive on" || cmd == "pref revdrive off") {
+    revDrive = (cmd == "pref revdrive on"); saveSoundPrefs();
+    Serial.printf("[PREF] revdrive %s (saved) — drive motor flipped: balance + throttle reverse together.\n", revDrive?"ON":"OFF");
+  } else if (cmd == "pref revs2s on" || cmd == "pref revs2s off") {
+    revS2S = (cmd == "pref revs2s on"); saveSoundPrefs();
+    Serial.printf("[PREF] revs2s %s (saved) — S2S motor flipped. If S2S slams/runs away, toggle revs2s OR revs2spot (one) for a stable hold.\n", revS2S?"ON":"OFF");
+  } else if (cmd == "pref revs2spot on" || cmd == "pref revs2spot off") {
+    revS2SPot = (cmd == "pref revs2spot on"); saveSoundPrefs();
+    Serial.printf("[PREF] revs2spot %s (saved) — S2S pot reading flipped. Re-run 'cfg autocenter' after changing this.\n", revS2SPot?"ON":"OFF");
+  } else if (cmd == "pref invdrivebal on" || cmd == "pref invdrivebal off") {
+    invDriveBal = (cmd == "pref invdrivebal on"); saveSoundPrefs();
+    Serial.printf("[PREF] invdrivebal %s (saved) — drive balance direction flipped (joystick right but balance pushes INTO the lean).\n", invDriveBal?"ON":"OFF");
+  } else if (cmd == "pref invs2sbal on" || cmd == "pref invs2sbal off") {
+    invS2SBal = (cmd == "pref invs2sbal on"); saveSoundPrefs();
+    Serial.printf("[PREF] invs2sbal %s (saved) — S2S balance (roll-hold) direction flipped.\n", invS2SBal?"ON":"OFF");
+  } else if (cmd == "pref invs2sstick on" || cmd == "pref invs2sstick off") {
+    invS2SStick = (cmd == "pref invs2sstick on"); saveSoundPrefs();
+    Serial.printf("[PREF] invs2sstick %s (saved) — S2S steering (joystick) direction flipped.\n", invS2SStick?"ON":"OFF");
   } else if (cmd.startsWith("pref sndon ")) {
     int v = cmd.substring(11).toInt();
     if (v >= 0 && v <= 119) {
@@ -554,6 +585,12 @@ inline void handleSerialCommand(const String &cmd) {
     Serial.printf("pref batlow %.2f\n", batLowVolts);
     Serial.printf("pref btreset %s\n", btResetOnBoot ? "on" : "off");
     Serial.printf("pref btsupervision %d\n", btSupervisionSec);
+    Serial.printf("pref revdrive %s\n", revDrive ? "on" : "off");
+    Serial.printf("pref revs2s %s\n", revS2S ? "on" : "off");
+    Serial.printf("pref revs2spot %s\n", revS2SPot ? "on" : "off");
+    Serial.printf("pref invdrivebal %s\n", invDriveBal ? "on" : "off");
+    Serial.printf("pref invs2sbal %s\n", invS2SBal ? "on" : "off");
+    Serial.printf("pref invs2sstick %s\n", invS2SStick ? "on" : "off");
     Serial.printf("dome mac %02X:%02X:%02X:%02X:%02X:%02X\n",
                   domeMACAddress[0], domeMACAddress[1], domeMACAddress[2],
                   domeMACAddress[3], domeMACAddress[4], domeMACAddress[5]);

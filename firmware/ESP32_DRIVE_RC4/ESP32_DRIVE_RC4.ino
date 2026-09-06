@@ -183,6 +183,20 @@ TeeSerial SerialTee;
                                    // (use when joystick direction is right but
                                    //  balance pushes INTO the lean)
 
+// RC4.7: the six sign flags above are now RUNTIME + NVS-persisted so a SEALED
+// ball can be corrected without opening it to re-wire. Each defaults to its
+// #define. Motor/pot reversals live at the I/O layer (applyDrivePWM/applyS2SPWM/
+// readS2SPot) so they flip everything downstream together and stay COHERENT with
+// auto-balance; the *bal/*stick flags then set direction independently. Set with
+// 'pref revdrive|revs2s|revs2spot|invdrivebal|invs2sbal|invs2sstick on|off',
+// view in 'cfg show', captured by 'bb8 backup'.
+bool revDrive    = REVERSE_DRIVE;
+bool revS2S      = REVERSE_S2S;
+bool revS2SPot   = REVERSE_S2S_POT;
+bool invDriveBal = DRIVE_BALANCE_INVERT;
+bool invS2SBal   = S2S_BALANCE_INVERT;
+bool invS2SStick = S2S_STICK_INVERT;
+
 // ------------------- CONFIGURABLE DEFAULTS -------------------
 static const char* DEFAULT_REVISION = "Joe Drive Rev 1.0 RC4";
 static const char* DEFAULT_REVISION_DATE = "2026-08-20";
@@ -207,7 +221,7 @@ const uint8_t FLYWHEEL_PIN_2 = 14;
 // telemetry) sees a normal, increasing-with-position value.
 static inline int readS2SPot() {
   int r = analogRead(S2S_POT_PIN);
-  return REVERSE_S2S_POT ? (4095 - r) : r;
+  return revS2SPot ? (4095 - r) : r;
 }
 
 // Calibration defaults
@@ -478,7 +492,7 @@ void brakeFlywheel() {
 // RC4: single signed-PWM writer per motor (sign conventions match RC3)
 void applyDrivePWM(int pwm) {
   pwm = constrain(pwm, -255, 255);
-  if (REVERSE_DRIVE) pwm = -pwm;
+  if (revDrive) pwm = -pwm;
   if (abs(pwm) < DRIVE_MIN_PWM) { brakeDrive(); return; }
   digitalWrite(DRIVE_PIN_1, pwm > 0 ? HIGH : LOW);
   digitalWrite(DRIVE_PIN_2, pwm > 0 ? LOW : HIGH);
@@ -490,7 +504,7 @@ void applyDrivePWM(int pwm) {
 // positive PWM moves the pot value UP (same wiring as RC3 auto-center)
 void applyS2SPWM(int pwm) {
   pwm = constrain(pwm, -255, 255);
-  if (REVERSE_S2S) pwm = -pwm;
+  if (revS2S) pwm = -pwm;
   if (pwm == 0) { brakeS2S(); return; }
   digitalWrite(S2S_PIN_1, pwm > 0 ? HIGH : LOW);
   digitalWrite(S2S_PIN_2, pwm > 0 ? LOW : HIGH);
@@ -788,6 +802,12 @@ void loadSoundPrefs() {
   batLowVolts    = prefs.getFloat("batlow", batLowVolts);
   btResetOnBoot  = prefs.getBool("btrst", btResetOnBoot);
   btSupervisionSec = prefs.getInt("btsup", btSupervisionSec);
+  revDrive    = prefs.getBool("revdrv",    revDrive);      // RC4.7: runtime polarity/direction
+  revS2S      = prefs.getBool("revs2s",    revS2S);
+  revS2SPot   = prefs.getBool("revs2spot", revS2SPot);
+  invDriveBal = prefs.getBool("invdrvbal", invDriveBal);
+  invS2SBal   = prefs.getBool("invs2sbal", invS2SBal);
+  invS2SStick = prefs.getBool("invs2sstk", invS2SStick);
   prefs.end();
 }
 void saveSoundPrefs() {
@@ -804,6 +824,12 @@ void saveSoundPrefs() {
   prefs.putFloat("batlow", batLowVolts);
   prefs.putBool("btrst", btResetOnBoot);
   prefs.putInt("btsup", btSupervisionSec);
+  prefs.putBool("revdrv",    revDrive);       // RC4.7: runtime polarity/direction
+  prefs.putBool("revs2s",    revS2S);
+  prefs.putBool("revs2spot", revS2SPot);
+  prefs.putBool("invdrvbal", invDriveBal);
+  prefs.putBool("invs2sbal", invS2SBal);
+  prefs.putBool("invs2sstk", invS2SStick);
   prefs.end();
 }
 
@@ -1145,7 +1171,7 @@ void runControl(float dt) {
   if (autoBalance && imuFresh) {
     // RC4 fix #7: stabilization stays active; joystick blends on top
     float pidOut = drivePID.compute(0.0f, pitch, dt);
-    if (DRIVE_BALANCE_INVERT) pidOut = -pidOut;
+    if (invDriveBal) pidOut = -pidOut;
     drivePWM = (int)constrain(drivePwmState + pidOut, -255.0f, 255.0f);
   } else {
     drivePWM = (int)drivePwmState;
@@ -1158,7 +1184,7 @@ void runControl(float dt) {
   // Joystick moves the target (RC3 direction preserved: stick left -> pot down)
   if (abs(driveController.joyX) > DEFAULT_JOY_DEADZONE) {
     float stickFrac = driveController.joyX / 127.0f;
-    if (S2S_STICK_INVERT) stickFrac = -stickFrac;
+    if (invS2SStick) stickFrac = -stickFrac;
     targetPot += stickFrac * s2sMaxDegrees * POT_COUNTS_PER_DEGREE;
   }
 
@@ -1166,7 +1192,7 @@ void runControl(float dt) {
     float maxCounts = s2sMaxDegrees * POT_COUNTS_PER_DEGREE;
     s2sPID.setOutputLimits(-maxCounts, maxCounts);
     float balOut = s2sPID.compute(0.0f, roll, dt);
-    if (S2S_BALANCE_INVERT) balOut = -balOut;
+    if (invS2SBal) balOut = -balOut;
     targetPot += balOut;
   }
 
