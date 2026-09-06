@@ -2,6 +2,20 @@
 
 Builds = `versions.json` counters at the time; each board's banner shows `build N | date | git`.
 
+## v1.03 — 2026-09-06 · the sealed-ball release (bench-verified)
+Everything since v1.02, focused on bringing up, tuning, and fixing the droid **without opening the sealed shell** — plus resilience for the things you can't reach once it is. Bench-verified this session (drive + body flashed, self-test all-PASS).
+
+- **`cfg autocenter`** — drives the S2S to both stops and saves the true midpoint as the steering center (persists across reboot *and* reflash; boot cal no longer clobbers it). The fix for a fresh build that slams to one side.
+- **Always-on dome leveling** + live tilt tuning (`tilt gain/lean/slew/alpha/invert`) — the dome stays perched whether or not autoBalance is on; slew/alpha capped so a servo move can't buck it off.
+- **IMU power-glitch resilience** — the Trinket retries/re-inits the MPU instead of dying in a blink loop, and the drive waits for the IMU instead of running at pitch/roll = 0. (Root-caused from a real short this session.)
+- **Runtime motor/direction sign fixes** — `pref revdrive/revs2s/revs2spot` (polarity) and `invdrivebal/invs2sbal/invs2sstick` (direction), all NVS-persisted and coherent with auto-balance. Correct a backwards-wired motor in a sealed ball with one command — no re-wire, no reflash.
+- **Sealed-ball service over the dome bridge** — `cfg autocenter`, the PID autotuner, and every sign fix run over `bb8 monitor ball`; autocenter streams a live "busy" heartbeat while it sweeps.
+- **Safety guards** — fall/tip-over auto-disable past 45°, and an S2S stall cutout (jam / dead motor / disconnected pot). Default on, persist, overridable.
+- **On-board `selftest [full]`** — a POST that reports PASS/WARN/FAIL for IMU/links/pot/config from *inside* the ball, plus **`setup`**, a guided bring-up wizard.
+- **Body NeoPixel servo-twitch fix** — the strip is static-per-state so `show()` stops corrupting the 32u4 servo pulses.
+
+Flash order after installing: `bb8 upload drive` · `body` · `imu` · `dome` (or `bb8 flash <target>` on a BASIC install). Full detail below and in the printable **Build Guide** (`docs/Z-Class_Build_Guide.html`).
+
 ## RC4.7 — 2026-09-06 · safety guards, on-board self-test, guided setup wizard
 - **Fall / tip-over guard** (`pref fallguard on|off`, default on, NVS-persisted): sustained tilt past 45° for >1.2 s that the balance loop can't recover from = it's on its side → the drive force-disables, brakes all motors, plays an alert, and freezes the black box so the motors don't thrash. **Tap PS to re-arm** once upright.
 - **S2S stall guard** (`pref stallguard on|off`, default on, NVS-persisted): the S2S pushing hard (|pwm| ≥ 130) with no pot movement for 700 ms = jammed gear / dead motor / disconnected pot → the S2S is latched OFF (the drive's pitch balance keeps running) and it alerts. The latch clears on re-enable (tap PS) or `cfg autocenter`; while latched `cfg show` reads "[S2S STALLED …]".
