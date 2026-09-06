@@ -527,7 +527,12 @@ void s2sAutoCenter() {
   Serial.println(F("[AUTOCENTER] finding S2S endstops - keep hands clear..."));
   driveEnabled = false;            // this routine owns the motor
 
-  auto driveToStop = [&](int pwm, const char* dir) -> int {
+  // RC4.7: silent during the sweep. Over the dome bridge the whole run buffers
+  // behind the ~18 s blocking drive and flushes as one burst on best-effort
+  // ESP-NOW, so we emit a SINGLE compact result line at the end instead of
+  // per-phase chatter — fewer packets = better odds the one line that matters
+  // (the saved center) survives the lossy link intact.
+  auto driveToStop = [&](int pwm) -> int {
     int last = readS2SPot();
     unsigned long lastMove = millis();
     unsigned long t0 = millis();
@@ -539,14 +544,12 @@ void s2sAutoCenter() {
       if (millis() - lastMove > STALL_MS) break;   // stalled = at the stop
     }
     brakeS2S();
-    int e = readS2SPot();
-    Serial.printf("[AUTOCENTER] %s stop: pot=%d\n", dir, e);
-    return e;
+    return readS2SPot();
   };
 
-  int lo = driveToStop(-FIND_PWM, "low ");   // pot down
+  int lo = driveToStop(-FIND_PWM);   // pot down
   delay(250);
-  int hi = driveToStop(+FIND_PWM, "high");    // pot up
+  int hi = driveToStop(+FIND_PWM);    // pot up
   delay(250);
 
   if (abs(hi - lo) < 100) {   // never really moved -> motor/pot problem
@@ -558,7 +561,6 @@ void s2sAutoCenter() {
   int center = (lo + hi) / 2;
   cfg.potCenter = center;
   saveConfig();
-  Serial.printf("[AUTOCENTER] low=%d high=%d -> center=%d (saved to NVS)\n", lo, hi, center);
 
   // park at center
   unsigned long t0 = millis();
@@ -569,7 +571,10 @@ void s2sAutoCenter() {
     delay(15);
   }
   brakeS2S();
-  Serial.println(F("[AUTOCENTER] done - frame parked at center; survives reboot. (Enable + steer to verify.)"));
+
+  // The one line that matters (see note above): numbers + saved + parked, once.
+  Serial.printf("[AUTOCENTER] low=%d high=%d center=%d SAVED+parked (survives reboot; enable+steer to verify)\n",
+                lo, hi, center);
 }
 
 void applyFlywheelPWM(int pwm) {

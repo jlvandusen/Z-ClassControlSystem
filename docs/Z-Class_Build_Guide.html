@@ -410,7 +410,7 @@
     <div class="cmd"><span class="k">cfg autocenter</span>   <span class="c"># drives to both stops → saves midpoint as center</span></div>
     <div class="call safety">
       <span class="ct">Hands clear — it drives the motor</span>
-      <p>This actively runs the S2S motor to both hard stops. Keep hands and cables out of the swing path. It prints <code>low=… high=… → center=…</code> and fails safe if the pot barely moves (a wiring or mesh problem). On the reference build it read <code>low&nbsp;336 · high&nbsp;1322 · center&nbsp;829</code> — your numbers will differ; that's expected, the center is per-build.</p>
+      <p>This actively runs the S2S motor to both hard stops. Keep hands and cables out of the swing path. It prints one compact line — <code>low=… high=… center=… SAVED+parked</code> (kept short so the one line that matters survives the best-effort dome bridge) — and fails safe if the pot barely moves (a wiring or mesh problem). On the reference build it read <code>low&nbsp;336 · high&nbsp;1322 · center&nbsp;829</code> — your numbers will differ; that's expected, the center is per-build.</p>
     </div>
 
     <h3>Zero the level</h3>

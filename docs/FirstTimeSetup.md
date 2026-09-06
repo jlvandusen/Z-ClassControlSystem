@@ -131,7 +131,8 @@ cfg autocenter         # drives S2S to both stops -> saves the midpoint as cente
 ```
 
 > **Hands clear** — this actively runs the S2S motor to both hard stops. It prints
-> `low=… high=… -> center=…`, saves the center to flash (survives reboots *and*
+> one compact line `low=… high=… center=… SAVED+parked` (kept short so it
+> survives the best-effort dome bridge), saves the center to flash (survives reboots *and*
 > reflashes), parks the frame there, and fails safe if the pot barely moves (a wiring
 > or mesh problem). Re-run it any time. The center is **per-build** — a different
 > engine or pot gives different numbers (the reference build lands near 829).
