@@ -104,6 +104,24 @@ void handleUsbCommands() {
   }
 }
 
+// RC4.7: one place for the MPU register config so boot and any runtime
+// re-init use identical settings.
+void applyMpuSettings() {
+  mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+  mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+  mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);   // RC4: was 21 Hz (too laggy for balance)
+}
+
+// RC4.7: re-initialise the MPU after a mid-run power glitch. The Adafruit
+// driver has no error return on getEvent(), so we watch the accel magnitude:
+// a healthy sensor always reads ~1 g (~9.8 m/s^2). A sustained near-zero
+// magnitude means the I2C read is failing — re-begin() and re-apply config.
+bool mpuReinit() {
+  if (!mpu.begin()) return false;
+  applyMpuSettings();
+  return true;
+}
+
 void setup() {
   Serial.begin(115200);
   Serial1.begin(BAUD_ESP32);
@@ -114,17 +132,24 @@ void setup() {
   Serial.println(F("\n=== Trinket M0 IMU Node RC4 ==="));
   showBuildInfoSerial("BOOT");
 
-  if (!mpu.begin()) {
-    Serial.println(F("[FATAL] MPU6050 not found!"));
-    while (1) {
-      digitalWrite(LED_BUILTIN, HIGH); delay(150);
-      digitalWrite(LED_BUILTIN, LOW);  delay(150);
+  // RC4.7: A power spike / brownout at boot makes mpu.begin() fail. RC4 hung
+  // here FOREVER (fast blink) — the ESP32 then saw zero IMU packets and ran
+  // with pitch/roll = 0 ("No IMU samples collected"). Now we RETRY until the
+  // MPU answers, so the node self-heals once power settles. The slow blink
+  // still flags the fault while it keeps trying.
+  {
+    unsigned int tries = 0;
+    while (!mpu.begin()) {
+      digitalWrite(LED_BUILTIN, HIGH); delay(120);
+      digitalWrite(LED_BUILTIN, LOW);  delay(380);
+      if (++tries % 5 == 0)
+        Serial.println(F("[WARN] MPU6050 not responding — retrying (check power/I2C)..."));
     }
+    digitalWrite(LED_BUILTIN, LOW);
+    Serial.println(F("[OK] MPU6050 online"));
   }
 
-  mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-  mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-  mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);   // RC4: was 21 Hz (too laggy for balance)
+  applyMpuSettings();
 
   kalmanPitch.setQangle(0.001);
   kalmanPitch.setQbias(0.003);
@@ -226,6 +251,21 @@ void readAndFilterIMU() {
   float ax = a.acceleration.x;
   float ay = a.acceleration.y;
   float az = a.acceleration.z;
+
+  // RC4.7: mid-run brownout watchdog. A live MPU always reads ~1 g total;
+  // a sustained near-zero magnitude means the I2C read has died (power
+  // glitch). Re-init instead of streaming dead zeros to the ESP32.
+  static uint16_t deadReads = 0;
+  float mag = sqrt(ax*ax + ay*ay + az*az);
+  if (mag < 2.0f) {
+    if (++deadReads >= 50) {          // ~0.5 s at 100 Hz
+      Serial.println(F("[WARN] MPU accel flatlined — re-initialising..."));
+      if (mpuReinit()) Serial.println(F("[OK] MPU re-initialised"));
+      deadReads = 0;
+    }
+  } else {
+    deadReads = 0;
+  }
 
   float accPitch = atan2(-ax, sqrt(ay*ay + az*az)) * 180.0 / PI;
   float accRoll  = atan2(ay, az) * 180.0 / PI;

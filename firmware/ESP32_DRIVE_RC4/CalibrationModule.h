@@ -30,22 +30,32 @@ const uint16_t SOUND_SAVE_PREFS = 5;
 
 // Boot calibration
 
+// RC4.7: if the Trinket is still booting or recovering from a power glitch,
+// its packets may not arrive within one 3 s window. Rather than giving up and
+// running with pitch/roll = 0, keep re-trying the window until the IMU comes
+// online, up to this overall deadline.
+const uint32_t BOOT_CAL_MAX_MS = 15000;
+
 inline void serviceBootCalibration() {
   static bool bootCalibrating = true;
-  static unsigned long bootCalStart = 0;
+  static unsigned long bootCalFirstStart = 0;   // overall deadline anchor
+  static unsigned long bootCalStart = 0;         // current window start
   static double sumPitch = 0.0, sumRoll = 0.0;
   static uint64_t sumPot = 0;
   static uint32_t sampleCount = 0;
+  static uint8_t windowNum = 0;
 
   if (!bootCalibrating) return;
 
   // Start timer on first call
   if (bootCalStart == 0) {
     bootCalStart = millis();
+    if (bootCalFirstStart == 0) bootCalFirstStart = bootCalStart;
     sumPitch = sumRoll = 0.0;
     sumPot = 0;
     sampleCount = 0;
-    Serial.println("[BOOT CAL] Collecting samples...");
+    windowNum++;
+    Serial.printf("[BOOT CAL] Collecting samples (window %u)...\n", windowNum);
   }
 
   // Actively read IMU data
@@ -72,12 +82,18 @@ inline void serviceBootCalibration() {
       sendSoundCommand(Coms32u4, sendTo32u4, soundBootCal);  // 0 = silent
       Serial.printf("[BOOT CAL] Completed: pitchOffset=%.2f rollOffset=%.2f (potCenter kept=%d) (samples=%u)\n",
                     cfg.pitchOffset, cfg.rollOffset, cfg.potCenter, sampleCount);
+      bootCalibrating = false;
+    } else if (millis() - bootCalFirstStart < BOOT_CAL_MAX_MS) {
+      // No IMU yet — the Trinket may still be booting / recovering. Retry the
+      // window instead of settling for pitch/roll = 0.
+      Serial.println("[BOOT CAL] No IMU packets yet — waiting for Trinket...");
+      bootCalStart = 0;   // re-arm a fresh window on the next call
     } else {
-      Serial.println("[BOOT CAL] No IMU samples collected! Using defaults (potCenter kept).");
+      Serial.println("[BOOT CAL] IMU never came online — using defaults (potCenter kept). Fix the IMU, then run 'cfg calibrate'.");
       cfg.pitchOffset = 0.0f;
       cfg.rollOffset = 0.0f;
+      bootCalibrating = false;
     }
-    bootCalibrating = false;
   }
 }
 
