@@ -581,7 +581,13 @@ void updateTiltTargets() {
     roll  = filtRoll;
 #endif
 
-    if (incoming.autoBalance) {
+    // RC4.7: IMU leveling (dome counters body roll/pitch to stay upright) now
+    // runs whether or not autoBalance is engaged. On the 32u4, autoBalance only
+    // ever gated this cosmetic dome-level; the real ball-balance loop lives on
+    // the ESP32. Keeping the dome level at all times is what a builder wants —
+    // autoBalance now just controls drive stabilization. Same signs/inverts as
+    // before ('tilt invert x|y'); the dome stick + motion lean still ADD below.
+    {
         // RC4: float math, clamped (was integer map() truncation)
         // RC4.2: runtime gain + per-axis invert
         tiltX = constrain(roll  * tilt.gain, (float)SERVO_MIN, (float)SERVO_MAX);
