@@ -59,7 +59,7 @@ first and pulls new firmware (commits in a git checkout, releases otherwise);
 | **Tap PS** | drive enable / disable (sound each way) |
 | **Hold PS 2 s** | force-disable — do this before switching the pad off |
 | *pad powers off / drops* | droid force-disables itself + plays the **shutdown clip** |
-| **CROSS** | autoBalance on/off |
+| **CROSS** | autoBalance on/off — **drive stabilization only**; the dome self-levels to stay perched on top either way |
 | **Left stick ↑↓** | drive forward/back — the dome automatically leans *against* the motion to stay perched (`tilt lean`) |
 | **Left stick ←→** | steer (S2S tilt) |
 | **L2** | throttle boost · **L2 + D-pad ↑/↓ = volume ±** |
@@ -68,7 +68,7 @@ first and pulls new firmware (commits in a git checkout, releases otherwise);
 | **D-pad** | sounds (↑ = random 1-30; →↓← = 3/4/5; L1-shifted 10-13) |
 | **Both pads D-pad ↑ 3 s** | save prefs · **both ↓ 3 s** = factory reset |
 
-**Dome pad** (secondary): stick = dome tilt (works *while* autoBalance levels it),
+**Dome pad** (secondary): stick = dome tilt (adds to the always-on self-leveling),
 L1+stick X = flywheel, CIRCLE/D-pad = sounds, PS = dome-function toggle.
 
 While a sound plays, the **PSI pulses white** like speech. That's your link-health
@@ -86,7 +86,9 @@ on the drive console and **saved across reboots**:
 | pad lost / powered off | `pref sndshut` | 100 (shutdown) |
 | boot calibration done | `pref sndcal` | 6 (`0` = silent) |
 
-`audio scan` on the body console lists exactly which tracks the card really has.
+`bb8 sounds E:` (the PC-side card scan) lists exactly which tracks the card really
+has — the body's own `audio scan` is gone (flash reclaimed for the NeoPixels;
+`audio status` stays).
 
 ## 6. Tuning & the sealed shell
 
@@ -105,6 +107,7 @@ Short version (full method: [RigTuning](RigTuning.md)):
 |---|---|
 | Won't respond to the pad | Is the drive enabled (tap PS)? Pad paired (`bb8 pair --list`)? |
 | Leans/oscillates with balance on | `cfg calibrate` (level!), then [RigTuning](RigTuning.md) §3 |
+| Dome jerks / gets thrown off its perch | lower `tilt slew`, raise the `tilt lean` magnitude ([RigTuning](RigTuning.md)) |
 | Sounds play, PSI dark | radio link — dome powered? within range? (Runbook §11) |
 | Servos weak / body resets | tilt servos need their **own 6 V supply**, not the 5 V feed |
 | Wireless console silent | pad must be **connected** before the dome can reach the drive |
@@ -113,6 +116,8 @@ Short version (full method: [RigTuning](RigTuning.md)):
 ## 7b. The RC4.7 extras — one-liners
 
 - **Update the sealed ball wirelessly**: `bb8 upload drive --ota` (dome on USB, drive disabled, pad on).
+- **Fresh build? Auto-find the S2S center**: `cfg autocenter` on the drive drives the S2S axis to *both* mechanical stops, takes the midpoint as center, and saves it (survives reboot; re-run anytime). **It powers the motor to the stops — hands clear.**
+- **Keep the dome on top**: it self-levels whenever the drive is enabled (no autoBalance needed). Tune it on the body console — `tilt gain` (leveling strength), `tilt lean` (anti-acceleration lean), `tilt slew` (speed cap), `tilt alpha` (smoothing), `tilt invert x|y` (direction); `tilt save` persists, `tilt show` prints.
 - **Keep your tune forever**: `bb8 backup` → a file; `bb8 restore <file>` after any reflash/board swap.
 - **Something's off?** `bb8 doctor` first. **It fell over?** `blackbox dump` on the drive console.
 - **Make it feel alive**: `pref idle 120` (chatter after 2 min quiet), `macro set 1 play 5;wait 800;play 28`, `pref batlow 3.5`.

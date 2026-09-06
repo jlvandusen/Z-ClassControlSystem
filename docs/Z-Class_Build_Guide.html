@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Z-Class Build Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira:wght@500;600;700&family=Saira+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#eef0f3; --surface:#ffffff; --surface-2:#f6f7f9;
+    --ink:#1b1e24; --ink-soft:#3a3f49; --muted:#5b626e; --faint:#8a919d;
+    --line:#d9dce1; --line-strong:#c3c8d0;
+    --accent:#e2571e; --accent-ink:#ffffff; --accent-soft:#fbe6da;
+    --steel:#2e4a6b; --steel-soft:#e3e9f1;
+    --danger:#c4331d; --danger-soft:#f8e3de;
+    --ok:#2f8a4e; --ok-soft:#e0f0e5;
+    --tip:#1f7a8c; --tip-soft:#dff0f2;
+    --shadow:0 1px 2px rgba(20,22,26,.04),0 6px 20px rgba(20,22,26,.06);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#14161a; --surface:#1c1f25; --surface-2:#22262e;
+      --ink:#e8eaed; --ink-soft:#c7ccd4; --muted:#9aa1ac; --faint:#6c737f;
+      --line:#2a2e36; --line-strong:#3a3f49;
+      --accent:#f26a2e; --accent-ink:#151107; --accent-soft:#3a2415;
+      --steel:#8fb0d6; --steel-soft:#1e2a3a;
+      --danger:#e8674f; --danger-soft:#3a1e18;
+      --ok:#5cb87e; --ok-soft:#16301f;
+      --tip:#4bb3c6; --tip-soft:#123037;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 22px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#14161a; --surface:#1c1f25; --surface-2:#22262e;
+    --ink:#e8eaed; --ink-soft:#c7ccd4; --muted:#9aa1ac; --faint:#6c737f;
+    --line:#2a2e36; --line-strong:#3a3f49;
+    --accent:#f26a2e; --accent-ink:#151107; --accent-soft:#3a2415;
+    --steel:#8fb0d6; --steel-soft:#1e2a3a;
+    --danger:#e8674f; --danger-soft:#3a1e18;
+    --ok:#5cb87e; --ok-soft:#16301f;
+    --tip:#4bb3c6; --tip-soft:#123037;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 22px rgba(0,0,0,.4);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    line-height:1.62; font-size:16px; margin:0;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:820px; margin:0 auto; padding:0 24px 96px}
+
+  /* ---------- header ---------- */
+  header.masthead{
+    max-width:820px; margin:0 auto; padding:56px 24px 30px;
+  }
+  .eyebrow{
+    font-family:"Saira Condensed","Saira",sans-serif; font-weight:700;
+    letter-spacing:.22em; text-transform:uppercase; font-size:13px;
+    color:var(--accent); margin:0 0 14px;
+  }
+  .eyebrow .tick{color:var(--faint)}
+  h1{
+    font-family:"Saira",sans-serif; font-weight:700; letter-spacing:-.01em;
+    font-size:clamp(38px,7vw,60px); line-height:1.02; margin:0;
+    text-wrap:balance;
+  }
+  .lede{
+    font-size:19px; color:var(--ink-soft); margin:16px 0 0; max-width:60ch;
+    text-wrap:pretty;
+  }
+  .meta{
+    display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:22px;
+    font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--muted);
+  }
+  .meta b{color:var(--ink); font-weight:500}
+
+  /* ---------- phase rail ---------- */
+  .rail{
+    display:grid; grid-template-columns:repeat(6,1fr); gap:8px;
+    max-width:820px; margin:26px auto 0; padding:0 24px;
+  }
+  .rail a{
+    display:block; text-decoration:none; color:inherit;
+    border:1px solid var(--line); border-top:3px solid var(--accent);
+    border-radius:8px; background:var(--surface); padding:10px 11px 12px;
+    transition:border-color .15s,transform .15s,box-shadow .15s;
+  }
+  .rail a:hover{transform:translateY(-2px); box-shadow:var(--shadow); border-top-color:var(--accent)}
+  .rail .n{
+    font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--accent); font-weight:500;
+  }
+  .rail .t{
+    font-family:"Saira Condensed","Saira",sans-serif; font-weight:600; text-transform:uppercase;
+    letter-spacing:.03em; font-size:14px; color:var(--ink); margin-top:2px; line-height:1.1;
+  }
+
+  /* ---------- sections ---------- */
+  section{
+    background:var(--surface); border:1px solid var(--line); border-radius:14px;
+    padding:34px 38px 40px; margin-top:26px; scroll-margin-top:16px;
+  }
+  .phase-head{display:flex; align-items:baseline; gap:14px; margin:0 0 6px}
+  .phase-num{
+    font-family:"IBM Plex Mono",monospace; font-weight:500; font-size:15px;
+    color:var(--accent-ink); background:var(--accent);
+    padding:3px 9px; border-radius:6px; letter-spacing:.02em; flex:none;
+  }
+  h2{
+    font-family:"Saira",sans-serif; font-weight:700; font-size:clamp(24px,4vw,31px);
+    line-height:1.06; margin:0; letter-spacing:-.005em; text-wrap:balance;
+  }
+  .phase-sub{color:var(--muted); margin:2px 0 24px; font-size:15.5px}
+  h3{
+    font-family:"Saira",sans-serif; font-weight:600; font-size:19px;
+    margin:30px 0 8px; letter-spacing:0;
+  }
+  p{margin:12px 0}
+  a.link{color:var(--accent); text-decoration:none; border-bottom:1px solid var(--accent-soft)}
+  a.link:hover{border-bottom-color:var(--accent)}
+
+  /* numbered steps */
+  ol.steps{list-style:none; counter-reset:s; margin:14px 0 0; padding:0}
+  ol.steps>li{
+    counter-increment:s; position:relative; padding:0 0 20px 46px; margin:0;
+  }
+  ol.steps>li::before{
+    content:counter(s); position:absolute; left:0; top:-2px;
+    width:30px; height:30px; border-radius:50%;
+    background:var(--surface-2); border:1px solid var(--line-strong);
+    color:var(--ink); font-family:"IBM Plex Mono",monospace; font-weight:500; font-size:14px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  ol.steps>li::after{
+    content:""; position:absolute; left:15px; top:30px; bottom:2px; width:1px;
+    background:var(--line);
+  }
+  ol.steps>li:last-child::after{display:none}
+  ol.steps>li .lead{font-weight:600; color:var(--ink)}
+  ul.plain{margin:10px 0; padding-left:20px}
+  ul.plain li{margin:5px 0}
+
+  /* command block */
+  .cmd{
+    font-family:"IBM Plex Mono",monospace; font-size:13.5px; line-height:1.7;
+    background:var(--surface-2); border:1px solid var(--line);
+    border-left:3px solid var(--steel); border-radius:8px;
+    padding:12px 15px; margin:12px 0; overflow-x:auto; white-space:pre;
+    color:var(--ink);
+  }
+  .cmd .c{color:var(--muted)}          /* comment */
+  .cmd .k{color:var(--accent); font-weight:500}  /* command word */
+  code{
+    font-family:"IBM Plex Mono",monospace; font-size:.9em;
+    background:var(--surface-2); border:1px solid var(--line);
+    padding:.05em .38em; border-radius:5px; color:var(--ink-soft);
+    white-space:nowrap;
+  }
+
+  /* callouts */
+  .call{
+    border:1px solid var(--line); border-left-width:4px; border-radius:8px;
+    padding:14px 16px 14px 17px; margin:18px 0; font-size:15px;
+    background:var(--surface-2);
+  }
+  .call .ct{
+    font-family:"Saira Condensed","Saira",sans-serif; font-weight:700;
+    text-transform:uppercase; letter-spacing:.09em; font-size:12.5px;
+    display:block; margin-bottom:4px;
+  }
+  .call p{margin:6px 0 0}
+  .call.safety{border-color:var(--danger); background:var(--danger-soft)}
+  .call.safety .ct{color:var(--danger)}
+  .call.verify{border-color:var(--ok); background:var(--ok-soft)}
+  .call.verify .ct{color:var(--ok)}
+  .call.tip{border-color:var(--tip); background:var(--tip-soft)}
+  .call.tip .ct{color:var(--tip)}
+  .call.note{border-color:var(--steel); background:var(--steel-soft)}
+  .call.note .ct{color:var(--steel)}
+
+  /* tables */
+  .tbl{width:100%; border-collapse:collapse; margin:16px 0; font-size:14.5px}
+  .tbl caption{
+    text-align:left; font-family:"Saira Condensed","Saira",sans-serif; font-weight:700;
+    text-transform:uppercase; letter-spacing:.08em; font-size:13px; color:var(--muted);
+    padding:0 0 8px;
+  }
+  .tbl th,.tbl td{text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+  .tbl thead th{
+    font-family:"Saira Condensed","Saira",sans-serif; font-weight:700; text-transform:uppercase;
+    letter-spacing:.05em; font-size:12.5px; color:var(--muted); border-bottom:1px solid var(--line-strong);
+  }
+  .tbl td.mono,.tbl th.mono{font-family:"IBM Plex Mono",monospace; font-size:13px; color:var(--accent); white-space:nowrap}
+  .tbl tr:last-child td{border-bottom:none}
+  .scroll{overflow-x:auto}
+
+  /* system layer cards */
+  .layers{display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin:18px 0}
+  .layer{border:1px solid var(--line); border-radius:10px; padding:15px 16px; background:var(--surface-2)}
+  .layer .badge{
+    font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--accent);
+    letter-spacing:.04em; text-transform:uppercase;
+  }
+  .layer h4{font-family:"Saira",sans-serif; font-weight:600; font-size:16px; margin:3px 0 6px}
+  .layer p{font-size:13.5px; color:var(--muted); margin:0; line-height:1.5}
+
+  .rules{list-style:none; margin:16px 0 0; padding:0; counter-reset:r}
+  .rules li{
+    counter-increment:r; position:relative; padding:9px 0 9px 40px; border-bottom:1px solid var(--line);
+    font-size:15px;
+  }
+  .rules li:last-child{border-bottom:none}
+  .rules li::before{
+    content:counter(r); position:absolute; left:0; top:8px; width:26px; height:26px;
+    border-radius:6px; background:var(--accent); color:var(--accent-ink);
+    font-family:"IBM Plex Mono",monospace; font-size:13px; font-weight:500;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .rules b{color:var(--ink)}
+
+  hr.soft{border:none; border-top:1px solid var(--line); margin:26px 0}
+
+  footer{max-width:820px; margin:40px auto 0; padding:0 24px; color:var(--faint); font-size:13px}
+  footer .cmd{margin-top:10px}
+
+  a:focus-visible,.rail a:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:6px}
+
+  @media (max-width:680px){
+    .rail{grid-template-columns:repeat(3,1fr)}
+    .layers{grid-template-columns:1fr}
+    section{padding:26px 22px 30px}
+    header.masthead{padding:40px 22px 24px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+  /* ---------- print ---------- */
+  @media print{
+    :root{--bg:#fff;--surface:#fff;--surface-2:#fff;--ink:#000;--ink-soft:#111;--muted:#333;--line:#bbb;--line-strong:#888;--shadow:none}
+    body{font-size:11pt; line-height:1.45}
+    .wrap{max-width:none; padding:0}
+    header.masthead{padding:0 0 12px}
+    h1{font-size:30pt}
+    .rail{display:none}
+    section{border:none; border-top:2px solid #000; border-radius:0; padding:14px 0 6px; margin:0; break-inside:auto}
+    .phase-head{break-after:avoid}
+    ol.steps>li,.call,.tbl,h3{break-inside:avoid}
+    .cmd{background:#f4f4f4!important; border-color:#bbb!important}
+    .call{background:#f4f4f4!important}
+    a.link{color:#000; border:none; text-decoration:underline}
+    footer{border-top:1px solid #999; margin-top:20px; padding-top:8px}
+  }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <p class="eyebrow">Astromech <span class="tick">·</span> Z-Class Drive System <span class="tick">·</span> RC4.7</p>
+  <h1>Z-Class Build &amp; Bring-Up Guide</h1>
+  <p class="lede">Bare frame to first roll — assemble the drive, flash the four boards, teach them each other's names, calibrate, make the first safe moves, and lock in your tune so it survives every reboot.</p>
+  <div class="meta">
+    <span><b>Boards</b> drive · body · imu · dome</span>
+    <span><b>Tool</b> bb8 CLI</span>
+    <span><b>Firmware</b> RC4.7</span>
+    <span><b>Updated</b> 2026-09-05</span>
+  </div>
+</header>
+
+<nav class="rail" aria-label="Phases">
+  <a href="#assemble"><span class="n">01</span><span class="t">Assemble</span></a>
+  <a href="#flash"><span class="n">02</span><span class="t">Flash</span></a>
+  <a href="#introduce"><span class="n">03</span><span class="t">Introduce</span></a>
+  <a href="#calibrate"><span class="n">04</span><span class="t">Calibrate</span></a>
+  <a href="#firstmoves"><span class="n">05</span><span class="t">First Moves</span></a>
+  <a href="#save"><span class="n">06</span><span class="t">Save</span></a>
+</nav>
+
+<div class="wrap">
+
+  <!-- ORIENTATION -->
+  <section id="start">
+    <div class="phase-head"><span class="phase-num">00</span><h2>Start here — what you're building</h2></div>
+    <p class="phase-sub">A ball-bot in three layers, one radio bridge, and five rules that prevent most bad evenings.</p>
+
+    <div class="layers">
+      <div class="layer">
+        <span class="badge">ESP32 · drive</span>
+        <h4>Drive</h4>
+        <p>The inner frame: main drive motor, side-to-side (S2S) steering tilt, flywheel, IMU, battery. The brain — hosts your PS3/Nav pads over Bluetooth, runs the 100&nbsp;Hz balance loops, talks to everything else.</p>
+      </div>
+      <div class="layer">
+        <span class="badge">Feather 32u4 · body</span>
+        <h4>Body</h4>
+        <p>Dome-tilt servos, dome-spin motor + encoder, DFPlayer audio. Wired to the drive over a serial link. Keeps the dome level and perched.</p>
+      </div>
+      <div class="layer">
+        <span class="badge">ESP32 · dome</span>
+        <h4>Dome</h4>
+        <p>PSI / logic / HP / eye NeoPixels, linked to the drive by radio (ESP-NOW). Rides the shell on magnets. Doubles as your wireless console once the ball is sealed.</p>
+      </div>
+    </div>
+    <p>A fourth Trinket&nbsp;M0 <b>imu</b> node lives on the drive frame and streams pitch/roll to the drive board. And <code>ball</code> isn't hardware — it's the dome's USB port acting as a radio bridge into a sealed drive.</p>
+
+    <div class="call note">
+      <span class="ct">The one law of bring-up</span>
+      <p>What's on the chip is what matters — not what's in the repo, not what the seller flashed. Every board answers <code>version</code> with <code>PREFIX | revision | build&nbsp;N | date | git</code>. A board that says nothing, or the wrong thing, is running old firmware — flash it before believing anything else.</p>
+    </div>
+
+    <ol class="rules">
+      <li><b>One program per COM port.</b> Close every monitor before you flash.</li>
+      <li><b>Boot level.</b> The drive zeroes its angles at power-on — and again whenever you open its USB port.</li>
+      <li><b>Believe the banner.</b> After any flash, <code>version</code> must show the new build number. That read-back is the only proof a flash landed.</li>
+      <li><b>Servos get their own 6&nbsp;V.</b> Never run the tilt servos off the 5&nbsp;V logic feed — it browns out and resets the body.</li>
+      <li><b>Sign before speed.</b> A balance loop with a reversed motor doesn't balance — it shoves. Prove every motor's polarity before you tune.</li>
+    </ol>
+  </section>
+
+  <!-- 01 ASSEMBLE -->
+  <section id="assemble">
+    <div class="phase-head"><span class="phase-num">01</span><h2>Assemble the drive</h2></div>
+    <p class="phase-sub">Six sub-assemblies, then integrate. Full part-by-part detail — gear ratios, part numbers, backlash — lives in <a class="link" href="#">docs/Assembly_Drive.md</a>; this is the sequence and the checks that matter.</p>
+
+    <ol class="steps">
+      <li><span class="lead">A — Gantry (the structural core).</span> Close the mirrored DriveGear casings around the drive-gear train; mount the speaker pair in their pockets <em>before</em> the casings block access.</li>
+      <li><span class="lead">B — Drive gear train.</span> 26T motor gear on the ROBOTZONE planetary shaft, 47T on the output (1.81:1). Set backlash with a strip of paper between teeth while tightening. Fit the chain to the shell sprocket and tension it to a few mm of mid-span deflection — tight eats bearings, loose skips under torque.</li>
+      <li><span class="lead">C — S2S (steering) gears.</span> 22T on the worm-gearbox output, 69T sector on the gantry pivot (3.14:1). The worm holds the tilt without power — that's why the droid doesn't flop when disabled. Swing lock-to-lock by hand.</li>
+      <li><span class="lead">D — Swing arms + position feedback.</span> S2SArm and FlyWheelArm on 608ZZ bearings. Mesh the 55T gantry-pot gear to the 46T pot gear on the B10K pot. Wire the wiper to the drive ESP32 <code>GPIO34</code> with a 100&nbsp;nF cap wiper→GND.</li>
+      <li><span class="lead">E — Flywheel &amp; ballast deck.</span> Bolt the LazySusan base underneath; add ballast and the battery harness, routing every lead through Cable Management before you close anything. Keep the mass low and centered — this deck <em>is</em> the pendulum that makes balance work.</li>
+      <li><span class="lead">F — Head-tilt mast &amp; dome spin.</span> Press the two 1-inch bearings into the coupler, fit the mast, join the dome-spin motor via the coupler. Attach the two tilt servos (body pins 11/12, neutral 70°/110°).</li>
+    </ol>
+
+    <div class="call safety">
+      <span class="ct">Pot centering — do this now, mechanically</span>
+      <p>With the gantry <b>mechanically level</b>, the S2S pot must sit near the middle of its travel — never railed at 0 or 4095 anywhere in the swing. If it rails, re-clock the pot gear a tooth at a time. You'll fine-find the exact electrical center in Phase&nbsp;04 with <code>cfg autocenter</code>, but the mechanism has to allow a centered pot first.</p>
+    </div>
+
+    <h3>Integration order</h3>
+    <p><b>A</b> gantry → <b>B</b> drive gears → close casings → <b>C</b> S2S gears + motor → <b>D</b> swing arms + pot (re-check free swing <em>with</em> motors meshed) → <b>E</b> flywheel/ballast deck underneath, battery in → <b>F</b> head-tilt mast on top. Mount the electronics last: drive ESP32, body 32u4, and the Trinket IMU <b>rigid, flat, and square</b> — a tilted IMU is a permanent false lean no tuning will fix.</p>
+
+    <div class="call tip">
+      <span class="ct">Assemble on a stand, not the floor</span>
+      <p>Everything from here through first tuning happens with the ball on a roller cradle or stand. The floor is for later, after the signs and gains are proven.</p>
+    </div>
+  </section>
+
+  <!-- 02 FLASH -->
+  <section id="flash">
+    <div class="phase-head"><span class="phase-num">02</span><h2>Flash the four boards</h2></div>
+    <p class="phase-sub">Install the PC tool once, then flash one board at a time and verify each banner.</p>
+
+    <h3>Install the bb8 tool</h3>
+    <p>Grab an installer from <a class="link" href="https://github.com/jlvandusen/Z-ClassControlSystem/releases">Releases</a> — three roads, same <code>bb8</code> at the end:</p>
+    <ul class="plain">
+      <li><b>Setup-BASIC</b> (most people): flashes boards from prebuilt binaries, updates over HTTPS. No git, no Arduino toolchain, no compiling.</li>
+      <li><b>Setup-MAX</b> (you'll edit firmware): adds the arduino-cli toolchain + a GitHub link so <code>bb8 update</code> pulls source.</li>
+      <li><b>Clone</b> (dev): <code>git clone</code>, then <code>.\install.ps1</code> builds the CLI (needs .NET SDK 10+ and arduino-cli).</li>
+    </ul>
+    <div class="cmd"><span class="k">bb8</span> list       <span class="c"># the targets + your USB serial ports, with board guesses</span></div>
+
+    <h3>Flash — one board at a time</h3>
+    <p>Plug in <b>one board at a time</b> the first time through (the two ESP32s share a USB chip, and a never-flashed board can't identify itself by banner). Suggested order — the drive is the hub, so with it running you can watch each link come alive from one console:</p>
+    <div class="cmd"><span class="k">bb8</span> upload drive --port COMx   <span class="c"># then: imu, body, dome</span></div>
+    <p>On a BASIC install this flashes the prebuilt release binary automatically (esptool for the ESP32s, native AVR109 for the 32u4, UF2 copy for the Trinket). Wait for the verify line each time:</p>
+    <div class="call verify">
+      <span class="ct">Proof it landed</span>
+      <p><code>[VERIFY] OK — &lt;board&gt; is running build&nbsp;N</code>. That read-back of the boot banner is the only proof — the 32u4 and Trinket don't acknowledge a flash any other way. No line, or the wrong build number, means try again.</p>
+    </div>
+    <p>Once a board runs this firmware, plain <code>bb8 upload &lt;target&gt;</code> auto-detects it — <code>--port</code> is only for first flashes and ties.</p>
+
+    <div class="call note">
+      <span class="ct">If the 32u4 / Trinket won't flash</span>
+      <p><code>butterfly_recv failed</code>: close any open monitor, double-tap the board's reset (the LED pulses = bootloader, often on a <em>different</em> COM number), then re-run the upload immediately against that port.</p>
+    </div>
+  </section>
+
+  <!-- 03 INTRODUCE -->
+  <section id="introduce">
+    <div class="phase-head"><span class="phase-num">03</span><h2>Introduce the boards</h2></div>
+    <p class="phase-sub">Radio addresses and controllers — a fresh board set has fresh MACs and no paired pads.</p>
+
+    <h3>ESP-NOW MACs (drive ↔ dome)</h3>
+    <ol class="steps">
+      <li>On the drive banner (<code>bb8 monitor drive</code>), read <code>[ESP-NOW] Drive WiFi MAC: XX:XX:…</code> and write it down.</li>
+      <li>On the dome (<code>bb8 monitor dome</code>), read its <code>[MAC] Dome WiFi STA MAC:…</code>. Then, on that same dome console, teach it the drive's MAC — saved to flash, survives reboots <em>and</em> reflashes:
+        <div class="cmd"><span class="k">setmac</span> XX:XX:XX:XX:XX:XX   <span class="c"># the DRIVE's WiFi MAC from step 1</span></div>
+      </li>
+      <li>Tell the drive the dome's MAC — either compile <code>domeMACAddress[]</code> into the drive sketch, or set it live and persist it:
+        <div class="cmd"><span class="k">dome mac</span> XX:XX:XX:XX:XX:XX   <span class="c"># dome STA MAC; saved to NVS</span></div>
+      </li>
+    </ol>
+    <div class="call verify">
+      <span class="ct">Link check</span>
+      <p>With a pad connected, play any sound. The <b>PSI pulsing white in time with it</b> means the radio link is live. (Sounds with a dark PSI = link down.)</p>
+    </div>
+
+    <h3>Pair your controller(s)</h3>
+    <div class="cmd"><span class="k">bb8</span> pair                    <span class="c"># guided PS3/Nav pairing + primary/secondary</span>
+<span class="k">bb8</span> pair --install-driver   <span class="c"># once, if the libusb driver isn't installed</span></div>
+    <p>A fresh drive board is a fresh Bluetooth host — pads paired to an old board must be re-paired. <code>bt prefer drive|dome &lt;MAC|slot0|slot1|none&gt;</code> on the drive console pins which pad is which.</p>
+  </section>
+
+  <!-- 04 CALIBRATE -->
+  <section id="calibrate">
+    <div class="phase-head"><span class="phase-num">04</span><h2>Calibrate — before anything moves</h2></div>
+    <p class="phase-sub">Find the steering center, zero the level, and prove the motor signs. Skip these and the balance loop fights a ghost.</p>
+
+    <h3>Auto-find the S2S center <span style="color:var(--muted);font-weight:400;font-size:15px">— new, and the easy way on a fresh build</span></h3>
+    <p>The gearbox holds the steering frame wherever you leave it, so its resting pose is <em>not</em> the center. <code>cfg autocenter</code> finds the true center for you: it drives the S2S to both mechanical stops, takes the midpoint, saves it to flash, and parks the frame there. It survives reboots, and you can re-run it any time.</p>
+    <div class="cmd"><span class="k">cfg autocenter</span>   <span class="c"># drives to both stops → saves midpoint as center</span></div>
+    <div class="call safety">
+      <span class="ct">Hands clear — it drives the motor</span>
+      <p>This actively runs the S2S motor to both hard stops. Keep hands and cables out of the swing path. It prints <code>low=… high=… → center=…</code> and fails safe if the pot barely moves (a wiring or mesh problem). On the reference build it read <code>low&nbsp;336 · high&nbsp;1322 · center&nbsp;829</code> — your numbers will differ; that's expected, the center is per-build.</p>
+    </div>
+
+    <h3>Zero the level</h3>
+    <p>Set the droid <b>level and still</b>, then:</p>
+    <div class="cmd"><span class="k">cfg calibrate</span>   <span class="c"># 3 s: pitch + roll zeros (pot center kept from autocenter)</span></div>
+    <p>A zero-offset error looks to the PID like a permanent lean — no gain ever fixes it, so calibrate first, always. <code>cfg calibrate drive</code> / <code>cfg calibrate s2s</code> redo one axis; <code>cfg show</code> displays what's stored.</p>
+
+    <h3>Sign checks — never skip on new wiring</h3>
+    <ol class="steps">
+      <li>Enable (tap <b>PS</b>) with autoBalance on (press <b>CROSS</b>), and nudge the shell a few degrees by hand. Each axis should push <b>against</b> your nudge, back toward level.</li>
+      <li>A correction that pushes <b>with</b> the tilt = that motor's leads are swapped. Fix it (swap leads or the sign at the H-bridge), recalibrate, retest.</li>
+      <li>The relay autotuner doubles as a sign detector: if <code>autotune drive</code> / <code>autotune s2s</code> runs away instead of settling, the plant sign is inverted — confirm with a negative amplitude (<code>autotune drive -60</code>), then fix the wiring. Experiments auto-abort past 15°, on a joystick grab, or after 25&nbsp;s.</li>
+    </ol>
+  </section>
+
+  <!-- 05 FIRST MOVES -->
+  <section id="firstmoves">
+    <div class="phase-head"><span class="phase-num">05</span><h2>First moves &amp; the dome</h2></div>
+    <p class="phase-sub">On the cradle: check the dome stays perched, then the first driven moves.</p>
+
+    <h3>The dome stays level on its own</h3>
+    <p>The dome tilt servos counter your body's roll and pitch so the dome stays upright and perched on top of the ball — and this now runs <b>whether or not autoBalance is on</b>. On the body board, autoBalance never controlled the ball balance (that's the drive board); it only gated this dome-level, so it's decoupled now: the dome is always level while the drive is enabled.</p>
+    <p>Enable the drive, leave autoBalance <em>off</em>, and tilt the whole body by hand — the dome should counter-rotate to stay upright. If it tilts the wrong way, flip that axis:</p>
+    <div class="cmd"><span class="k">tilt invert x</span>   <span class="c"># roll axis (left/right)</span>
+<span class="k">tilt invert y</span>   <span class="c"># pitch axis (front/back)</span>
+<span class="k">tilt save</span>       <span class="c"># persist to EEPROM</span></div>
+
+    <h3>Slow it so it doesn't buck the dome off</h3>
+    <p>A fast servo lurch can throw the magnet-riding dome off its perch. Two live knobs cap and smooth the motion — no reflash:</p>
+    <div class="scroll"><table class="tbl">
+      <caption>Dome tilt tuning — body console, <code>tilt save</code> to persist</caption>
+      <thead><tr><th class="mono">command</th><th>range</th><th>what it does</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">tilt slew</td><td>20–900 °/s</td><td>Hard cap on servo speed. Lower = gentler. Reference build runs <b>90</b> (from 220).</td></tr>
+        <tr><td class="mono">tilt alpha</td><td>0.05–1.0</td><td>Smoothing on the target. Lower = softer approach. Reference build runs <b>0.22</b>.</td></tr>
+        <tr><td class="mono">tilt gain</td><td>0.1–3.0</td><td>Leveling strength (servo° per body°). 1.0 = holds level 1:1. Raise if it drifts off, lower if it over-tilts.</td></tr>
+        <tr><td class="mono">tilt lean</td><td>signed °</td><td>Leans the dome <em>against</em> travel so acceleration doesn't carry it over the nose. Default −8; go more negative if driving still throws it forward.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>First driven moves</h3>
+    <ul class="plain">
+      <li><b>Left stick ↑↓</b> — drive forward/back; the dome auto-leans against the motion to stay perched.</li>
+      <li><b>Left stick ←→</b> — steer (S2S tilt).</li>
+      <li><b>CROSS</b> — autoBalance (drive stabilization) on/off. <b>Tap PS</b> to enable/disable; <b>hold PS 2&nbsp;s</b> to force-disable before switching the pad off.</li>
+    </ul>
+    <p>Keep it on the cradle until steering, balance signs, and the dome all behave. Then tune: <code>bb8 tune s2s</code> then <code>bb8 tune drive</code> (full method in <a class="link" href="#">docs/RigTuning.md</a>). Rig rule — keep drive <code>Ki = 0</code> on rollers; add it back on the floor.</p>
+  </section>
+
+  <!-- 06 SAVE -->
+  <section id="save">
+    <div class="phase-head"><span class="phase-num">06</span><h2>Save your configuration</h2></div>
+    <p class="phase-sub">Three stores hold your tune. Know where each lives — and take a portable backup so a reflash or board swap never costs you the evening.</p>
+
+    <div class="scroll"><table class="tbl">
+      <caption>Where settings live</caption>
+      <thead><tr><th>Settings</th><th>Board</th><th class="mono">save with</th><th>Survives</th></tr></thead>
+      <tbody>
+        <tr><td>PID gains, level offsets, pot center, MACs, sound/idle/battery prefs, macros</td><td>drive (ESP32 NVS)</td><td class="mono">cfg save</td><td>reboot &amp; reflash</td></tr>
+        <tr><td>Dome tilt: gain, lean, slew, alpha, invert</td><td>body (32u4 EEPROM)</td><td class="mono">tilt save</td><td>reboot &amp; reflash</td></tr>
+        <tr><td>S2S center</td><td>drive (ESP32 NVS)</td><td class="mono">cfg autocenter</td><td>auto-saved</td></tr>
+        <tr><td>Dome-to-drive MAC</td><td>dome (flash)</td><td class="mono">setmac</td><td>reboot &amp; reflash</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="call tip">
+      <span class="ct">Save as you go</span>
+      <p>Live tweaks (a <code>pid set</code>, a <code>tilt slew</code>) change RAM immediately but are lost on reboot until you commit them. Run <code>cfg save</code> on the drive and <code>tilt save</code> on the body once you're happy. <code>cfg autocenter</code> saves itself.</p>
+    </div>
+
+    <h3>One portable backup for everything</h3>
+    <p>Capture the drive's entire tuned state to a file — replay it after any reflash or onto a swapped board:</p>
+    <div class="cmd"><span class="k">bb8</span> backup my-droid.txt      <span class="c"># dump every setting to a replayable file</span>
+<span class="k">bb8</span> restore my-droid.txt     <span class="c"># pour it back after a reflash / board swap</span></div>
+    <p>Works over USB or through the dome's wireless bridge. Board swap becomes: flash → restore → done.</p>
+
+    <div class="call verify">
+      <span class="ct">You're set up</span>
+      <p>Daily flow from here: <code>bb8 update --flash</code> before a session pulls new firmware for any board that's behind, then <code>bb8 doctor</code> if anything feels off. If it ever falls over, <code>blackbox dump</code> on the drive console prints the last 30&nbsp;s of flight data.</p>
+    </div>
+  </section>
+
+  <!-- APPENDIX -->
+  <section id="reference">
+    <div class="phase-head"><span class="phase-num">REF</span><h2>Command reference</h2></div>
+    <p class="phase-sub">The controls, the consoles, and the CLI — one card to keep at the bench.</p>
+
+    <div class="scroll"><table class="tbl">
+      <caption>Drive pad (primary)</caption>
+      <thead><tr><th>Do this</th><th>Get this</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">Tap PS</td><td>drive enable / disable (sound each way)</td></tr>
+        <tr><td class="mono">Hold PS 2 s</td><td>force-disable — before switching the pad off</td></tr>
+        <tr><td class="mono">CROSS</td><td>autoBalance (drive stabilization) on / off</td></tr>
+        <tr><td class="mono">Left stick ↑↓ / ←→</td><td>drive fwd/back (dome auto-leans) / steer S2S</td></tr>
+        <tr><td class="mono">L2 · L2+D-pad ↑↓</td><td>throttle boost · volume ±</td></tr>
+        <tr><td class="mono">L1 + stick X</td><td>dome spin</td></tr>
+        <tr><td class="mono">CIRCLE · L1+CIRCLE</td><td>sound 28 · silent-mode toggle</td></tr>
+        <tr><td class="mono">D-pad</td><td>sounds (↑ random; →↓← fixed; L1-shifted more)</td></tr>
+        <tr><td class="mono">Both pads ↑ 3 s / ↓ 3 s</td><td>save prefs / factory reset</td></tr>
+      </tbody>
+    </table></div>
+    <p style="font-size:14px;color:var(--muted)">Dome pad (secondary): stick = dome tilt · L1+stick X = flywheel · PS = dome-function · CIRCLE/D-pad = sounds.</p>
+
+    <div class="scroll"><table class="tbl">
+      <caption>Drive console (ESP32)</caption>
+      <thead><tr><th class="mono">command</th><th>what it does</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">version</td><td>revision / build / date / git — believe this over all else</td></tr>
+        <tr><td class="mono">cfg autocenter</td><td>drive S2S to both stops, save the midpoint center (hands clear)</td></tr>
+        <tr><td class="mono">cfg calibrate [drive|s2s]</td><td>3 s level cal — pitch/roll zeros (± one axis)</td></tr>
+        <tr><td class="mono">cfg show / save / load / reset</td><td>view / persist / reload / factory the config</td></tr>
+        <tr><td class="mono">cfg set potcenter &lt;n&gt;</td><td>set S2S center by hand (if not using autocenter)</td></tr>
+        <tr><td class="mono">pid set &lt;drive|s2s&gt; &lt;kp|ki|kd&gt; &lt;v&gt;</td><td>tune a loop · <code>pid show</code> · <code>pid save</code></td></tr>
+        <tr><td class="mono">pref swing / lean / innerkp</td><td>S2S swing limit° / drive authority / S2S inner-loop Kp</td></tr>
+        <tr><td class="mono">autotune &lt;drive|s2s&gt; [amp]</td><td>relay autotune · <code>autotune apply</code> · <code>autotune abort</code></td></tr>
+        <tr><td class="mono">telemetry on / fast / off</td><td>20 Hz / 100 Hz plotter stream</td></tr>
+        <tr><td class="mono">bt mac / list / prefer / forget</td><td>host MAC · pads · assignment · re-pair</td></tr>
+        <tr><td class="mono">blackbox dump / arm</td><td>flight recorder — freezes on safety events</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="scroll"><table class="tbl">
+      <caption>Body console (32u4) — dome tilt</caption>
+      <thead><tr><th class="mono">command</th><th>what it does</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">tilt show / save / reset</td><td>view / persist to EEPROM / defaults</td></tr>
+        <tr><td class="mono">tilt gain &lt;0.1–3.0&gt;</td><td>leveling strength (servo° per body°)</td></tr>
+        <tr><td class="mono">tilt lean &lt;deg&gt;</td><td>lean against travel (default −8)</td></tr>
+        <tr><td class="mono">tilt slew &lt;20–900&gt;</td><td>servo speed cap °/s</td></tr>
+        <tr><td class="mono">tilt alpha &lt;0.05–1.0&gt;</td><td>target smoothing</td></tr>
+        <tr><td class="mono">tilt invert x | y</td><td>flip leveling direction, roll / pitch axis</td></tr>
+        <tr><td class="mono">leds &lt;n&gt; · vol &lt;0–30&gt;</td><td>body pixel count · audio volume</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="scroll"><table class="tbl">
+      <caption>bb8 CLI (PC)</caption>
+      <thead><tr><th class="mono">command</th><th>what it does</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">bb8 list</td><td>targets + serial ports with board guesses</td></tr>
+        <tr><td class="mono">bb8 upload &lt;target&gt; [--port] [--ota]</td><td>compile+flash (or prebuilt), or update the sealed ball over radio</td></tr>
+        <tr><td class="mono">bb8 monitor &lt;target|ball&gt; [--web]</td><td>serial console (or wireless bridge) · live charts</td></tr>
+        <tr><td class="mono">bb8 pair [--install-driver]</td><td>guided PS3 / Nav pairing</td></tr>
+        <tr><td class="mono">bb8 tune &lt;s2s|drive|dome&gt;</td><td>measure-and-save autotune</td></tr>
+        <tr><td class="mono">bb8 backup [file] / restore &lt;file&gt;</td><td>capture / pour back the whole tune</td></tr>
+        <tr><td class="mono">bb8 doctor</td><td>one-shot health check of tool + every board</td></tr>
+        <tr><td class="mono">bb8 update [--flash]</td><td>pull new firmware; reflash boards that are behind</td></tr>
+        <tr><td class="mono">bb8 sounds &lt;E:&gt; [--flash]</td><td>scan the SD card, regenerate PSI envelopes</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+</div>
+
+<footer>
+  <p>Z-Class Drive System · RC4.7 · companion to <b>FirstTimeSetup.md</b>, <b>HowToGuide.md</b>, <b>RigTuning.md</b>, and the <b>Runbook</b>. Full mechanical detail in <b>Assembly_Drive.md</b>.</p>
+  <div class="cmd"><span class="c"># the whole thing in one breath:</span>
+assemble → <span class="k">bb8 upload</span> (drive·imu·body·dome) → MACs + <span class="k">bb8 pair</span> → <span class="k">cfg autocenter</span> → <span class="k">cfg calibrate</span> → sign-check → tune → <span class="k">bb8 backup</span></div>
+</footer>
+</body>
+</html>

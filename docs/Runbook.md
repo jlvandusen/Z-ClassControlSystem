@@ -139,7 +139,8 @@ The drive is the hub: IMU pitch/roll, body replies (`debug from32u4`), what it s
 | `help` / `version` | command list / build banner |
 | `telemetry on` · `telemetry fast` · `telemetry off` | 20 Hz · 100 Hz stream: `t,exp,pitch,roll,pot,tgt,drv,s2s,fly,en,bal,jx,jy,hz` |
 | `cfg show` · `cfg save` · `cfg load` · `cfg reset` | config in NVS |
-| `cfg calibrate` | **3 s level calibration: pitch zero + roll zero + pot center** (droid level & still) |
+| `cfg autocenter` | **drive S2S to both stops, save the midpoint as center** (NVS, survives reboot & reflash). The first-time center-finder — **hands clear, it runs the motor**; prints `low/high/center`, parks at center, fails safe if the pot barely moves. Run this *before* `cfg calibrate` on a fresh build |
+| `cfg calibrate` | **3 s level calibration: pitch zero + roll zero + pot center** (droid level & still; the pot center re-confirms from the parked pose) |
 | `cfg calibrate drive` · `cfg calibrate s2s` | pitch zero only · roll zero + pot center only |
 | `cfg set pitchoffset/rolloffset/potcenter/mpudeadzone <v>` | manual overrides |
 | `pid show` · `pid set drive|s2s kp|ki|kd <v>` · `pid save` · `pid reset` | gains — real units (drive: PWM/deg; S2S: pot counts/deg). `pid save` saves *only* PID |
@@ -160,10 +161,10 @@ The drive is the hub: IMU pitch/roll, body replies (`debug from32u4`), what it s
 |---|---|
 | `help` / `version` | list / banner (also prints on monitor attach) |
 | `telemetry on|off` | 50 Hz: `t,pitch,roll,tx,ty,l,r,bal,en` |
-| `tilt show` · `tilt gain <f>` · `tilt alpha <f>` · `tilt slew <deg/s>` · `tilt invert x|y` · `tilt save` · `tilt reset` | dome tilt compensation (EEPROM). Current: `gain 1.0 alpha 0.35 slew 220 invX=1 invY=0` |
+| `tilt show` · `tilt gain <f>` · `tilt alpha <f>` · `tilt slew <deg/s>` · `tilt invert x|y` · `tilt save` · `tilt reset` | dome tilt compensation (EEPROM). **RC4.7: leveling is always-on** — the dome counters body roll/pitch whether or not autoBalance is on (autoBalance now gates drive stabilization only). Current tuned: `gain 1.0 alpha 0.22 slew 90 invX=0 invY=1` |
 | `tilt lean <deg>` | **RC4.5 motion lean** — dome tilts *against* the direction of travel, proportional to commanded throttle, so the magnet-riding dome stays on top of the shell. Default **−8**; sign flips direction, `tilt save` persists |
 | `audio status` | DFPlayer ready, BUSY, volume, SD file/folder counts |
-| `audio scan [max]` | **muted scan of MP3/0001..00NN — prints which tracks exist** |
+| `audio scan` | **removed** (flash reclaimed for the body NeoPixels) — list card tracks from the PC with `bb8 sounds E:` instead; `audio status` stays |
 | `audio stop` · `vol <0-30>` · `play <n>` | direct audio control |
 | `debug` · `debug encoder` · `center` · `set zero` | state dump · encoder view · servos neutral · dome forward = here |
 
@@ -203,11 +204,12 @@ Sound cue model: **boot complete → 0060 "bootup"** (`pref sndcal`) · **PS ena
 
 When: after mounting changes, after any "it leans at rest", before the first tune of a session, and any time the drive rebooted while the droid wasn't level (remember rule 2).
 
+0. **Fresh build, or after any S2S mechanical change: `cfg autocenter` first.** It drives the S2S to both mechanical stops and saves the midpoint as `potCenter` (**hands clear — it runs the motor**). The gearbox holds the frame wherever it's left, so its resting pose isn't the center; this finds the true one. Survives reboot; re-runnable any time. Do this before step 2 so `cfg calibrate` confirms a good center from the parked pose rather than a flopped one.
 1. Droid on the rollers (or the bench), **level, hands off**.
 2. Drive console: `cfg calibrate` → 3 s → `[CAL] Done (saved). pitchOffset=… rollOffset=… potCenter=…` (the `*` marks what was updated).
 3. Sanity: `telemetry on` — pitch and roll should read within ±0.5° at rest, `pot` ≈ `tgt` ≈ potCenter.
 
-`cfg calibrate drive` / `cfg calibrate s2s` re-zero one axis without touching the other's saved values.
+`cfg calibrate drive` / `cfg calibrate s2s` re-zero one axis without touching the other's saved values. **Boot calibration re-zeros pitch/roll on every power-up but keeps the saved `potCenter`** (RC4.7) — so a reboot never costs you the steering center.
 
 ---
 
@@ -244,9 +246,9 @@ The tuner warns at start if the angle reads >2.5° or the motor averages >40 PWM
 
 ### 8.5 Dome tilt compensation — `bb8 tune dome`
 
-Connects to the **body**. With drive enabled + autoBalance on, the dome servos counter body tilt. Prompted to **rock the droid side-to-side ~1 Hz for 6 s**; the tool measures servo-output lag, amplitude ratio and roughness against the commanded tilt and adjusts `tilt alpha` (smoothing) and `tilt slew`, then `tilt save`s.
+Connects to the **body**. With the drive enabled, the dome servos counter body tilt to keep the dome level and perched — **always-on as of RC4.7** (no longer gated by autoBalance; on the 32u4 that flag only ever gated this cosmetic level). Prompted to **rock the droid side-to-side ~1 Hz for 6 s**; the tool measures servo-output lag, amplitude ratio and roughness against the commanded tilt and adjusts `tilt alpha` (smoothing) and `tilt slew` (speed cap), then `tilt save`s.
 
-By eye, before/after: the dome should **lean opposite the body (stay level)**. If it leans *with* the body → `tilt invert x` (or `y`). How much it compensates is `tilt gain` (1.0 = level; >1 exaggerates).
+By eye, before/after: the dome should **lean opposite the body (stay level)**. If it leans *with* the body → `tilt invert x` (or `y`), then `tilt save`. How much it compensates is `tilt gain` (1.0 = level; >1 exaggerates). If a fast servo move throws the magnet-riding dome off its perch, **lower `tilt slew`** (this build runs 90 °/s, from 220) and raise the `tilt lean` magnitude so acceleration doesn't carry the dome over the nose.
 
 ### 8.6 Sign switches (compile-time, drive `.ino`)
 

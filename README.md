@@ -26,7 +26,8 @@ Version 9.15 working board
 - **Black box**: a 25 Hz flight recorder freezes on safety events; `blackbox dump` explains the fall.
 - **Personality**: idle chatter (`pref idle`), 4-slot action macros, dome-battery alerts, and a phone dashboard served by the dome itself (`web on` → http://192.168.4.1).
 - **Live charts**: `bb8 monitor drive --web` graphs pitch/roll/pot/PWM in the browser as you tune.
-- **Audio cues** (pad connect/loss, enable/disable, boot-cal) all `pref`-tunable and persisted; **dome lights** with beep-synced PSI; **dome tilt** blending with motion lean — see the [wiki](https://github.com/jlvandusen/Z-ClassControlSystem/wiki).
+- **Audio cues** (pad connect/loss, enable/disable, boot-cal) all `pref`-tunable and persisted; **dome lights** with beep-synced PSI; **dome tilt** that self-levels the dome onto the ball whenever the drive is enabled (autoBalance-independent) and tunes live with `tilt gain/lean/slew/alpha/invert` — see the [wiki](https://github.com/jlvandusen/Z-ClassControlSystem/wiki).
+- **Fresh-build setup**: `cfg autocenter` drives the S2S axis to both mechanical stops and saves the midpoint as center (survives reboot, re-invocable) — hands-off S2S centering for first-time builders.
 
 ## The fleet
 

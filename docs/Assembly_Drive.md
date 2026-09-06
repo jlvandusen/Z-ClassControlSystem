@@ -21,8 +21,11 @@ v9.15 PDF in the [Z-ClassDriveSystem](https://github.com/jlvandusen/Z-ClassDrive
 | GantryPot Gear → Pot Gear | 55 → 46 | 1 : 1.20 (pot overdriven) | gantry angle → B10K feedback pot |
 
 The pot turning ~1.2° per gantry degree is why S2S positions are tuned in **pot
-counts** (`potCenter` ≈ 1744–1774 on this build; swing 40° ≈ ±the counts the
-firmware computes from `POT_COUNTS_PER_DEGREE`).
+counts**. The `potCenter` value is **per-build** — it depends on the engine, the pot,
+and how the pot gear is clocked (the original build read ~1744–1774; a later engine
+auto-centered near 829). Don't hard-code it: **`cfg autocenter`** drives to both stops
+and saves the true midpoint (§7). Swing 40° ≈ ±the counts the firmware computes from
+`POT_COUNTS_PER_DEGREE`.
 
 ## 1. Sub-assembly A — Gantry (the structural core)
 
@@ -85,10 +88,11 @@ planetary gearmotor** (flywheel drive, by position — **[VERIFY]**),
    bearings; the ActoBotics planetary mounts in the FlyWheelArm.
 2. Install the **55T GantryPot gear** on the gantry side and the **46T pot gear**
    on the potentiometer shaft; mesh them.
-3. **Center rule:** with the gantry mechanically level, the pot must be near the
-   middle of its travel — the firmware's boot calibration reads ~1744–1774
-   counts here. If the pot rails (0 / 4095) anywhere in the swing, re-clock the
-   pot gear a tooth at a time.
+3. **Center rule:** with the gantry mechanically level, the pot must sit near the
+   middle of its travel and **must not rail (0 / 4095) anywhere in the swing** — if
+   it does, re-clock the pot gear a tooth at a time. The exact electrical center is
+   found later in firmware with **`cfg autocenter`** (drives to both stops, saves the
+   midpoint); the mechanism just has to allow a centered, never-railed pot.
 4. Wire the **B10K** pot wiper to the drive ESP32 **GPIO34** (per the
    firmware), add 100 nF wiper→GND at the connector (v10 note).
 
@@ -136,9 +140,12 @@ plus: 2 dome-tilt servos + dome-spin motor with encoder **[not modeled]**
 6. **Bench verification, before the shell** (each maps to a console/bb8 step):
    - `bb8 monitor body` → `debug encoder` — spin the mast by hand, count moves.
    - Tilt servos: `tilt show`, stick tilt, `bb8 tune dome` once the drive runs.
-   - `cfg calibrate` level → `telemetry on` → tip the frame: **roll** should
-     drive the S2S motor *against* the lean (S2S polarity verified good on this
-     build), pot must track `tgt`.
+   - `cfg autocenter` (hands clear — drives to both stops) → `cfg calibrate` level
+     → `telemetry on` → tip the frame: **roll** should drive the S2S motor *against*
+     the lean (S2S polarity verified good on this build), pot must track `tgt`.
+   - Dome tilt: with the drive enabled, tip the frame — the dome servos should
+     counter-rotate to stay level (now always-on, autoBalance or not). Wrong way:
+     `tilt invert x|y` then `tilt save`. Too fast/jerky: lower `tilt slew`.
    - Sounds + PSI (proves body link and dome radio in one shot: play a track).
    - Then the rollers and [RigTuning.md](RigTuning.md) from §2.
 

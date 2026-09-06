@@ -119,16 +119,35 @@ on the drive console pins which pad is which (saved).
 
 ## 5. First calibration — before anything moves
 
-Set the droid (or the bare drive unit) **level and still**, then on the drive console:
+Two steps: **find the S2S steering center**, then **zero the level**. Order matters.
+
+**5a. Auto-find the S2S center — `cfg autocenter`.** The steering gearbox holds the
+frame wherever it's left, so its resting pose is *not* the center; capturing that pose
+as "center" is exactly what makes a fresh build slam to one side. Let the drive find
+the true center by driving to both mechanical stops instead:
 
 ```
-cfg calibrate          # 3 s: pitch + roll zeros + S2S pot center
+cfg autocenter         # drives S2S to both stops -> saves the midpoint as center
 ```
 
-This stores the level offsets and pot center in flash. A zero-offset error looks to
-the PID like a permanent lean — no gain will ever fix it, so calibrate first, always.
-(`cfg calibrate drive` / `cfg calibrate s2s` redo one axis; `cfg show` displays what's
-stored.)
+> **Hands clear** — this actively runs the S2S motor to both hard stops. It prints
+> `low=… high=… -> center=…`, saves the center to flash (survives reboots *and*
+> reflashes), parks the frame there, and fails safe if the pot barely moves (a wiring
+> or mesh problem). Re-run it any time. The center is **per-build** — a different
+> engine or pot gives different numbers (the reference build lands near 829).
+
+**5b. Zero the level — `cfg calibrate`.** With the droid **level and still** — and the
+frame still parked at center from 5a — on the drive console:
+
+```
+cfg calibrate          # 3 s: pitch + roll zeros (pot center re-confirmed from the parked pose)
+```
+
+A zero-offset error looks to the PID like a permanent lean — no gain will ever fix it,
+so calibrate first, always. (`cfg calibrate drive` / `cfg calibrate s2s` redo one axis;
+`cfg show` displays what's stored.) Boot calibration re-zeros pitch/roll on every
+power-up but **keeps** the `cfg autocenter` center — so power up level, but you never
+lose your steering center.
 
 ## 6. Sign checks — the step you must not skip on new wiring
 

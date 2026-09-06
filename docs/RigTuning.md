@@ -65,6 +65,32 @@ Radio fixes that made the link work (all in firmware now):
   (`DRIVE_BALANCE_INVERT` if not). Sign has NOT yet been verified on pitch.
 - Real pitch tuning (and Ki≈2) happens on the floor, in the shell.
 
+## 4b. Dome tilt — keeping it seated on top of the ball
+
+The dome rides the shell on magnets; the body's two tilt servos counter the ball's
+roll/pitch so it stays upright and perched on top. This leveling now runs **whenever
+the drive is enabled — autoBalance no longer gates it** (autoBalance is drive
+stabilization only). Tune it on the **body** console; `tilt save` persists everything
+to EEPROM, `tilt show` prints the current set, `tilt reset` restores defaults.
+
+- **`tilt gain <0.1-3.0>`** — leveling **strength**: servo deg per body deg. `1.0`
+  holds the dome level 1:1; higher corrects harder, lower is gentler.
+- **`tilt lean <deg>`** — **anti-acceleration lean**: the dome leans *against* the
+  travel direction so a hard start doesn't carry it over the nose. Default `-8`;
+  more negative leans harder. Signed.
+- **`tilt slew <20-900>`** — hard cap on servo **speed** (deg/s) so a fast move
+  can't buck the magnet-riding dome off its perch. Was 220 (fast enough to throw
+  it); **90** here.
+- **`tilt alpha <0.05-1.0>`** — low-pass **smoothing** on the servo target; lower =
+  smoother, gentler approach. Was 0.35; **0.22** here.
+- **`tilt invert x|y`** — flip the leveling **direction** per axis (roll = X,
+  pitch = Y). The dome must *counter*-rotate — push against your tilt, not with it.
+  Tip the ball by hand with the drive enabled: if the dome follows the tilt instead
+  of opposing it, `tilt invert` that axis.
+
+Current known-good: **gain 1.0, alpha 0.22, slew 90, invX 0, invY 1, lean -8**
+(then `tilt save`).
+
 ## 5. Sealed shell — wireless console via the dome bridge
 
 The dome (unscrewed from the droid, on your desk, USB to the PC) is a
