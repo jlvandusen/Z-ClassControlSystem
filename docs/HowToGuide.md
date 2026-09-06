@@ -107,6 +107,7 @@ Short version (full method: [RigTuning](RigTuning.md)):
 |---|---|
 | Won't respond to the pad | Is the drive enabled (tap PS)? Pad paired (`bb8 pair --list`)? |
 | Leans/oscillates with balance on | `cfg calibrate` (level!), then [RigTuning](RigTuning.md) §3 |
+| Balance runs away / a motor's backwards but it's sealed | `pref revdrive` (drive) or toggle one of `pref revs2s` / `pref revs2spot` (S2S) for a stable hold, then fix direction — [Runbook §8.6](Runbook.md) |
 | Dome jerks / gets thrown off its perch | lower `tilt slew`, raise the `tilt lean` magnitude ([RigTuning](RigTuning.md)) |
 | Sounds play, PSI dark | radio link — dome powered? within range? (Runbook §11) |
 | Servos weak / body resets | tilt servos need their **own 6 V supply**, not the 5 V feed |
@@ -116,6 +117,8 @@ Short version (full method: [RigTuning](RigTuning.md)):
 ## 7b. The RC4.7 extras — one-liners
 
 - **Update the sealed ball wirelessly**: `bb8 upload drive --ota` (dome on USB, drive disabled, pad on).
+- **Fix a wrong sign without opening the ball**: motor/pot **polarity** with `pref revdrive` / `pref revs2s` / `pref revs2spot`, contribution **direction** with `pref invdrivebal` / `pref invs2sbal` / `pref invs2sstick` — all runtime + saved. **Stability first** (toggle one of `revs2s`/`revs2spot` for a stable S2S hold, re-run `cfg autocenter`), **direction second** ([Runbook §8.6](Runbook.md)).
+- **Do it all from outside the ball**: `cfg autocenter`, `autotune drive|s2s`, and those sign fixes all run over `bb8 monitor ball` (dome on USB, pad connected) — the sealed shell never has to come apart.
 - **Fresh build? Auto-find the S2S center**: `cfg autocenter` on the drive drives the S2S axis to *both* mechanical stops, takes the midpoint as center, and saves it (survives reboot; re-run anytime). **It powers the motor to the stops — hands clear.**
 - **Keep the dome on top**: it self-levels whenever the drive is enabled (no autoBalance needed). Tune it on the body console — `tilt gain` (leveling strength), `tilt lean` (anti-acceleration lean), `tilt slew` (speed cap), `tilt alpha` (smoothing), `tilt invert x|y` (direction); `tilt save` persists, `tilt show` prints.
 - **Keep your tune forever**: `bb8 backup` → a file; `bb8 restore <file>` after any reflash/board swap.

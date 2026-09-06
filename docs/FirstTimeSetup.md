@@ -164,6 +164,14 @@ floor for this):
    with a negative amplitude (`autotune drive -60`) to confirm, then fix the wiring.
    Experiments auto-abort at |angle| > 15°, on joystick grab, or after 25 s.
 
+**A wrong sign no longer means swapping leads or reflashing (RC4.7).** Six runtime,
+NVS-persisted prefs fix it in firmware: `pref revdrive` / `revs2s` / `revs2spot` flip
+motor & pot **polarity**, `pref invdrivebal` / `invs2sbal` / `invs2sstick` flip
+**direction** — **stability first, direction second** ([Runbook §8.6](Runbook.md)).
+They persist across reboot *and* reflash, and even run after the ball is sealed, over
+the dome bridge (`bb8 monitor ball`) — so a polarity mistake never means opening the
+shell again. (Swapping the leads still works if you prefer.)
+
 ## 7. First tune
 
 Full method in [RigTuning](RigTuning.md). The short version: on the cradle,

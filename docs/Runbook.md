@@ -149,6 +149,8 @@ The drive is the hub: IMU pitch/roll, body replies (`debug from32u4`), what it s
 | `pref innerkp <v>` | S2S inner position loop gain (PWM per pot count, default 0.9) |
 | `pref sndon <n>` · `pref sndoff <n>` | drive-enable / disable feedback tracks (default 60 / 60) |
 | `pref sndshut <n>` · `pref sndconn <n>` · `pref sndcal <n>` | controller-disconnect "shutdown" clip (100) · controller-connect "startup" clip (1) · boot-cal-done chirp (6, `0` = silent). **All `pref snd*` and `pref swing` persist in NVS** (RC4.3/4.4) |
+| **Sign fixes — polarity (I/O layer):** `pref revdrive on|off` · `pref revs2s on|off` · `pref revs2spot on|off` | flip the DRIVE motor · S2S motor · S2S pot read. `revdrive` flips balance **and** throttle together (coherent); `revs2s`+`revs2spot` are the S2S inner-loop stability pair. Runtime, **NVS-persisted**, in `cfg show` + `bb8 backup`. **Stability first** — fix-it order in §8.6 |
+| **Sign fixes — direction (control-mix layer):** `pref invdrivebal on|off` · `pref invs2sbal on|off` · `pref invs2sstick on|off` | flip the drive balance (pitch-PID) dir · S2S balance (roll-hold) dir · S2S steering (joystick) dir. Persisted. Use *after* the frame holds stably — **direction second** (§8.6) |
 | `bt mac` · `bt list` · `bt prefer drive|dome <MAC|slot0|slot1|none>` · `bt prefer show` · `bt forget` | pad pairing/assignment (see §14) |
 | `step drive <pwm> <ms>` · `step s2s <counts> <ms>` | open-loop steps (rig) |
 | `autotune drive [amp]` · `autotune s2s [amp]` · `autotune apply` · `autotune abort` | on-board relay autotune (rig) |
@@ -250,9 +252,19 @@ Connects to the **body**. With the drive enabled, the dome servos counter body t
 
 By eye, before/after: the dome should **lean opposite the body (stay level)**. If it leans *with* the body → `tilt invert x` (or `y`), then `tilt save`. How much it compensates is `tilt gain` (1.0 = level; >1 exaggerates). If a fast servo move throws the magnet-riding dome off its perch, **lower `tilt slew`** (this build runs 90 °/s, from 220) and raise the `tilt lean` magnitude so acceleration doesn't carry the dome over the nose.
 
-### 8.6 Sign switches (compile-time, drive `.ino`)
+### 8.6 Sign fixes — runtime polarity & direction (RC4.7)
 
-`REVERSE_DRIVE`, `REVERSE_S2S`, `S2S_STICK_INVERT`, `S2S_BALANCE_INVERT`, `DRIVE_BALANCE_INVERT`. Use when joystick direction is right but balance pushes *into* the lean (balance invert), or joystick itself is backwards (reverse/stick invert). From the 2026-08-20 capture: S2S balance polarity is **correct** as shipped (`corr(roll, tgt) = −0.96`).
+Six NVS-persisted prefs flip motor/pot polarity and contribution direction **at runtime** — no reflash, no re-wiring — so a backwards-wired motor in a **sealed ball** is a one-command fix (over the bridge too, §16). They replace the old compile-time `#define`s (`REVERSE_DRIVE`, `REVERSE_S2S`, `REVERSE_S2S_POT`, … still live in the `.ino` as the *defaults*). All persist, show in `cfg show`, and ride `bb8 backup` (via `cfg dump`) — they survive reboot **and** reflash.
+
+- **Polarity (I/O layer — motor output / pot read):** `pref revdrive` (DRIVE motor), `pref revs2s` (S2S motor), `pref revs2spot` (S2S pot). Because a reversal here lives at the output, it flips the **whole axis** — balance correction and joystick together — so the feedback loop stays stable instead of becoming a runaway. `revs2s` + `revs2spot` are the S2S inner-loop stability pair.
+- **Direction (control-mix layer — sets a sense independently):** `pref invdrivebal` (drive balance / pitch-PID sign), `pref invs2sbal` (S2S roll-hold), `pref invs2sstick` (S2S steering).
+
+**Do them in order — get it wrong and it runs away:**
+
+1. **Stability first.** If the S2S slams to a stop / won't hold center / runs away, toggle exactly **one** of `pref revs2s` or `pref revs2spot` until the frame holds center stably, then **re-run `cfg autocenter`** (the pot sense may have changed). If the DRIVE runs away under autoBalance: `pref revdrive on`.
+2. **Direction second.** Once it holds stably but balances/steers the wrong way — S2S balance: `pref invs2sbal`; S2S steering: `pref invs2sstick`; drive balance-only (joystick already right): `pref invdrivebal`. (`pref revdrive` also flips the throttle, so use `invdrivebal` when only the balance *sense* is wrong.)
+
+From the 2026-08-20 capture: S2S balance polarity is **correct** as shipped (`corr(roll, tgt) = −0.96`).
 
 ---
 
@@ -418,6 +430,7 @@ PC (bb8) ──USB──> dome ──ESP-NOW──> drive (sealed in the ball)
 - `bb8 tune s2s --port <domeCOM>` — the tuner works through the bridge unchanged (`--port` is needed: the dome doesn't answer the drive's banner).
 - **Pad must be connected** — while Bluepad32 is inquiry-scanning for a pad, the drive's WiFi receiver is starved and commands get no ACK. Autotune needs the drive enabled anyway.
 - The drive mirrors its console only while the tunnel is **armed**: any command arms it 60 s, the dome keepalives every 15 s while bb8 is attached, so a dropped session can't leave the drive spraying radio while you drive.
+- **The full sealed-ball service path (RC4.7).** Every drive console command runs over this bridge, so a closed ball never needs opening: `cfg autocenter`, the PID autotuner (`autotune drive|s2s` → `autotune apply` → `pid save`), and the six sign fixes (`pref rev*` / `inv*`, §8.6) all inject into the same parser the USB console uses. Caveat: **`cfg autocenter` blocks ~15–20 s** while it drives the S2S to both stops — over the bridge the console goes quiet during that time, then prints `low/high/center`; don't resend it during the quiet period. The relay `autotune` is non-blocking (loop-serviced), so its progress and Ku/Tu results stream back normally. Pad must be connected (above).
 - One command at a time; prefer `telemetry on` (20 Hz) over `telemetry fast` wirelessly.
 - Under the hood: `TunnelCmd` (185 B) / `TunnelOut` (241 B) ESP-NOW packets, sizes are the discriminator; drive `TeeSerial` wraps `Serial` so no call site changed; dome retries un-ACKed commands 6×40 ms; drive keeps modem sleep (BT needs it) but opens the connectionless RX window (`esp_now_set_wake_window`).
 - Not bridged: the **body** (no radio). Dome-tilt tuning stays a USB job.

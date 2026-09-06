@@ -493,6 +493,41 @@
     </div>
   </section>
 
+  <!-- SEALED -->
+  <section id="sealed">
+    <div class="phase-head"><span class="phase-num">SVC</span><h2>Sealed? Fix it from outside</h2></div>
+    <p class="phase-sub">The dome is a full wireless console into a closed ball — center, tune, and even correct motor polarity without ever opening it.</p>
+
+    <p>Plug the <b>dome</b> into USB (with a controller connected, so the drive isn't mid-BT-scan) and you have the drive's entire console over the air:</p>
+    <div class="cmd"><span class="k">bb8</span> monitor ball              <span class="c"># the drive's console, over the dome's ESP-NOW bridge</span>
+<span class="k">bb8</span> tune s2s --port &lt;domeCOM&gt;   <span class="c"># the autotuner, same bridge</span></div>
+    <p>Everything the USB console does runs here — <code>cfg autocenter</code>, the PID autotuner (<code>autotune s2s</code> → <code>autotune apply</code> → <code>pid save</code>), <code>bb8 backup</code>/<code>restore</code>, OTA firmware, and the sign fixes below.</p>
+
+    <div class="call note">
+      <span class="ct">Autocenter over the bridge</span>
+      <p><code>cfg autocenter</code> drives the S2S to both stops and <b>blocks ~15–20 s</b> — the console goes quiet while it runs, then prints <code>low/high/center</code>. Don't resend it during the quiet period. (The relay <code>autotune</code> is non-blocking, so its progress and Ku/Tu results stream live.)</p>
+    </div>
+
+    <h3>Reverse a motor without re-wiring</h3>
+    <p>Found a motor spinning the wrong way after the shell's on? Six runtime, saved-to-flash sign flips correct it — no leads to swap, no reflash. Because the motor reversals happen at the output, they flip balance and throttle <b>together</b>, so the loop stays stable instead of running away. <b>Order matters: get a stable hold first, then fix direction.</b></p>
+
+    <div class="scroll"><table class="tbl">
+      <caption>Sign fixes — drive console (persist in NVS, captured by bb8 backup)</caption>
+      <thead><tr><th class="mono">command</th><th>when to use it</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">pref revdrive on|off</td><td><b>1 · stability.</b> Drive runs away under balance, or throttle is backwards — flips the drive motor (balance + throttle together)</td></tr>
+        <tr><td class="mono">pref revs2s · revs2spot</td><td><b>1 · stability.</b> S2S slams to a stop / won't hold center — toggle exactly ONE, then re-run <code>cfg autocenter</code></td></tr>
+        <tr><td class="mono">pref invdrivebal on|off</td><td><b>2 · direction.</b> Joystick is right but the drive balance pushes INTO the lean</td></tr>
+        <tr><td class="mono">pref invs2sbal on|off</td><td><b>2 · direction.</b> S2S holds center but balances the wrong way</td></tr>
+        <tr><td class="mono">pref invs2sstick on|off</td><td><b>2 · direction.</b> S2S steers the wrong way</td></tr>
+      </tbody>
+    </table></div>
+    <div class="call verify">
+      <span class="ct">Then lock it in</span>
+      <p><code>cfg show</code> lists the live polarity/direction; <code>bb8 backup my-droid.txt</code> captures it. All six survive reboot <em>and</em> reflash.</p>
+    </div>
+  </section>
+
   <!-- APPENDIX -->
   <section id="reference">
     <div class="phase-head"><span class="phase-num">REF</span><h2>Command reference</h2></div>
@@ -530,6 +565,8 @@
         <tr><td class="mono">telemetry on / fast / off</td><td>20 Hz / 100 Hz plotter stream</td></tr>
         <tr><td class="mono">bt mac / list / prefer / forget</td><td>host MAC · pads · assignment · re-pair</td></tr>
         <tr><td class="mono">blackbox dump / arm</td><td>flight recorder — freezes on safety events</td></tr>
+        <tr><td class="mono">pref revdrive · revs2s · revs2spot</td><td>runtime motor/pot polarity — fix a sealed ball, coherent with balance</td></tr>
+        <tr><td class="mono">pref invdrivebal · invs2sbal · invs2sstick</td><td>runtime balance / steering direction flips</td></tr>
       </tbody>
     </table></div>
 

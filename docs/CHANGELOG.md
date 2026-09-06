@@ -2,6 +2,13 @@
 
 Builds = `versions.json` counters at the time; each board's banner shows `build N | date | git`.
 
+## RC4.7 — 2026-09-06 · runtime sign fixes + sealed-ball service over the bridge
+- **Six sign flags are now runtime + NVS-persisted**, replacing the compile-time `#define`s (which stay as the defaults): polarity at the I/O layer — `pref revdrive` (DRIVE motor), `pref revs2s` (S2S motor), `pref revs2spot` (S2S pot); direction at the control-mix layer — `pref invdrivebal` (drive balance), `pref invs2sbal` (S2S roll-hold), `pref invs2sstick` (S2S steering). A backwards-wired motor in a **sealed ball** is now a one-command fix — no re-wire, no reflash.
+- **Coherent with auto-balance**: the polarity reversals live at the I/O layer (motor output, pot read), so reversing a motor flips the **whole axis** — balance correction and joystick together — keeping the feedback loop stable instead of turning it into a runaway. The `inv*` flags then set each direction independently.
+- **Fix-it order** (get it wrong and it runs away): **stability first** — toggle exactly one of `revs2s`/`revs2spot` until the frame holds center, then re-run `cfg autocenter`; **direction second** — `invs2sbal` / `invs2sstick` / `invdrivebal`.
+- All six appear in `cfg show` and are captured by `bb8 backup` (via `cfg dump`), so they survive reboot **and** reflash.
+- **Sealed-ball service over the dome bridge**: `cfg autocenter`, the PID autotuner (`autotune drive|s2s` → `apply` → `pid save`), and these six sign fixes all run over `bb8 monitor ball` — injected into the same parser the USB console uses — so a sealed ball never needs opening (`cfg autocenter` blocks ~15–20 s and the console goes quiet over the bridge; the relay autotune streams normally).
+
 ## RC4.7 — 2026-09-05 · S2S auto-center, always-on dome level, IMU resilience (evening bench, new engine)
 - **`cfg autocenter`** (drive): drive-to-endstops S2S centering for first-time builders. Drives the S2S to both mechanical stops (FIND_PWM 95, stall = <4 counts for 400 ms), takes the midpoint as `potCenter`, saves it to NVS, and parks the frame there. Survives reboot; re-invocable any time; fails safe if the pot barely moves (|hi−lo|<100). Bench-verified on the new engine: low 336 / high 1322 → **center 829** (matched the manual re-level of 824). The gearbox holds the frame wherever it's left, so its resting pose is NOT the center — this finds the true one instead of the flopped one.
 - **Boot cal no longer overwrites `potCenter`**: RC4 re-captured the pot center at every boot from the (flopped) boot pose, so the saved center was clobbered each reset — the root cause of the S2S slamming to one side. Boot cal now re-zeros pitch/roll only; the center persists from `cfg autocenter` / `cfg set potcenter`.
