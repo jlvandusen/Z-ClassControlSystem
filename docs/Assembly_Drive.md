@@ -31,7 +31,7 @@ and saves the true midpoint (§7). Swing 40° ≈ ±the counts the firmware comp
 
 **Parts (STEP + navigator):** `Gantry`, `DriveGear Casing` + `(Mirror)`, `Speakers`,
 **ROBOTZONE planetary gearmotor** (the drive motor), chain sprockets
-`3307-1006-0010` (pinion) + `3310-0032-0042` (plate), `1InchBearing_535051`,
+`3307-1006-0010` (pinion) + `3310-0032-0042` (plate), 2× `1InchBearing_535051` (one each side),
 goBILDA mounts `1302-0032-1000` and `1400-0032-0032`
 
 1. Fit the two **DriveGear Casings** (mirrored pair) to the gantry — they close
@@ -174,7 +174,7 @@ Z-Class Drive-v4.1
 
 From the navigator (linked parts the STEP flattened out):
 - Gantry: **ROBOTZONE planetary gearmotor** (drive), sprockets `3307-1006-0010`
-  + `3310-0032-0042`, `1InchBearing_535051`, mounts `1302-0032-1000`,
+  + `3310-0032-0042`, 2× `1InchBearing_535051` (2 here + 2 in the Head-Tilt Coupler = 4 total), mounts `1302-0032-1000`,
   `1400-0032-0032`, Speakers
 - SwingArms: **DC worm-gear motor** (S2S), **ActoBotics planetary** (flywheel),
   **PotentiometerB10K**, `608ZZ` 8 mm-ID bearings

@@ -10,7 +10,7 @@
 |---|---|---|
 | `HeadTilt_Assembly` | The head-tilt / dome-spin assembly | Top of the drive |
 | `Coupler` | The mast coupler that holds the mast bearings | Takes 2× 1-inch bearings; the mast rotates in these |
-| 2× 1-inch bearing (`535051`) | 1-inch bearings | Press into the Coupler; the mast rotates in them. **Note:** same 535051 bearing also listed for the Gantry (Sub-Assembly A) — confirm total count. **[TODO: builder]** |
+| 2× 1-inch bearing (`535051`) | 1-inch bearings, one each side | Press into the Coupler (one each side); the mast rotates in them. The Gantry uses a further 2 (Sub-Assembly A) — **4 total** across the drive. |
 | `TiltMast` | The mast | Fits through the Coupler bearings; secured by the coupler pins |
 | `TiltMotorCoupler` | Coupler joining the dome-spin motor to the mast | Joins dome-spin motor to the `TiltMast` |
 | `CouplerPin` | Mast retaining pin | Secures the `TiltMast` in the Coupler |
@@ -27,7 +27,7 @@
 ## Assembly steps
 
 1. Press the **two 1-inch bearings** into the **Coupler** — the mast rotates in these.
-   - **[TODO: builder]** — bearing press/retention detail; confirm 535051 count vs. the Gantry use.
+   - **[TODO: builder]** — bearing press/retention detail. (Count confirmed: 2 here, one each side, + 2 in the Gantry = 4 total.)
 2. Fit the **TiltMast** through; secure with **CouplerPin + mirrored pin**.
    - **[TODO: builder]** — pin size/retention.
 3. **TiltMotorCoupler** joins the dome-spin motor to the mast. The motor's encoder (840 counts/rev in firmware) closes the dome-heading loop.
@@ -46,7 +46,7 @@ Role: the top-of-drive assembly that spins the dome and tilts the head. Contains
 Role: holds the two mast bearings. Mating: presses 2× 1-inch bearings; the TiltMast rotates in them. Fitment: **[TODO: builder]**.
 
 ### 2× 1-inch bearing (`535051`)
-Role: let the mast rotate. Mating: pressed into the Coupler. **Cross-area note:** the same 535051 1-inch bearing is listed for the Gantry (Sub-Assembly A) in the navigator manifest — confirm the total count across both areas. **[TODO: builder]**.
+Role: let the mast rotate. Mating: pressed into the Coupler, **one each side**. **Cross-area note:** the same 535051 bearing is used 2× here and 2× in the Gantry (Sub-Assembly A) — **4 total** across the drive.
 
 ### `TiltMast`
 Role: the mast that carries the dome and the magnet carrier. Mating: passes through the Coupler bearings; retained by CouplerPin + mirror; driven by the dome-spin motor via TiltMotorCoupler.

@@ -15,7 +15,7 @@
 | **ROBOTZONE planetary gearmotor** | The main drive motor | Mounts to the gantry via the goBILDA mounts; carries the 26T motor gear (see Sub-Assembly B) |
 | Sprocket `3307-1006-0010` | Chain pinion sprocket (goBILDA) | Rides the gear-stage output; drives the chain to the shell (steps in Sub-Assembly B) |
 | Sprocket `3310-0032-0042` | Large plate sprocket (goBILDA) | Driven by the chain; turns the shell wheel (steps in Sub-Assembly B) |
-| `1InchBearing_535051` | 1-inch bearing | Gantry bearing per the navigator manifest. **Note:** the same 535051 1-inch bearing is used 2× in the Head-Tilt Coupler (Sub-Assembly F) — confirm count/location for this build. **[TODO: builder]** |
+| 2× `1InchBearing_535051` | 1-inch bearings, one each side | Gantry bearings (one each side). The Head-Tilt Coupler (Sub-Assembly F) uses a further 2 — **4 total** across the drive. |
 | goBILDA mount `1302-0032-1000` | Motor mount assembly | Mounts the ROBOTZONE gearmotor to the gantry |
 | goBILDA mount `1400-0032-0032` | Motor mount assembly | Mounts the ROBOTZONE gearmotor to the gantry |
 
@@ -51,7 +51,7 @@ Role: the main drive motor. Mating: bolts to the gantry through the goBILDA `130
 Role: the chain stage from the gear-train output to the shell drive. The `3307` pinion rides the gear-stage output; the `3310-0032-0042` plate sprocket drives the shell wheel. Chain-fitting and tensioning steps live in Sub-Assembly B. Ratio ≈ **4.2 : 1** (per goBILDA numbering, ~10 → ~42 teeth).
 
 ### `1InchBearing_535051`
-Role: 1-inch bearing assigned to the Gantry in the navigator manifest. **Cross-area note:** the same 535051 1-inch bearing appears 2× in the Head-Tilt Coupler (Sub-Assembly F). Confirm how many this build uses here vs. there. **[TODO: builder]** — bearing count and seat location for the gantry.
+Role: 1-inch bearings in the Gantry, **2× (one each side)**. **Cross-area note:** the same 535051 bearing is used 2× here and 2× in the Head-Tilt Coupler (Sub-Assembly F) — **4 total** across the drive. **[TODO: builder]** — exact gantry seat location.
 
 ### goBILDA mounts `1302-0032-1000` and `1400-0032-0032`
 Role: the motor-mount assemblies that fix the ROBOTZONE gearmotor to the gantry. Fitment/fasteners: **[TODO: builder]**.
