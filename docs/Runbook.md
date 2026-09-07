@@ -280,7 +280,7 @@ Six NVS-persisted prefs flip motor/pot polarity and contribution direction **at 
 
 **Do them in order — get it wrong and it runs away:**
 
-1. **Stability first.** If the S2S slams to a stop / won't hold center / runs away, toggle exactly **one** of `pref revs2s` or `pref revs2spot` until the frame holds center stably, then **re-run `cfg autocenter`** (the pot sense may have changed). If the DRIVE runs away under autoBalance: `pref revdrive on`.
+1. **Stability first.** If the S2S slams to a stop / won't hold center / runs away, toggle exactly **one** of `pref revs2s` or `pref revs2spot` until the frame holds center stably, then **re-run `cfg autocenter`** (the pot sense may have changed). **If the DRIVE runs away under autoBalance:** check manual driving first — if the joystick *also* drives the wrong way, the motor's reversed → `pref revdrive on`; if manual driving is *fine* and only autoBalance runs away, it's the balance **sense**, not the motor → `pref invdrivebal on` (nudge test in §11).
 2. **Direction second.** Once it holds stably but balances/steers the wrong way — S2S balance: `pref invs2sbal`; S2S steering: `pref invs2sstick`; drive balance-only (joystick already right): `pref invdrivebal`. (`pref revdrive` also flips the throttle, so use `invdrivebal` when only the balance *sense* is wrong.)
 
 From the 2026-08-20 capture: S2S balance polarity is **correct** as shipped (`corr(roll, tgt) = −0.96`).
@@ -331,6 +331,7 @@ From the 2026-08-20 capture: S2S balance polarity is **correct** as shipped (`co
 | CROSS / dome-pad PS make no sound | tracks 63 / 62 not on the SD (RC4.3 scan: 1–31, 50, 60, 99) | add `MP3/0062.mp3`, `0063.mp3` (and `0061` for L3) |
 | Droid oscillates left-right with balance on | outer S2S gain beyond actuator bandwidth and/or roll zero off | `cfg calibrate`, Kp 10 / Ki 2 / Kd 1, `pref swing 40`, `bb8 tune s2s` |
 | Drive wheel "keeps rolling" on the rig | integral windup on a near-open-loop pitch plant + zero offset | `cfg calibrate drive`, Ki=0 on the rig (`bb8 tune drive` does this) |
+| **AutoBalance drives the ball away at full speed** — manual roll is fine, but the moment you enable autoBalance it runs off | balance **sign inverted** (pitch PID pushes *into* the lean → positive feedback) **or** a bad level zero (booted tilted → phantom lean → integral windup) | **On a stand, wheels free.** ① Re-level: power up dead-level or `cfg calibrate`; confirm `cfg show` `pitchOffset` ≈ 0 and `telemetry` pitch ≈ 0 at rest. ② **Nudge test:** enable + autoBalance, tip the frame forward by hand — it must push **back toward level**. Pushing **into** your tip = inverted → **`pref invdrivebal on`** (persists, in `bb8 backup`), re-nudge to confirm it now resists. Because manual roll is fine, use `invdrivebal` (balance-only), *not* `revdrive` (which would flip the working throttle too). §8.6 |
 | Controller pairs then drops / laggy | radio coexistence | RC4 uses `PREFER_BALANCE` + 11 dBm; escalate to `PREFER_BT` in the drive sketch if needed |
 | Dome leans with the body | tilt sign | `tilt invert x` / `tilt invert y` on the body (x is inverted on this droid) |
 | Dome leans the wrong way when driving | motion-lean sign | `tilt lean 8` (positive) instead of −8, `tilt save` |

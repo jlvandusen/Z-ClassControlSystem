@@ -107,7 +107,8 @@ Short version (full method: [RigTuning](RigTuning.md)):
 |---|---|
 | Won't respond to the pad | Is the drive enabled (tap PS)? Pad paired (`bb8 pair --list`)? |
 | Leans/oscillates with balance on | `cfg calibrate` (level!), then [RigTuning](RigTuning.md) §3 |
-| Balance runs away / a motor's backwards but it's sealed | `pref revdrive` (drive) or toggle one of `pref revs2s` / `pref revs2spot` (S2S) for a stable hold, then fix direction — [Runbook §8.6](Runbook.md) |
+| AutoBalance drives off at full speed (manual roll is fine) | on a stand: `cfg calibrate` level, then tip it forward — if balance pushes *into* the lean it's inverted → `pref invdrivebal on` ([Runbook §11](Runbook.md)) |
+| A motor's backwards (manual drive/steer *also* wrong), esp. sealed | `pref revdrive` (drive) or toggle one of `pref revs2s` / `pref revs2spot` (S2S) for a stable hold, then fix direction — [Runbook §8.6](Runbook.md) |
 | Dome jerks / gets thrown off its perch | lower `tilt slew`, raise the `tilt lean` magnitude ([RigTuning](RigTuning.md)) |
 | Sounds play, PSI dark | radio link — dome powered? within range? (Runbook §11) |
 | Servos weak / body resets | tilt servos need their **own 6 V supply**, not the 5 V feed |
