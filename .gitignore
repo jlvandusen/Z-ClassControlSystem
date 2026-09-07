@@ -37,3 +37,7 @@ dist/
 
 binaries/
 tools/flash/
+
+# generated docx (rendered from the .md docs via tools/release/md2html.py + Word)
+docs/docx/
+docs/assembly/*.docx
