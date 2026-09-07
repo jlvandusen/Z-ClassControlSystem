@@ -181,7 +181,7 @@ From the navigator (linked parts the STEP flattened out):
 - S2Sgears: + `Spur Gear (16T)`
 
 Still not modeled anywhere: dome-spin motor + encoder, 2 tilt servos, the
-6-inch main bearing (`6inchBearing.step` in the parts library), shell +
+6-inch bearing (`6inchBearing.step` — a 6" lazy-susan turntable bearing; the flywheel/ballast-deck bearing, see §5), shell +
 magnets, chain itself, most fasteners, electronics boards.
 
 *Regenerate this tree after any Fusion revision:*
